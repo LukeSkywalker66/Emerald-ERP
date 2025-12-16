@@ -1,0 +1,25 @@
+name: Deploy to Production
+
+# ¿Cuándo se ejecuta? Cuando hay un push a la rama 'master'
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            # Comandos que GitHub ejecutará en tu Debian:
+            cd /home/administrador/apps/emerald-erp
+            git pull origin master
+            docker compose up -d --build
+            # Opcional: Limpiar imágenes viejas para ahorrar espacio
+            docker image prune -f
