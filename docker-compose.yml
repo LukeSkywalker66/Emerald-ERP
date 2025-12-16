@@ -1,0 +1,62 @@
+
+services:
+  # 1. Base de Datos (PostgreSQL)
+  db:
+    image: postgres:15-alpine
+    container_name: emerald_db
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: adminpassword
+      POSTGRES_DB: emerald_stock
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"  # Puerto externo 5433 para no chocar con tu Postgres local si tienes
+
+  # 2. Backend (FastAPI)
+  backend:
+    build: ./backend
+    container_name: emerald_backend
+    restart: always
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "4001:8000"
+    environment:
+      DATABASE_URL: postgresql://admin:adminpassword@db:5432/emerald_stock
+    depends_on:
+      - db
+    volumes:
+      - ./backend:/app
+
+  # 3. Frontend (Node/React - Modo Desarrollo)
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: emerald_frontend
+    restart: always
+    ports:
+      - "4000:5173" # Vite usa 5173 por defecto, lo sacamos por el 4000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:4001
+    depends_on:
+      - backend
+
+  # 4. PgAdmin (Gestión Visual de DB)
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: emerald_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@isp.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "4002:80"
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:

@@ -1,0 +1,21 @@
+# --- Dependencias y Build (Basura generada) ---
+node_modules/
+dist/
+build/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+env/
+
+# --- Datos y Secretos (¡CRÍTICO!) ---
+.env
+db_data/
+postgres_data/
+logs/
+
+# --- IDEs y Sistema Operativo ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
