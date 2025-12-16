@@ -3,6 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
+from database import engine, Base  # <--- IMPORTAR ESTO
+import models                      # <--- IMPORTAR TUS MODELOS NUEVOS
+
+# ESTA LINEA ES LA MAGIA:
+# Le dice a la base de datos: "Si las tablas no existen, créalas YA basándote en models.py"
+models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Emerald ERP API")
 
