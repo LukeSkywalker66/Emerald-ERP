@@ -1,6 +1,5 @@
-
 services:
-  # 1. Base de Datos (PostgreSQL)
+  # 1. Base de Datos
   db:
     image: postgres:15-alpine
     container_name: emerald_db
@@ -12,16 +11,16 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"  # Puerto externo 5433 para no chocar con tu Postgres local si tienes
+      - "5433:5432"
 
-  # 2. Backend (FastAPI)
+  # 2. Backend
   backend:
     build: ./backend
     container_name: emerald_backend
     restart: always
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
-      - "4001:8000"
+      - "4001:8000" # <--- TU PUERTO ELEGIDO
     environment:
       DATABASE_URL: postgresql://admin:adminpassword@db:5432/emerald_stock
     depends_on:
@@ -29,24 +28,26 @@ services:
     volumes:
       - ./backend:/app
 
-  # 3. Frontend (Node/React - Modo Desarrollo)
+  # 3. Frontend
   frontend:
     build: 
       context: ./frontend
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
     container_name: emerald_frontend
     restart: always
     ports:
-      - "4000:5173" # Vite usa 5173 por defecto, lo sacamos por el 4000
+      - "4000:5173" # TU PUERTO ELEGIDO
     volumes:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:4001
+      # CORRECCIÓN CRÍTICA: Apuntamos al 4001 que es donde Docker expone tu API
+      - VITE_API_URL=http://localhost:4001 
+      - CHOKIDAR_USEPOLLING=true
     depends_on:
       - backend
 
-  # 4. PgAdmin (Gestión Visual de DB)
+  # 4. PgAdmin
   pgadmin:
     image: dpage/pgadmin4
     container_name: emerald_pgadmin

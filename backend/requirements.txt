@@ -5,3 +5,5 @@ psycopg2-binary
 alembic
 python-dotenv
 pydantic
+passlib[bcrypt]
+bcrypt==4.0.1
