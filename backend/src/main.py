@@ -16,10 +16,10 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Emerald ERP API")
 
-origins = ["http://localhost:4000", "http://localhost:5173"]
+#origins = ["http://localhost:4000", "http://localhost:5173"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
