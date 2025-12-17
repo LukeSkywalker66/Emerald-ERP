@@ -11,7 +11,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"
+      # Dejamos la DB solo local por seguridad, o podes usar la variable si queres acceder remoto
+      - "${HOST_IP:-127.0.0.1}:5433:5432"
 
   # 2. Backend
   backend:
@@ -20,7 +21,8 @@ services:
     restart: always
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
-      - "4001:8000" # <--- TU PUERTO ELEGIDO
+      # CAMBIO CLAVE: Variable dinámica para la IP
+      - "${HOST_IP:-127.0.0.1}:4001:8000"
     environment:
       DATABASE_URL: postgresql://admin:adminpassword@db:5432/emerald_stock
     depends_on:
@@ -36,13 +38,16 @@ services:
     container_name: emerald_frontend
     restart: always
     ports:
-      - "4000:5173" # TU PUERTO ELEGIDO
+      # CAMBIO CLAVE: Variable dinámica para la IP
+      - "${HOST_IP:-127.0.0.1}:4000:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      # CORRECCIÓN CRÍTICA: Apuntamos al 4001 que es donde Docker expone tu API
-      - VITE_API_URL=http://localhost:4001 
+      # CAMBIO CRÍTICO 2:
+      # Esto permite que en el servidor definas la IP real (ej: http://192.168.1.50:4001)
+      # Si no, desde otra PC buscaría "localhost" y fallaría.
+      - VITE_API_URL=${VITE_API_URL:-http://localhost:4001}
       - CHOKIDAR_USEPOLLING=true
     depends_on:
       - backend
@@ -55,7 +60,8 @@ services:
       PGADMIN_DEFAULT_EMAIL: admin@isp.com
       PGADMIN_DEFAULT_PASSWORD: admin
     ports:
-      - "4002:80"
+      # CAMBIO CLAVE: Variable dinámica para la IP
+      - "${HOST_IP:-127.0.0.1}:4002:80"
     depends_on:
       - db
 
