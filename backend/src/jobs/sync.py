@@ -1,6 +1,6 @@
 from src.db.postgres import Database, init_db
 from src.clients import smartolt, ispcube, mikrotik
-from src import config
+from src import config, models
 from src.utils.safe_call import safe_call
 import time
 
@@ -9,7 +9,7 @@ def sync_nodes(db):
     try:
         nodes = ispcube.obtener_nodos()
         if nodes:
-            #db.cursor.execute("DELETE FROM nodes")
+            db.clear_table(models.Node)
             for n in nodes:
                 db.insert_node(n["id"], n["name"], n["ip"], n["puerto"])
             config.logger.info(f"[SYNC] {len(nodes)} nodos sincronizados.")
@@ -27,7 +27,7 @@ def sync_secrets(db):
         config.logger.warning("[SYNC] No hay nodos para sync secrets.")
         return
 
-    #db.cursor.execute("DELETE FROM ppp_secrets")
+    db.clear_table(models.PPPSecret)
     print(f"   ↳ Consultando {len(nodes)} Mikrotiks:")
     total_secrets = 0
 
@@ -60,19 +60,35 @@ def sync_onus(db):
     try:
         onus = smartolt.get_all_onus()
         if onus:
-            # db.cursor.execute("DELETE FROM subscribers")
+            # 1. Borramos todo (Tierra quemada)
+            db.clear_table(models.Subscriber)
+            
+            # 2. Insertamos todo (incluso si el ID externo se repite)
             for onu in onus:
                 db.insert_subscriber(
-                    onu.get("unique_external_id"), onu.get("sn"), onu.get("olt_name"), 
-                    onu.get("olt_id"), onu.get("board"), onu.get("port"), onu.get("onu"), 
-                    onu.get("onu_type_id"), onu.get("name"), onu.get("mode")
+                    onu.get("unique_external_id"), 
+                    onu.get("sn"), 
+                    onu.get("olt_name"), 
+                    onu.get("olt_id"), 
+                    onu.get("board"), 
+                    onu.get("port"), 
+                    onu.get("onu"), 
+                    onu.get("onu_type_id"), 
+                    onu.get("name"), 
+                    onu.get("mode"),
+                    onu.get("vlan")  # <--- AGREGADO: Pasamos la VLAN del JSON
                 )
+            
+            # 3. Guardamos los cambios en bloque
+            db.commit() 
+            
             db.log_sync_status("smartolt", "ok", f"{len(onus)} ONUs sincronizadas")
             config.logger.info(f"[SYNC] {len(onus)} ONUs sincronizadas.")
             print(f"✅ ({len(onus)} ONUs)")
         else:
             print("⚠️ Sin datos")
     except Exception as e:
+        db.rollback() # <--- Importante por si falla
         print(f"❌ Error: {e}")
         config.logger.error(f"[SYNC] Error SmartOLT: {e}")
 
@@ -82,6 +98,7 @@ def sync_plans(db):
         planes = ispcube.obtener_planes()
         if planes:
             # db.cursor.execute("DELETE FROM plans")
+            db.clear_table(models.Plan)
             for p in planes:
                 db.insert_plan(p["id"], p["name"], p.get("speed"), p.get("comment"))
             config.logger.info(f"[SYNC] {len(planes)} planes sincronizados.")
@@ -96,6 +113,7 @@ def sync_connections(db):
         conexiones = ispcube.obtener_todas_conexiones()
         if conexiones:
             # db.cursor.execute("DELETE FROM connections")
+            db.clear_table(models.Connection)
             for c in conexiones:
                 if not c.get("id") or not c.get("user"): continue
                 db.insert_connection(
@@ -119,7 +137,10 @@ def sync_clientes(db):
             # db.cursor.execute("DELETE FROM clientes")
             # db.cursor.execute("DELETE FROM clientes_emails")
             # db.cursor.execute("DELETE FROM clientes_telefonos")
-
+            db.clear_table(models.ClienteEmail)
+            db.clear_table(models.ClienteTelefono)
+            db.clear_table(models.Cliente)
+            
             for c in clientes:
                 db.insert_cliente(mapear_cliente(c))
                 insertar_contactos_relacionados(db, c)

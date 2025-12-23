@@ -15,34 +15,55 @@ class Database:
         self.db.commit()
 
     # --- INSERTS (Replicando sqlite.py) ---
-    
-    def insert_subscriber(self, unique_external_id, sn, olt_name, olt_id, board, port, onu, onu_type_id, name, mode):
-        # Reemplaza a [cite: 81]
-        obj = models.Subscriber(
-            unique_external_id=unique_external_id, sn=sn, olt_name=olt_name, 
-            olt_id=olt_id, board=board, port=port, onu=onu, 
-            onu_type_id=onu_type_id, pppoe_username=name, mode=mode
+    def insert_subscriber(self, unique_external_id, sn, olt_name, olt_id, board, port, onu, onu_type_id, name, mode, vlan=None):
+        # Usamos merge o add. Como ahora tenemos un ID autoincremental, 
+        # lo mejor es simplemente AGREGAR (add) una nueva fila siempre.
+        # Ya no usamos merge() basándonos en external_id porque hay duplicados.
+        
+        new_sub = models.Subscriber(
+            unique_external_id=unique_external_id,
+            sn=sn,
+            olt_name=olt_name,
+            olt_id=olt_id,
+            board=board,
+            port=port,
+            onu=onu,
+            onu_type_id=onu_type_id,
+            name=name,
+            mode=mode,
+            vlan=vlan # Asegurate de pasar este dato si viene
         )
-        self.db.merge(obj) # merge = insert or update
+        self.db.add(new_sub)
+        # No hacemos commit acá, lo hacemos al final del bloque en sync.py para velocidad
 
     def insert_node(self, node_id, name, ip_address, puerto):
-        # Reemplaza a [cite: 82]
-        obj = models.Node(node_id=str(node_id), name=name, ip_address=ip_address, puerto=str(puerto))
-        self.db.merge(obj)
+        new_node = models.Node(
+            node_id=str(node_id), # Aseguramos String
+            name=name,
+            ip_address=ip_address, # Nombre corregido
+            puerto=str(puerto)
+        )
+        self.db.merge(new_node)
 
     def insert_plan(self, plan_id, name, speed, description):
-        # Reemplaza a
-        obj = models.Plan(plan_id=str(plan_id), name=name, speed=speed, description=description)
-        self.db.merge(obj)
-
-    def insert_connection(self, connection_id, pppoe_username, customer_id, node_id, plan_id, direccion=None):
-        # Reemplaza a
-        obj = models.Connection(
-            connection_id=str(connection_id), pppoe_username=pppoe_username,
-            customer_id=int(customer_id) if customer_id else None, 
-            node_id=str(node_id), plan_id=str(plan_id), direccion=direccion
+        new_plan = models.Plan(
+            plan_id=str(plan_id), # Aseguramos String
+            name=name,
+            speed=speed,
+            description=description
         )
-        self.db.merge(obj)
+        self.db.merge(new_plan)
+
+    def insert_connection(self, connection_id, pppoe_username, customer_id, node_id, plan_id, direccion):
+        new_conn = models.Connection(
+            connection_id=str(connection_id), # Aseguramos String
+            pppoe_username=pppoe_username,
+            customer_id=customer_id,
+            node_id=str(node_id),
+            plan_id=str(plan_id),
+            direccion=direccion # Nombre corregido
+        )
+        self.db.merge(new_conn)
     
     def insert_cliente(self, cliente_data: dict):
         # Reemplaza a [cite: 83]
@@ -188,6 +209,26 @@ class Database:
         if result:
             return result.router_ip, result.puerto
         return None
+    
+    # En backend/src/db/postgres.py
+
+    # ... otros métodos ...
+
+    def clear_table(self, model_class):
+        """
+        Borra todo el contenido de la tabla asociada al modelo.
+        Equivalente a DELETE FROM tabla;
+        """
+        try:
+            self.db.query(model_class).delete()
+            self.commit()
+        except Exception as e:
+            self.db.rollback()
+            print(f"❌ Error limpiando tabla {model_class.__tablename__}: {e}")
+    
+    def rollback(self):
+        """Deshace la transacción actual en caso de error para no bloquear la DB."""
+        self.db.rollback()
 
     def init_db(self):
         # Reemplaza a [cite: 110]
