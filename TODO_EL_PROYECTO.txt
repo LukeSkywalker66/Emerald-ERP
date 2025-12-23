@@ -1,0 +1,1553 @@
+--- CONTEXTO DEL PROYECTO ---
+Estructura de archivos aplanada para análisis.
+
+
+==================================================
+ARCHIVO: docker-compose.yml
+==================================================
+services:
+  # 1. Base de Datos
+  db:
+    image: postgres:15-alpine
+    container_name: emerald_db
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: adminpassword
+      POSTGRES_DB: emerald_stock
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # Dejamos la DB solo local por seguridad, o podes usar la variable si queres acceder remoto
+      - "${HOST_IP:-127.0.0.1}:5433:5432"
+
+  # 2. Backend
+  backend:
+    build: ./backend
+    container_name: emerald_backend
+    restart: always
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      # CAMBIO CLAVE: Variable dinámica para la IP
+      - "${HOST_IP:-127.0.0.1}:4001:8000"
+    environment:
+      DATABASE_URL: postgresql://admin:adminpassword@db:5432/emerald_stock
+    depends_on:
+      - db
+    volumes:
+      - ./backend:/app
+
+  # 3. Frontend
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: emerald_frontend
+    restart: always
+    ports:
+      # CAMBIO CLAVE: Variable dinámica para la IP
+      - "${HOST_IP:-127.0.0.1}:4000:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      # CAMBIO CRÍTICO 2:
+      # Esto permite que en el servidor definas la IP real (ej: http://192.168.1.50:4001)
+      # Si no, desde otra PC buscaría "localhost" y fallaría.
+      - VITE_API_URL=${VITE_API_URL:-http://localhost:4001}
+      - CHOKIDAR_USEPOLLING=true
+    depends_on:
+      - backend
+
+  # 4. PgAdmin
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: emerald_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@isp.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      # CAMBIO CLAVE: Variable dinámica para la IP
+      - "${HOST_IP:-127.0.0.1}:4002:80"
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:
+
+==================================================
+ARCHIVO: TODO_EL_PROYECTO.txt
+==================================================
+
+
+==================================================
+ARCHIVO: .github\workflows\deploy.yml
+==================================================
+name: Deploy to Production
+
+# ¿Cuándo se ejecuta? Cuando hay un push a la rama 'master'
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            # Comandos que GitHub ejecutará en tu Debian:
+            cd /home/administrador/apps/emerald-erp
+            git pull origin master
+            docker compose up -d --build
+            # Opcional: Limpiar imágenes viejas para ahorrar espacio
+            docker image prune -f
+
+==================================================
+ARCHIVO: backend\Dockerfile
+==================================================
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+==================================================
+ARCHIVO: backend\requirements.txt
+==================================================
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+alembic
+python-dotenv
+pydantic
+passlib[bcrypt]
+bcrypt==4.0.1
+
+==================================================
+ARCHIVO: backend\alembic\env.py
+==================================================
+import os
+import sys
+from logging.config import fileConfig
+
+from sqlalchemy import engine_from_config
+from sqlalchemy import pool
+
+from alembic import context
+
+# 1. Agregamos la ruta 'src' para que Python encuentre tus archivos
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
+# 2. Importamos la Base (donde se registran las tablas) y los Modelos
+from database import Base, DATABASE_URL
+from models import * # Importante: Esto carga tus clases (User, Ticket, etc)
+# --------------------
+
+# this is the Alembic Config object, which provides
+# access to the values within the .ini file in use.
+config = context.config
+
+# Interpret the config file for Python logging.
+# This line sets up loggers basically.
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+# add your model's MetaData object here
+# for 'autogenerate' support
+# from myapp import mymodel
+# Le decimos a Alembic que mire nuestros modelos para saber qué tablas crear
+target_metadata = Base.metadata
+# Sobreescribimos la URL del archivo .ini con la real de Docker
+config.set_main_option("sqlalchemy.url", DATABASE_URL)
+
+# other values from the config, defined by the needs of env.py,
+# can be acquired:
+# my_important_option = config.get_main_option("my_important_option")
+# ... etc.
+
+
+def run_migrations_offline() -> None:
+    """Run migrations in 'offline' mode.
+
+    This configures the context with just a URL
+    and not an Engine, though an Engine is acceptable
+    here as well.  By skipping the Engine creation
+    we don't even need a DBAPI to be available.
+
+    Calls to context.execute() here emit the given string to the
+    script output.
+
+    """
+    url = config.get_main_option("sqlalchemy.url")
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def run_migrations_online() -> None:
+    """Run migrations in 'online' mode.
+
+    In this scenario we need to create an Engine
+    and associate a connection with the context.
+
+    """
+    connectable = engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+
+    with connectable.connect() as connection:
+        context.configure(
+            connection=connection, target_metadata=target_metadata
+        )
+
+        with context.begin_transaction():
+            context.run_migrations()
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
+
+
+==================================================
+ARCHIVO: backend\alembic\versions\221e88a56548_creacion_inicial_de_tablas.py
+==================================================
+"""Creacion inicial de tablas
+
+Revision ID: 221e88a56548
+Revises: 
+Create Date: 2025-12-16 15:53:08.098992
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = '221e88a56548'
+down_revision: Union[str, Sequence[str], None] = None
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.create_table('clients',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('name', sa.String(), nullable=True),
+    sa.Column('billing_address', sa.String(), nullable=True),
+    sa.Column('phone', sa.String(), nullable=True),
+    sa.Column('email', sa.String(), nullable=True),
+    sa.Column('cuit', sa.String(), nullable=True),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_clients_id'), 'clients', ['id'], unique=False)
+    op.create_index(op.f('ix_clients_name'), 'clients', ['name'], unique=False)
+    op.create_table('plans',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('name', sa.String(), nullable=True),
+    sa.Column('bandwidth_down', sa.Integer(), nullable=True),
+    sa.Column('price', sa.Float(), nullable=True),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_plans_id'), 'plans', ['id'], unique=False)
+    op.create_table('users',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('username', sa.String(), nullable=True),
+    sa.Column('password_hash', sa.String(), nullable=True),
+    sa.Column('role', sa.String(), nullable=True),
+    sa.Column('is_active', sa.Boolean(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.Column('last_login', sa.DateTime(timezone=True), nullable=True),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_users_id'), 'users', ['id'], unique=False)
+    op.create_index(op.f('ix_users_username'), 'users', ['username'], unique=True)
+    op.create_table('client_services',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('client_id', sa.Integer(), nullable=True),
+    sa.Column('plan_id', sa.Integer(), nullable=True),
+    sa.Column('ip_address', sa.String(), nullable=True),
+    sa.Column('mac_address', sa.String(), nullable=True),
+    sa.Column('installation_address', sa.String(), nullable=True),
+    sa.Column('geolocation', sa.String(), nullable=True),
+    sa.Column('site_contact_name', sa.String(), nullable=True),
+    sa.Column('site_contact_phone', sa.String(), nullable=True),
+    sa.ForeignKeyConstraint(['client_id'], ['clients.id'], ),
+    sa.ForeignKeyConstraint(['plan_id'], ['plans.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_client_services_id'), 'client_services', ['id'], unique=False)
+    op.create_table('tickets',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('service_id', sa.Integer(), nullable=True),
+    sa.Column('creator_id', sa.Integer(), nullable=True),
+    sa.Column('assigned_id', sa.Integer(), nullable=True),
+    sa.Column('category', sa.String(), nullable=True),
+    sa.Column('status', sa.String(), nullable=True),
+    sa.Column('priority', sa.String(), nullable=True),
+    sa.Column('title', sa.String(), nullable=True),
+    sa.Column('description', sa.Text(), nullable=True),
+    sa.Column('public_note', sa.Text(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+    sa.ForeignKeyConstraint(['assigned_id'], ['users.id'], ),
+    sa.ForeignKeyConstraint(['creator_id'], ['users.id'], ),
+    sa.ForeignKeyConstraint(['service_id'], ['client_services.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_tickets_id'), 'tickets', ['id'], unique=False)
+    op.create_table('service_sheets',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('ticket_id', sa.Integer(), nullable=True),
+    sa.Column('author_id', sa.Integer(), nullable=True),
+    sa.Column('started_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('ended_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('signal_power', sa.Float(), nullable=True),
+    sa.Column('onu_sn', sa.String(), nullable=True),
+    sa.Column('nap_box_data', sa.String(), nullable=True),
+    sa.Column('materials_used', sa.JSON(), nullable=True),
+    sa.Column('tech_notes', sa.Text(), nullable=True),
+    sa.Column('photos_url', sa.JSON(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.ForeignKeyConstraint(['author_id'], ['users.id'], ),
+    sa.ForeignKeyConstraint(['ticket_id'], ['tickets.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_service_sheets_id'), 'service_sheets', ['id'], unique=False)
+    # ### end Alembic commands ###
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_index(op.f('ix_service_sheets_id'), table_name='service_sheets')
+    op.drop_table('service_sheets')
+    op.drop_index(op.f('ix_tickets_id'), table_name='tickets')
+    op.drop_table('tickets')
+    op.drop_index(op.f('ix_client_services_id'), table_name='client_services')
+    op.drop_table('client_services')
+    op.drop_index(op.f('ix_users_username'), table_name='users')
+    op.drop_index(op.f('ix_users_id'), table_name='users')
+    op.drop_table('users')
+    op.drop_index(op.f('ix_plans_id'), table_name='plans')
+    op.drop_table('plans')
+    op.drop_index(op.f('ix_clients_name'), table_name='clients')
+    op.drop_index(op.f('ix_clients_id'), table_name='clients')
+    op.drop_table('clients')
+    # ### end Alembic commands ###
+
+
+==================================================
+ARCHIVO: backend\src\database.py
+==================================================
+# backend/src/database.py
+import os
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
+
+# Leemos la URL de conexión desde las variables de entorno (Docker)
+# Si no existe (ej: probando local sin docker), usa una por defecto para que no falle
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:adminpassword@localhost:5432/emerald_stock")
+
+# Creamos el motor de conexión
+engine = create_engine(DATABASE_URL)
+
+# Creamos la "Fábrica de Sesiones" (Cada petición tendrá su propia sesión)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Esta es la clase base de la que heredarán todos tus modelos
+Base = declarative_base()
+
+# Dependencia para obtener la DB en cada endpoint (FastAPI)
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+==================================================
+ARCHIVO: backend\src\main.py
+==================================================
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session, joinedload
+from typing import List, Optional
+from pydantic import BaseModel
+from datetime import datetime
+
+from database import engine, Base, get_db
+import models
+
+models.Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="Emerald ERP API")
+
+#origins = ["http://localhost:4000", "http://localhost:5173"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- ESQUEMAS DE LECTURA (Lo que sale hacia afuera) ---
+class PlanSchema(BaseModel):
+    name: str
+    bandwidth_down: int
+    bandwidth_up: int
+    class Config: from_attributes = True
+
+class ClientSchema(BaseModel):
+    name: str
+    phone: str | None = None
+    billing_address: str | None = None
+    class Config: from_attributes = True
+
+class ServiceSchema(BaseModel):
+    id: int # Necesitamos el ID para seleccionarlo
+    ip_address: str | None = None
+    installation_address: str | None = None
+    client: ClientSchema | None = None
+    plan: PlanSchema | None = None
+    class Config: from_attributes = True
+
+class TicketResponse(BaseModel):
+    id: int
+    title: str
+    priority: str
+    status: str
+    category: str | None = None
+    description: str | None = None
+    created_at: datetime | None = None
+    service: ServiceSchema | None = None 
+    class Config: from_attributes = True
+
+# --- ESQUEMAS DE CREACIÓN (Lo que entra desde el formulario) ---
+class TicketCreate(BaseModel):
+    title: str
+    description: str
+    priority: str
+    service_id: int
+    # No pedimos status (siempre nace open) ni usuario (hardcodeamos admin por ahora)
+
+# --- ENDPOINTS ---
+
+@app.get("/tickets", response_model=List[TicketResponse])
+def get_tickets(db: Session = Depends(get_db)):
+    tickets = db.query(models.Ticket).options(
+        joinedload(models.Ticket.service).joinedload(models.ClientService.client),
+        joinedload(models.Ticket.service).joinedload(models.ClientService.plan)
+    ).order_by(models.Ticket.id.desc()).all() # Ordenamos por ID descendente (nuevos arriba)
+    return tickets
+
+# NUEVO: Endpoint para llenar el combo de "Seleccionar Servicio/Cliente"
+@app.get("/services_options", response_model=List[ServiceSchema])
+def get_services_options(db: Session = Depends(get_db)):
+    # Traemos solo los servicios activos para que el operador elija
+    services = db.query(models.ClientService).options(
+        joinedload(models.ClientService.client),
+        joinedload(models.ClientService.plan)
+    ).all()
+    return services
+
+# NUEVO: Endpoint para CREAR el ticket
+@app.post("/tickets", response_model=TicketResponse)
+def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
+    # 1. Creamos el objeto DB
+    db_ticket = models.Ticket(
+        title=ticket.title,
+        description=ticket.description,
+        priority=ticket.priority,
+        service_id=ticket.service_id,
+        status="open",          # Por defecto
+        creator_id=1,           # HARDCODE: Asumimos que lo crea el Admin (ID 1)
+        created_at=datetime.now()
+    )
+    # 2. Guardamos
+    db.add(db_ticket)
+    db.commit()
+    db.refresh(db_ticket)
+    
+    # 3. Importante: Recargamos relaciones para devolver el JSON completo con Cliente/Plan
+    # Si no hacemos esto, el frontend recibe el ticket pero con "service: null" y explota
+    ticket_con_datos = db.query(models.Ticket).options(
+        joinedload(models.Ticket.service).joinedload(models.ClientService.client),
+        joinedload(models.Ticket.service).joinedload(models.ClientService.plan)
+    ).filter(models.Ticket.id == db_ticket.id).first()
+    
+    return ticket_con_datos
+
+==================================================
+ARCHIVO: backend\src\mock-seed.py
+==================================================
+# backend/src/seed.py
+from database import SessionLocal, engine, Base
+from models import User, Client, Plan, ClientService, Ticket
+from passlib.context import CryptContext
+from datetime import datetime
+
+# Configuración para hashear passwords
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def seed_data():
+    db = SessionLocal()
+    
+    # 1. Verificar si ya existen datos para no duplicar
+    if db.query(User).filter(User.username == "lucas").first():
+        print("⚠️  La base de datos ya tiene datos. Saltando seed.")
+        return
+
+    print("🌱 Iniciando sembrado de datos...")
+
+    # --- A. CREAR USUARIOS (STAFF) ---
+    print("   Creating Users...")
+    admin_user = User(
+        username="lucas",
+        password_hash=get_password_hash("admin123"),
+        role="admin",
+        is_active=True
+    )
+    tech_user = User(
+        username="tecnico1",
+        password_hash=get_password_hash("tech123"),
+        role="tecnico",
+        is_active=True
+    )
+    db.add_all([admin_user, tech_user])
+    db.commit() # Confirmamos para que tengan ID
+
+    # --- B. CREAR PLANES ---
+    print("   Creating Plans...")
+    plan_fibra = Plan(
+        name="Fibra 100Mb Residencial",
+        bandwidth_down=100,
+        price=15000.00
+    )
+    db.add(plan_fibra)
+    db.commit()
+
+    # --- C. CREAR CLIENTE ---
+    print("   Creating Client...")
+    cliente = Client(
+        name="Juan Perez (Demo)",
+        billing_address="Av. San Martin 1234",
+        phone="351-555-9999",
+        email="juan.perez@example.com",
+        cuit="20-12345678-9"
+    )
+    db.add(cliente)
+    db.commit()
+
+    # --- D. CONECTAR SERVICIO (CLIENTE + PLAN) ---
+    print("   Creating Service...")
+    servicio = ClientService(
+        client_id=cliente.id,
+        plan_id=plan_fibra.id,
+        ip_address="10.10.1.50",
+        mac_address="AA:BB:CC:DD:EE:FF",
+        installation_address="Av. San Martin 1234, Depto 2B",
+        geolocation="-31.4201,-64.1888",
+        site_contact_name="Esposa de Juan",
+        site_contact_phone="351-555-8888"
+    )
+    db.add(servicio)
+    db.commit()
+
+    # --- E. CREAR UN TICKET DE PRUEBA ---
+    print("   Creating Ticket...")
+    ticket = Ticket(
+        service_id=servicio.id,
+        creator_id=admin_user.id,
+        assigned_id=tech_user.id,
+        category="Soporte Técnico",
+        status="open",
+        priority="high",
+        title="No navega - Luz roja en ONU",
+        description="El cliente reporta que desde la tormenta de anoche no tiene servicio. La ONU parpadea en rojo (LOS).",
+        public_note="Técnico asignado para visita mañana por la mañana."
+    )
+    db.add(ticket)
+    db.commit()
+
+    print("✅ ¡Base de datos poblada con éxito!")
+    db.close()
+
+if __name__ == "__main__":
+    seed_data()
+
+==================================================
+ARCHIVO: backend\src\models.py
+==================================================
+# backend/src/models.py
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text, Float, JSON
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from database import Base
+
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    password_hash = Column(String)
+    role = Column(String) # 'admin', 'tecnico', 'mesa_ayuda'
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_login = Column(DateTime(timezone=True), nullable=True)
+
+class Client(Base):
+    __tablename__ = "clients"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True)
+    billing_address = Column(String)
+    phone = Column(String)
+    email = Column(String)
+    cuit = Column(String)
+    
+    services = relationship("ClientService", back_populates="client")
+
+class Plan(Base):
+    __tablename__ = "plans"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String)
+    bandwidth_down = Column(Integer) # Bajada (Mbps)
+    bandwidth_up = Column(Integer)   # Subida (Mbps) - AGREGADO
+    price = Column(Float, nullable=True)
+
+class ClientService(Base):
+    __tablename__ = "client_services"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("clients.id"))
+    plan_id = Column(Integer, ForeignKey("plans.id")) 
+    
+    ip_address = Column(String, nullable=True)
+    mac_address = Column(String, nullable=True)
+    installation_address = Column(String)
+    geolocation = Column(String)
+    site_contact_name = Column(String, nullable=True)
+    site_contact_phone = Column(String, nullable=True)
+
+    client = relationship("Client", back_populates="services")
+    plan = relationship("Plan") # Relación con el Plan
+    tickets = relationship("Ticket", back_populates="service")
+
+class Ticket(Base):
+    __tablename__ = "tickets"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    service_id = Column(Integer, ForeignKey("client_services.id"))
+    creator_id = Column(Integer, ForeignKey("users.id"))
+    assigned_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    
+    category = Column(String) # "Tecnico", "Admin", "Ventas"
+    status = Column(String, default="open") 
+    priority = Column(String, default="medium")
+    
+    title = Column(String)
+    description = Column(Text)
+    public_note = Column(Text, nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    service = relationship("ClientService", back_populates="tickets")
+    work_orders = relationship("ServiceSheet", back_populates="ticket")
+    creator = relationship("User", foreign_keys=[creator_id])
+    assigned = relationship("User", foreign_keys=[assigned_id])
+
+class ServiceSheet(Base):
+    __tablename__ = "service_sheets"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    ticket_id = Column(Integer, ForeignKey("tickets.id"))
+    author_id = Column(Integer, ForeignKey("users.id"))
+    
+    started_at = Column(DateTime(timezone=True))
+    ended_at = Column(DateTime(timezone=True))
+    signal_power = Column(Float, nullable=True)
+    onu_sn = Column(String, nullable=True)
+    nap_box_data = Column(String, nullable=True)
+    materials_used = Column(JSON, default={})
+    tech_notes = Column(Text)
+    photos_url = Column(JSON, default=[])
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    ticket = relationship("Ticket", back_populates="work_orders")
+
+==================================================
+ARCHIVO: backend\src\populate.py
+==================================================
+# backend/src/populate.py
+import sys
+import os
+from datetime import datetime
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from database import SessionLocal, engine
+import models
+
+# --- ESTA ES LA LÍNEA MÁGICA QUE FALTABA ---
+# Asegura que las tablas existan antes de insertar nada
+models.Base.metadata.create_all(bind=engine)
+# -------------------------------------------
+
+db = SessionLocal()
+
+print("🌱 Sembrando datos 2.0 (Estructura Completa)...")
+
+# 1. Crear Usuarios (Admin y Tecnicos)
+# Verificamos si ya existen para no duplicar si corres el script dos veces
+if not db.query(models.User).filter_by(username="admin").first():
+    admin = models.User(username="admin", role="admin", password_hash="xxx")
+    db.add(admin)
+else:
+    print("User admin ya existe")
+    admin = db.query(models.User).filter_by(username="admin").first()
+
+if not db.query(models.User).filter_by(username="tecnico1").first():
+    tecnico = models.User(username="tecnico1", role="tecnico", password_hash="xxx")
+    db.add(tecnico)
+else:
+    print("User tecnico1 ya existe")
+    tecnico = db.query(models.User).filter_by(username="tecnico1").first()
+    
+db.commit()
+
+# 2. Crear Planes
+if not db.query(models.Plan).filter_by(name="Fibra 300 Mega").first():
+    plan_fibra = models.Plan(name="Fibra 300 Mega", bandwidth_down=300, bandwidth_up=100, price=15000)
+    db.add(plan_fibra)
+else:
+    plan_fibra = db.query(models.Plan).filter_by(name="Fibra 300 Mega").first()
+
+if not db.query(models.Plan).filter_by(name="Aire 20 Mega").first():
+    plan_aire = models.Plan(name="Aire 20 Mega", bandwidth_down=20, bandwidth_up=5, price=8000)
+    db.add(plan_aire)
+else:
+    plan_aire = db.query(models.Plan).filter_by(name="Aire 20 Mega").first()
+
+db.commit()
+
+# 3. Crear Clientes y Servicios
+datos = [
+    {"nombre": "Farmacia Central", "plan": plan_fibra, "ip": "10.10.1.20", "problema": "Corte de Fibra", "prio": "high", "estado": "open"},
+    {"nombre": "Juan Perez", "plan": plan_fibra, "ip": "10.10.2.50", "problema": "Cambio de clave Wifi", "prio": "low", "estado": "resolved"},
+    {"nombre": "Carlos Gamer", "plan": plan_fibra, "ip": "10.10.5.10", "problema": "Latencia Alta", "prio": "medium", "estado": "in_progress"},
+    {"nombre": "Estancia El Ombú", "plan": plan_aire, "ip": "192.168.5.5", "problema": "Antena desalineada", "prio": "high", "estado": "open"},
+]
+
+for d in datos:
+    # Verificamos existencia por nombre para no explotar
+    if not db.query(models.Client).filter_by(name=d["nombre"]).first():
+        # Cliente
+        cli = models.Client(name=d["nombre"], billing_address="Domicilio Conocido", phone="123456")
+        db.add(cli)
+        db.commit()
+        
+        # Servicio (Conexionado)
+        serv = models.ClientService(
+            client_id=cli.id, 
+            plan_id=d["plan"].id, 
+            ip_address=d["ip"], 
+            installation_address="Mismo que facturacion"
+        )
+        db.add(serv)
+        db.commit()
+        
+        # Ticket
+        t = models.Ticket(
+            title=d["problema"],
+            description="Detalle del problema reportado por teléfono.",
+            priority=d["prio"],
+            status=d["estado"],
+            category="Tecnico",
+            service_id=serv.id,
+            creator_id=admin.id,
+            assigned_id=tecnico.id if d["estado"] == "in_progress" else None
+        )
+        db.add(t)
+        db.commit()
+
+print("✅ Base de datos poblada con éxito.")
+db.close()
+
+==================================================
+ARCHIVO: frontend\Dockerfile
+==================================================
+FROM node:20-alpine
+WORKDIR /app
+COPY package.json .
+RUN npm install
+# Exponemos el puerto de Vite
+EXPOSE 5173
+COPY . .
+CMD ["npm", "run", "dev", "--", "--host"]
+
+
+
+
+
+
+==================================================
+ARCHIVO: frontend\eslint.config.js
+==================================================
+import js from '@eslint/js'
+import globals from 'globals'
+import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
+import { defineConfig, globalIgnores } from 'eslint/config'
+
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{js,jsx}'],
+    extends: [
+      js.configs.recommended,
+      reactHooks.configs.flat.recommended,
+      reactRefresh.configs.vite,
+    ],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: globals.browser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        ecmaFeatures: { jsx: true },
+        sourceType: 'module',
+      },
+    },
+    rules: {
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+    },
+  },
+])
+
+
+==================================================
+ARCHIVO: frontend\index.html
+==================================================
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Emerald ERP</title>
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+
+==================================================
+ARCHIVO: frontend\package.json
+==================================================
+{
+  "name": "app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "vite": "^7.2.4"
+  }
+}
+
+
+==================================================
+ARCHIVO: frontend\README.md
+==================================================
+# React + Vite
+
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+
+Currently, two official plugins are available:
+
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+
+## React Compiler
+
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+
+## Expanding the ESLint configuration
+
+If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+
+
+==================================================
+ARCHIVO: frontend\vite.config.js
+==================================================
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react()],
+})
+
+
+==================================================
+ARCHIVO: frontend\src\App.css
+==================================================
+/* RESET Y FONDO GLOBAL */
+body {
+  background-color: #f8f9fa; /* Gris casi blanco */
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  color: #1f2937;
+  margin: 0; /* Importante para que la navbar toque los bordes */
+}
+
+/* NAVBAR SUPERIOR (NUEVO) */
+.navbar-top {
+  background-color: #1e293b; /* Azul noche oscuro */
+  color: white;
+  padding: 1rem 0;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2rem;
+}
+
+.navbar-brand {
+  font-weight: 700;
+  font-size: 1.25rem;
+  letter-spacing: -0.025em;
+  color: white;
+  text-decoration: none;
+}
+
+.navbar-text-small {
+  color: #94a3b8; /* Gris azulado claro */
+  font-size: 0.875rem;
+  margin-left: 1rem;
+  font-weight: 400;
+  border-left: 1px solid #475569;
+  padding-left: 1rem;
+}
+
+/* CONTENEDOR PRINCIPAL */
+.container {
+  max-width: 1200px;
+  margin: 0 auto; /* Centrado horizontal */
+  padding: 0 1.5rem; /* Margen a los costados para móbiles */
+}
+
+/* TARJETAS KPI */
+.kpi-card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  padding: 1.5rem;
+  height: 100%;
+  border-left: 5px solid transparent;
+  transition: transform 0.2s;
+}
+
+.kpi-card:hover { transform: translateY(-3px); }
+.kpi-success { border-left-color: #10b981; }
+.kpi-warning { border-left-color: #f59e0b; }
+
+.kpi-title {
+  color: #64748b;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+.kpi-value {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+/* TABLA */
+.table-container {
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  margin-top: 2rem;
+}
+
+.table-header {
+  padding: 1.25rem 1.5rem;
+  background-color: white;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.table-header h5 {
+  margin: 0;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.custom-table { width: 100%; margin-bottom: 0; }
+.custom-table thead th {
+  background-color: #f8fafc;
+  color: #475569;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+.custom-table tbody td {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #334155;
+  font-size: 0.9rem;
+}
+
+/* BADGES */
+.status-badge {
+  padding: 0.25em 0.7em;
+  border-radius: 99px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.badge-high { background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+.badge-normal { background-color: #f3f4f6; color: #4b5563; border: 1px solid #e5e7eb; }
+.badge-open { background-color: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+
+/* BOTÓN */
+.btn-primary-custom {
+  background-color: #3b82f6;
+  border: none;
+  font-weight: 600;
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+.btn-primary-custom:hover { background-color: #2563eb; }
+/* ... (Todo tu CSS anterior sigue igual, agregá esto al final) ... */
+
+/* ESTILOS DEL MODAL */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5); /* Fondo oscuro semitransparente */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000; /* Siempre arriba de todo */
+  backdrop-filter: blur(2px); /* Efecto borroso pro */
+}
+
+.modal-content {
+  background: white;
+  width: 90%;
+  max-width: 600px; /* Ancho máximo */
+  border-radius: 12px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  animation: modalSlideIn 0.2s ease-out;
+  overflow: hidden; /* Para que el header no se salga */
+}
+
+.modal-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #f9fafb;
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+.modal-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #e5e7eb;
+  background-color: #f9fafb;
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+}
+
+/* Animación suave */
+@keyframes modalSlideIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Botón de cerrar (X) */
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #6b7280;
+  cursor: pointer;
+  line-height: 1;
+}
+.btn-close:hover { color: #1f2937; }
+
+==================================================
+ARCHIVO: frontend\src\App.jsx
+==================================================
+import { useState, useEffect } from 'react'
+import './App.css'
+
+function App() {
+  const [tickets, setTickets] = useState([])
+  const [loading, setLoading] = useState(true)
+  
+  // MODAL DETALLE (VER)
+  const [selectedTicket, setSelectedTicket] = useState(null)
+  
+  // MODAL CREACIÓN (NUEVO)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [servicesList, setServicesList] = useState([]) 
+  const [newTicketData, setNewTicketData] = useState({
+    title: '',
+    description: '',
+    priority: 'medium',
+    service_id: ''
+  })
+  
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+
+  // DICCIONARIOS
+  const statusMap = { 'open': 'Abierto', 'in_progress': 'En Progreso', 'resolved': 'Resuelto', 'closed': 'Cerrado' }
+  const priorityMap = { 'low': 'Baja', 'medium': 'Media', 'high': 'Alta', 'critical': 'Crítica' }
+
+  // CARGA INICIAL
+  useEffect(() => {
+    fetchTickets()
+    fetchServices()
+  }, [])
+
+  const fetchTickets = () => {
+    fetch(`${API_URL}/tickets`)
+      .then(res => res.json())
+      .then(data => {
+        setTickets(data)
+        setLoading(false)
+      })
+      .catch(err => console.error("Error:", err))
+  }
+
+  const fetchServices = () => {
+    fetch(`${API_URL}/services_options`)
+      .then(res => res.json())
+      .then(data => setServicesList(data))
+      .catch(err => console.error("Error services:", err))
+  }
+
+  // CREAR TICKET (POST)
+  const handleCreateSubmit = (e) => {
+    e.preventDefault()
+    
+    if(!newTicketData.service_id) {
+        alert("Por favor selecciona un cliente")
+        return
+    }
+
+    const payload = {
+        title: newTicketData.title,
+        description: newTicketData.description,
+        priority: newTicketData.priority,
+        service_id: parseInt(newTicketData.service_id)
+    }
+
+    fetch(`${API_URL}/tickets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(res => res.json())
+    .then(savedTicket => {
+        setTickets([savedTicket, ...tickets]) 
+        setShowCreateModal(false)
+        setNewTicketData({ title: '', description: '', priority: 'medium', service_id: '' }) 
+    })
+    .catch(err => alert("Error creando ticket: " + err))
+  }
+
+  return (
+    <div>
+      {/* NAVBAR */}
+      <nav className="navbar-top">
+        <div className="container d-flex justify-content-between align-items-center">
+          <div className="d-flex align-items-center">
+            <span className="navbar-brand">Emerald ERP</span>
+            <span className="navbar-text-small">Gestión de ISP</span>
+          </div>
+          <div className="text-white small">Admin (Clark Kent)</div>
+        </div>
+      </nav>
+
+      <div className="container">
+        {/* KPIS */}
+        <div className="row mb-4">
+          <div className="col-md-3 mb-3">
+            <div className="kpi-card kpi-success">
+              <div className="kpi-title">Tickets Pendientes</div>
+              <div className="kpi-value">{tickets.filter(t => t.status === 'open').length}</div>
+            </div>
+          </div>
+          <div className="col-md-3 mb-3">
+            <div className="kpi-card kpi-warning">
+              <div className="kpi-title">En Atención</div>
+              <div className="kpi-value">{tickets.filter(t => t.status === 'in_progress').length}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* TABLA PRINCIPAL */}
+        <div className="table-container">
+          <div className="table-header">
+            <h5>Bandeja de Entrada</h5>
+            <button 
+                className="btn btn-primary btn-primary-custom btn-sm"
+                onClick={() => setShowCreateModal(true)}
+            >
+                + Nuevo Reclamo
+            </button>
+          </div>
+          
+          {loading ? (
+            <div className="p-5 text-center text-muted">Cargando sistema...</div>
+          ) : (
+            <div className="table-responsive">
+              <table className="table custom-table table-hover">
+                <thead>
+                  <tr>
+                    <th>Nº</th>
+                    <th>Asunto</th>
+                    <th>Prioridad</th>
+                    <th>Estado</th>
+                    <th>Detalle</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tickets.map(ticket => (
+                    <tr key={ticket.id} onClick={() => setSelectedTicket(ticket)} style={{cursor: 'pointer'}}>
+                      <td className="fw-bold">#{ticket.id}</td>
+                      <td className="fw-semibold text-dark">{ticket.title}</td>
+                      <td>
+                        <span className={`status-badge ${ticket.priority === 'high' ? 'badge-high' : 'badge-normal'}`}>
+                          {priorityMap[ticket.priority] || ticket.priority}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="status-badge badge-open">{statusMap[ticket.status] || ticket.status}</span>
+                      </td>
+                      <td className="text-muted small">{ticket.description?.substring(0, 50)}...</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* --- MODAL 1: DETALLE (LECTURA) --- */}
+      {selectedTicket && (
+        <div className="modal-overlay" onClick={() => setSelectedTicket(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            
+            <div className="modal-header">
+              <div>
+                <h5 className="mb-0 fw-bold">Reclamo #{selectedTicket.id}</h5>
+                <small className="text-muted">Ingresado el {new Date(selectedTicket.created_at).toLocaleDateString()}</small>
+              </div>
+              <button className="btn-close" onClick={() => setSelectedTicket(null)}>×</button>
+            </div>
+
+            <div className="modal-body">
+              <h4 className="mb-3">{selectedTicket.title}</h4>
+              
+              <div className="row mb-4">
+                <div className="col-6">
+                  <label className="small text-muted fw-bold">ESTADO</label>
+                  <div><span className="badge bg-light text-dark border">{statusMap[selectedTicket.status]}</span></div>
+                </div>
+                <div className="col-6">
+                  <label className="small text-muted fw-bold">PRIORIDAD</label>
+                  <div>
+                    <span className={`status-badge ${selectedTicket.priority === 'high' ? 'badge-high' : 'badge-normal'}`}>
+                        {priorityMap[selectedTicket.priority]}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <label className="small text-muted fw-bold">DESCRIPCIÓN DEL PROBLEMA</label>
+                <p className="p-3 bg-light rounded border">{selectedTicket.description}</p>
+              </div>
+
+              {/* DATOS DEL CLIENTE RECUPERADOS */}
+              {selectedTicket.service && selectedTicket.service.client ? (
+                <div className="mb-3 border-top pt-3">
+                   <label className="small text-muted fw-bold">DATOS DEL CLIENTE Y SERVICIO</label>
+                   <div className="d-flex align-items-center mt-2">
+                      <div className="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center fw-bold" style={{width: 40, height: 40, marginRight: 12, fontSize: '1.2rem'}}>
+                        {selectedTicket.service.client.name.charAt(0)}
+                      </div>
+                      <div className="w-100">
+                          <div className="d-flex justify-content-between align-items-center">
+                            <div className="fw-bold text-dark">{selectedTicket.service.client.name}</div>
+                            {selectedTicket.service.plan && (
+                                <span className="badge bg-secondary text-white">
+                                    ⬇ {selectedTicket.service.plan.bandwidth_down}M / ⬆ {selectedTicket.service.plan.bandwidth_up}M
+                                </span>
+                            )}
+                          </div>
+                          <div className="small text-muted">
+                            {selectedTicket.service.installation_address}
+                          </div>
+                          <div className="small text-primary font-monospace">
+                             IP: {selectedTicket.service.ip_address}
+                          </div>
+                      </div>
+                   </div>
+                </div>
+              ) : (
+                <div className="alert alert-warning">Ticket sin datos de servicio asociados</div>
+              )}
+
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn btn-secondary btn-sm" onClick={() => setSelectedTicket(null)}>Cerrar</button>
+              <button className="btn btn-primary btn-primary-custom btn-sm">Asignar Técnico</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL 2: NUEVO TICKET (FORMULARIO) --- */}
+      {showCreateModal && (
+        <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h5 className="mb-0 fw-bold">Nuevo Reclamo Técnico</h5>
+              <button className="btn-close" onClick={() => setShowCreateModal(false)}>×</button>
+            </div>
+            
+            <form onSubmit={handleCreateSubmit}>
+                <div className="modal-body">
+                    
+                    <div className="mb-3">
+                        <label className="form-label small fw-bold text-muted">CLIENTE / SERVICIO AFECTADO</label>
+                        <select 
+                            className="form-select" 
+                            value={newTicketData.service_id}
+                            onChange={(e) => setNewTicketData({...newTicketData, service_id: e.target.value})}
+                            required
+                        >
+                            <option value="">Seleccione un cliente...</option>
+                            {servicesList.map(svc => (
+                                <option key={svc.id} value={svc.id}>
+                                    {svc.client.name} — {svc.installation_address} ({svc.ip_address})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="mb-3">
+                        <label className="form-label small fw-bold text-muted">ASUNTO</label>
+                        <input 
+                            type="text" 
+                            className="form-control"
+                            placeholder="Ej: Sin internet, cable cortado..."
+                            value={newTicketData.title}
+                            onChange={(e) => setNewTicketData({...newTicketData, title: e.target.value})}
+                            required
+                        />
+                    </div>
+
+                    <div className="mb-3">
+                        <label className="form-label small fw-bold text-muted">PRIORIDAD</label>
+                        <select 
+                            className="form-select"
+                            value={newTicketData.priority}
+                            onChange={(e) => setNewTicketData({...newTicketData, priority: e.target.value})}
+                        >
+                            <option value="low">Baja</option>
+                            <option value="medium">Media</option>
+                            <option value="high">Alta</option>
+                            <option value="critical">Crítica</option>
+                        </select>
+                    </div>
+
+                    <div className="mb-3">
+                        <label className="form-label small fw-bold text-muted">DETALLE DEL PROBLEMA</label>
+                        <textarea 
+                            className="form-control" 
+                            rows="3"
+                            value={newTicketData.description}
+                            onChange={(e) => setNewTicketData({...newTicketData, description: e.target.value})}
+                            required
+                        ></textarea>
+                    </div>
+
+                </div>
+                <div className="modal-footer">
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowCreateModal(false)}>Cancelar</button>
+                    <button type="submit" className="btn btn-primary btn-primary-custom btn-sm">Crear Ticket</button>
+                </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+    </div>
+  )
+}
+
+export default App
+
+==================================================
+ARCHIVO: frontend\src\index.css
+==================================================
+:root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  font-weight: 500;
+  color: #646cff;
+  text-decoration: inherit;
+}
+a:hover {
+  color: #535bf2;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+button:hover {
+  border-color: #646cff;
+}
+button:focus,
+button:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+  a:hover {
+    color: #747bff;
+  }
+  button {
+    background-color: #f9f9f9;
+  }
+}
+
+
+==================================================
+ARCHIVO: frontend\src\main.jsx
+==================================================
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App.jsx'
+
+createRoot(document.getElementById('root')).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+)
+

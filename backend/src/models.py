@@ -1,97 +1,110 @@
 # backend/src/models.py
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text, Float, JSON
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, PrimaryKeyConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
-from database import Base
+from src.database import Base
 
-class User(Base):
-    __tablename__ = "users"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True)
-    password_hash = Column(String)
-    role = Column(String) # 'admin', 'tecnico', 'mesa_ayuda'
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    last_login = Column(DateTime(timezone=True), nullable=True)
+# --- Tablas de Infraestructura ---
+class Subscriber(Base):
+    __tablename__ = "subscribers"
+    # CREATE TABLE subscribers (unique_external_id TEXT PRIMARY KEY...) [cite: 449]
+    unique_external_id = Column(String, primary_key=True)
+    pppoe_username = Column(String, index=True)
+    sn = Column(String, index=True)
+    olt_name = Column(String)
+    olt_id = Column(String)
+    board = Column(String)
+    port = Column(String)
+    onu = Column(String)
+    onu_type_id = Column(String)
+    mode = Column(String)
+    node_id = Column(String)
+    connection_id = Column(String)
+    vlan = Column(String)
 
-class Client(Base):
-    __tablename__ = "clients"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, index=True)
-    billing_address = Column(String)
-    phone = Column(String)
-    email = Column(String)
-    cuit = Column(String)
-    
-    services = relationship("ClientService", back_populates="client")
+class Node(Base):
+    __tablename__ = "nodes"
+    # CREATE TABLE nodes (node_id TEXT PRIMARY KEY...) [cite: 451]
+    node_id = Column(String, primary_key=True)
+    name = Column(String)
+    ip_address = Column(String)
+    puerto = Column(String)
 
 class Plan(Base):
     __tablename__ = "plans"
-    id = Column(Integer, primary_key=True, index=True)
+    # CREATE TABLE plans (plan_id TEXT PRIMARY KEY...) [cite: 452]
+    plan_id = Column(String, primary_key=True)
     name = Column(String)
-    bandwidth_down = Column(Integer) # Bajada (Mbps)
-    bandwidth_up = Column(Integer)   # Subida (Mbps) - AGREGADO
-    price = Column(Float, nullable=True)
+    speed = Column(String)
+    description = Column(String)
 
-class ClientService(Base):
-    __tablename__ = "client_services"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    client_id = Column(Integer, ForeignKey("clients.id"))
-    plan_id = Column(Integer, ForeignKey("plans.id")) 
-    
-    ip_address = Column(String, nullable=True)
-    mac_address = Column(String, nullable=True)
-    installation_address = Column(String)
-    geolocation = Column(String)
-    site_contact_name = Column(String, nullable=True)
-    site_contact_phone = Column(String, nullable=True)
+class Connection(Base):
+    __tablename__ = "connections"
+    # CREATE TABLE connections (connection_id TEXT PRIMARY KEY...) [cite: 453]
+    connection_id = Column(String, primary_key=True)
+    pppoe_username = Column(String, index=True)
+    customer_id = Column(Integer, index=True) 
+    node_id = Column(String)
+    plan_id = Column(String)
+    direccion = Column(String)
 
-    client = relationship("Client", back_populates="services")
-    plan = relationship("Plan") # Relación con el Plan
-    tickets = relationship("Ticket", back_populates="service")
+# --- Tablas de Clientes (CRM) ---
+class Cliente(Base):
+    __tablename__ = "clientes"
+    # CREATE TABLE clientes (id INTEGER PRIMARY KEY...) [cite: 454]
+    id = Column(Integer, primary_key=True)
+    code = Column(String)
+    name = Column(String, index=True)
+    doc_number = Column(String)
+    address = Column(String)
+    status = Column(String)
+    
+    # ... resto de campos mapeados de tu sync ...
+    tax_residence = Column(String)
+    type = Column(String)
+    # (Agregá aquí el resto de las columnas si las usás en el código, 
+    # o confiá en raw_data para lo que no sea crítico)
+    
+    # Campo extra para guardar TODO lo que venga de la API (nuestra mejora)
+    raw_data = Column(JSONB, nullable=True)
 
-class Ticket(Base):
-    __tablename__ = "tickets"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    service_id = Column(Integer, ForeignKey("client_services.id"))
-    creator_id = Column(Integer, ForeignKey("users.id"))
-    assigned_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    
-    category = Column(String) # "Tecnico", "Admin", "Ventas"
-    status = Column(String, default="open") 
-    priority = Column(String, default="medium")
-    
-    title = Column(String)
-    description = Column(Text)
-    public_note = Column(Text, nullable=True)
-    
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+class ClienteEmail(Base):
+    __tablename__ = "clientes_emails"
+    # [cite: 461]
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    customer_id = Column(Integer, ForeignKey("clientes.id"))
+    email = Column(String)
 
-    service = relationship("ClientService", back_populates="tickets")
-    work_orders = relationship("ServiceSheet", back_populates="ticket")
-    creator = relationship("User", foreign_keys=[creator_id])
-    assigned = relationship("User", foreign_keys=[assigned_id])
+class ClienteTelefono(Base):
+    __tablename__ = "clientes_telefonos"
+    # [cite: 462]
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    customer_id = Column(Integer, ForeignKey("clientes.id"))
+    number = Column(String)
 
-class ServiceSheet(Base):
-    __tablename__ = "service_sheets"
+# --- Tablas Técnicas y de Sync ---
+class PPPSecret(Base):
+    __tablename__ = "ppp_secrets"
+    # PK COMPUESTA (name, router_ip) [cite: 116]
+    name = Column(String, primary_key=True)
+    router_ip = Column(String, primary_key=True)
+    password = Column(String)
+    profile = Column(String)
+    service = Column(String)
+    last_caller_id = Column(String, index=True) # MAC
+    comment = Column(String)
+    last_logged_out = Column(String)
     
-    id = Column(Integer, primary_key=True, index=True)
-    ticket_id = Column(Integer, ForeignKey("tickets.id"))
-    author_id = Column(Integer, ForeignKey("users.id"))
-    
-    started_at = Column(DateTime(timezone=True))
-    ended_at = Column(DateTime(timezone=True))
-    signal_power = Column(Float, nullable=True)
-    onu_sn = Column(String, nullable=True)
-    nap_box_data = Column(String, nullable=True)
-    materials_used = Column(JSON, default={})
-    tech_notes = Column(Text)
-    photos_url = Column(JSON, default=[])
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # Definición explícita de PK compuesta para SQLAlchemy
+    __table_args__ = (
+        PrimaryKeyConstraint('name', 'router_ip'),
+    )
 
-    ticket = relationship("Ticket", back_populates="work_orders")
+class SyncStatus(Base):
+    __tablename__ = "sync_status"
+    # [cite: 463]
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    fuente = Column(String)
+    ultima_actualizacion = Column(DateTime(timezone=True), server_default=func.now())
+    estado = Column(String)
+    detalle = Column(String)
