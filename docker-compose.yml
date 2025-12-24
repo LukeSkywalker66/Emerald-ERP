@@ -61,6 +61,25 @@ services:
     depends_on:
       - frontend
       - backend
+  # 5. El Frontend de Beholder (Viejo pero confiable)
+  # Nuevo Servicio: Beholder UI
+  beholder:
+    build: 
+      context: ./beholder_frontend
+      dockerfile: Dockerfile
+    container_name: emerald_beholder
+    restart: always
+    environment:
+      # ACÁ OCURRE LA MAGIA DE INTEGRACIÓN:
+      # Le decimos: "Tu API ya no es la 138...:8500. Tu API es /api (el backend nuevo)"
+      - VITE_API_URL=${BEHOLDER_API_URL:-/api}
+      # Si necesitás la API KEY, la pasás desde el .env principal
+      - VITE_API_KEY=${BEHOLDER_API_KEY} 
+    volumes:
+      - ./beholder_frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:
