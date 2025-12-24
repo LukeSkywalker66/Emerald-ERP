@@ -6,12 +6,8 @@ from src.database import Base
 # --- Tablas de Infraestructura ---
 class Subscriber(Base):
     __tablename__ = "subscribers"
-
-    # ID interno autoincremental (Solución duplicados SmartOLT)
-    id = Column(Integer, primary_key=True, index=True) 
-    
+    id = Column(Integer, primary_key=True, index=True) # ID interno autoincremental (Solución duplicados SmartOLT)
     unique_external_id = Column(String, index=True)
-    
     sn = Column(String)
     olt_name = Column(String)
     olt_id = Column(String)
@@ -19,43 +15,38 @@ class Subscriber(Base):
     port = Column(String)
     onu = Column(String)
     onu_type_id = Column(String)
-    name = Column(String)
     mode = Column(String)
     
     # RELACIONES "BLANDAS" (Sin ForeignKey estricto para evitar trabas)
-    # Importante: Como en Node definiste node_id como String, acá también debe ser String
-    node_id = Column(String, index=True, nullable=True)
-    connection_id = Column(String, index=True, nullable=True)
-    
-    # Agregamos vlan
+    node_id = Column(Integer, index=True, nullable=True)
+    connection_id = Column(Integer, index=True, nullable=True)
     vlan = Column(String, nullable=True)
-    
-    # Campo para el matcheo
     pppoe_username = Column(String, index=True, nullable=True)
+    
 
 class Node(Base):
     __tablename__ = "nodes"
     # Respetamos tus nombres originales
-    node_id = Column(String, primary_key=True) 
+    node_id = Column(Integer, primary_key=True) 
     name = Column(String)
     ip_address = Column(String) # Volvemos a ip_address
     puerto = Column(String)
 
 class Plan(Base):
     __tablename__ = "plans"
-    plan_id = Column(String, primary_key=True)
+    plan_id = Column(Integer, primary_key=True)
     name = Column(String)
     speed = Column(String)
     description = Column(String)
 
 class Connection(Base):
     __tablename__ = "connections"
-    connection_id = Column(String, primary_key=True)
+    connection_id = Column(Integer, primary_key=True)
     pppoe_username = Column(String, index=True)
     customer_id = Column(Integer, index=True) 
-    node_id = Column(String)
-    plan_id = Column(String)
-    direccion = Column(String) # Volvemos a direccion
+    node_id = Column(Integer)
+    plan_id = Column(Integer)
+    direccion = Column(String)
 
 # --- Tablas de Clientes (CRM) ---
 class Cliente(Base):

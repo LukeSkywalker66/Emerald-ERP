@@ -29,7 +29,7 @@ class Database:
             port=port,
             onu=onu,
             onu_type_id=onu_type_id,
-            name=name,
+            pppoe_username=name,
             mode=mode,
             vlan=vlan # Asegurate de pasar este dato si viene
         )
