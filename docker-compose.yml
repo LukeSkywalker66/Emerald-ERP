@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   # 1. Base de Datos
   db:
@@ -5,14 +7,14 @@ services:
     container_name: emerald_db
     restart: always
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: adminpassword
-      POSTGRES_DB: emerald_stock
+      POSTGRES_USER: ${DB_USER}      # Lee del .env
+      POSTGRES_PASSWORD: ${DB_PASSWORD} # Lee del .env
+      POSTGRES_DB: ${DB_NAME}        # Lee del .env
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      # Dejamos la DB solo local por seguridad, o podes usar la variable si queres acceder remoto
-      - "${HOST_IP:-127.0.0.1}:5433:5432"
+      # Mapeo solo a localhost por seguridad, salvo que definas HOST_IP
+      - "${HOST_IP:-127.0.0.1}:5432:5432"
 
   # 2. Backend
   backend:
@@ -21,16 +23,16 @@ services:
     restart: always
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
-      # CAMBIO CLAVE: Variable dinámica para la IP
       - "${HOST_IP:-127.0.0.1}:4001:8000"
     environment:
-      DATABASE_URL: postgresql://admin:adminpassword@db:5432/emerald_stock
+      # Construimos la URL de conexión usando las variables
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
     depends_on:
       - db
     volumes:
       - ./backend:/app
     env_file:
-      - ./backend/config/.env
+      - .env  # Leemos el .env de la raíz
 
   # 3. Frontend
   frontend:
@@ -40,29 +42,25 @@ services:
     container_name: emerald_frontend
     restart: always
     ports:
-      # CAMBIO CLAVE: Variable dinámica para la IP
       - "${HOST_IP:-127.0.0.1}:4000:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      # CAMBIO CRÍTICO 2:
-      # Esto permite que en el servidor definas la IP real (ej: http://192.168.1.50:4001)
-      # Si no, desde otra PC buscaría "localhost" y fallaría.
-      - VITE_API_URL=${VITE_API_URL:-http://localhost:4001}
+      - VITE_API_URL=${VITE_API_URL:-http://${HOST_IP:-localhost}:4001}
       - CHOKIDAR_USEPOLLING=true
     depends_on:
       - backend
 
-  # 4. PgAdmin
+  # 4. PgAdmin (Opcional, útil para dev)
   pgadmin:
     image: dpage/pgadmin4
     container_name: emerald_pgadmin
+    restart: always
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@isp.com
-      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@emerald.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
     ports:
-      # CAMBIO CLAVE: Variable dinámica para la IP
       - "${HOST_IP:-127.0.0.1}:4002:80"
     depends_on:
       - db
