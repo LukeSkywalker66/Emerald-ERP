@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   # 1. Base de Datos
@@ -6,18 +5,14 @@ services:
     image: postgres:15-alpine
     container_name: emerald_db
     restart: always
-    environment: # Lee del .env
+    environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}        
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      # CAMBIO CRÍTICO:
-      # En lugar de usar ${HOST_IP}, forzamos localhost (127.0.0.1).
-      # Esto hace que la DB sea invisible desde internet, 
-      # pero accesible para el túnel SSH.
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5432:5432" # Solo accesible por túnel SSH
 
   # 2. Backend
   backend:
@@ -25,17 +20,15 @@ services:
     container_name: emerald_backend
     restart: always
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
-    ports:
-      - "${HOST_IP:-127.0.0.1}:4001:8000"
+    # YA NO TIENE "ports". Solo es visible por la red interna de Docker.
     environment:
-      # Construimos la URL de conexión usando las variables
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
     depends_on:
       - db
     volumes:
       - ./backend:/app
     env_file:
-      - .env  # Leemos el .env de la raíz
+      - .env
 
   # 3. Frontend
   frontend:
@@ -44,29 +37,30 @@ services:
       dockerfile: Dockerfile
     container_name: emerald_frontend
     restart: always
-    ports:
-      - "${HOST_IP:-127.0.0.1}:4000:5173"
+    # YA NO TIENE "ports".
     volumes:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=${VITE_API_URL:-http://${HOST_IP:-localhost}:4001}
+      # CAMBIO: Ahora sí lee del archivo .env
+      # Si no encuentra la variable, usa '/api' por defecto.
+      - VITE_API_URL=${VITE_API_URL:-/api}
       - CHOKIDAR_USEPOLLING=true
     depends_on:
       - backend
 
-  # # 4. PgAdmin (Opcional, útil para dev)
-  # pgadmin:
-  #   image: dpage/pgadmin4
-  #   container_name: emerald_pgadmin
-  #   restart: always
-  #   environment:
-  #       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
-  #       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
-  #   ports:
-  #     - "127.0.0.1:4002:80"
-  #   depends_on:
-  #     - db
+  # 4. Nginx (El Nuevo Portero)
+  nginx:
+    image: nginx:alpine
+    container_name: emerald_nginx
+    restart: always
+    ports:
+      - "80:80"  # Este es el ÚNICO puerto público HTTP
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - frontend
+      - backend
 
 volumes:
   postgres_data:
