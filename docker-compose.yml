@@ -13,8 +13,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      # Mapeo solo a localhost por seguridad, salvo que definas HOST_IP
-      - "${HOST_IP:-127.0.0.1}:5432:5432"
+      # CAMBIO CRÍTICO:
+      # En lugar de usar ${HOST_IP}, forzamos localhost (127.0.0.1).
+      # Esto hace que la DB sea invisible desde internet, 
+      # pero accesible para el túnel SSH.
+      - "127.0.0.1:5432:5432"
 
   # 2. Backend
   backend:
@@ -52,18 +55,18 @@ services:
     depends_on:
       - backend
 
-  # 4. PgAdmin (Opcional, útil para dev)
-  pgadmin:
-    image: dpage/pgadmin4
-    container_name: emerald_pgadmin
-    restart: always
-    environment:
-        PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
-        PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
-    ports:
-      - "127.0.0.1:4002:80"
-    depends_on:
-      - db
+  # # 4. PgAdmin (Opcional, útil para dev)
+  # pgadmin:
+  #   image: dpage/pgadmin4
+  #   container_name: emerald_pgadmin
+  #   restart: always
+  #   environment:
+  #       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+  #       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+  #   ports:
+  #     - "127.0.0.1:4002:80"
+  #   depends_on:
+  #     - db
 
 volumes:
   postgres_data:
