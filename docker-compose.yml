@@ -19,7 +19,7 @@ services:
     build: ./backend
     container_name: emerald_backend
     restart: always
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8500 --reload
     # YA NO TIENE "ports". Solo es visible por la red interna de Docker.
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
