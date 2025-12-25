@@ -1,22 +1,28 @@
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
-from typing import List, Optional
-from pydantic import BaseModel
+from typing import List
 from datetime import datetime
 
-from database import engine, Base, get_db
-import models
+# Path setup para que Python encuentre 'src'
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+# Imports de Emerald
+from src.database import engine, Base, get_db
+from src import models
+from src import config
+
+# 👇 IMPORTAMOS EL NUEVO SERVICIO (Tu lógica adaptada)
+from src.services import diagnosis as diagnosis_service 
+
+# Inicializar tablas DB
 models.Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Emerald ERP API")
+app = FastAPI(title="Emerald ERP + Beholder")
 
-#origins = ["http://localhost:4000", "http://localhost:5173"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,6 +31,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- MIDDLEWARE DE SEGURIDAD ---
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    # Dejamos pasar libre al Frontend y a la Demo
+    whitelist = [
+        "/docs", "/redoc", "/openapi.json", 
+        "/tickets", "/services_options", # Emerald CRM
+        "/search", "/diagnosis", "/live", "/health", "/" # Beholder UI
+    ]
+    
+    if request.method == "OPTIONS" or any(request.url.path.startswith(p) for p in whitelist):
+        return await call_next(request)
+    
+    # Para bots o scripts externos, pedimos API KEY
+    key = request.headers.get("x-api-key")
+    if getattr(config, 'API_KEY', None) and key != config.API_KEY:
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    
+    return await call_next(request)
+
+from pydantic import BaseModel
 # --- ESQUEMAS DE LECTURA (Lo que sale hacia afuera) ---
 class PlanSchema(BaseModel):
     name: str
@@ -72,42 +99,56 @@ def get_tickets(db: Session = Depends(get_db)):
     tickets = db.query(models.Ticket).options(
         joinedload(models.Ticket.service).joinedload(models.ClientService.client),
         joinedload(models.Ticket.service).joinedload(models.ClientService.plan)
-    ).order_by(models.Ticket.id.desc()).all() # Ordenamos por ID descendente (nuevos arriba)
+    ).order_by(models.Ticket.id.desc()).all()
     return tickets
 
-# NUEVO: Endpoint para llenar el combo de "Seleccionar Servicio/Cliente"
 @app.get("/services_options", response_model=List[ServiceSchema])
 def get_services_options(db: Session = Depends(get_db)):
-    # Traemos solo los servicios activos para que el operador elija
     services = db.query(models.ClientService).options(
         joinedload(models.ClientService.client),
         joinedload(models.ClientService.plan)
     ).all()
     return services
 
-# NUEVO: Endpoint para CREAR el ticket
 @app.post("/tickets", response_model=TicketResponse)
 def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
-    # 1. Creamos el objeto DB
     db_ticket = models.Ticket(
-        title=ticket.title,
-        description=ticket.description,
-        priority=ticket.priority,
-        service_id=ticket.service_id,
-        status="open",          # Por defecto
-        creator_id=1,           # HARDCODE: Asumimos que lo crea el Admin (ID 1)
-        created_at=datetime.now()
+        title=ticket.title, description=ticket.description, priority=ticket.priority,
+        service_id=ticket.service_id, status="open", creator_id=1, created_at=datetime.now()
     )
-    # 2. Guardamos
     db.add(db_ticket)
     db.commit()
     db.refresh(db_ticket)
-    
-    # 3. Importante: Recargamos relaciones para devolver el JSON completo con Cliente/Plan
-    # Si no hacemos esto, el frontend recibe el ticket pero con "service: null" y explota
-    ticket_con_datos = db.query(models.Ticket).options(
+    return db.query(models.Ticket).options(
         joinedload(models.Ticket.service).joinedload(models.ClientService.client),
         joinedload(models.Ticket.service).joinedload(models.ClientService.plan)
     ).filter(models.Ticket.id == db_ticket.id).first()
-    
-    return ticket_con_datos
+
+# ==========================
+# 🔵 SECCIÓN BEHOLDER (Monitor)
+# ==========================
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "system": "Emerald Core + Beholder"}
+
+@app.get("/search")
+def search_endpoint(q: str):
+    # Ahora llamamos al servicio limpio
+    return diagnosis_service.search_clients(q)
+
+@app.get("/diagnosis/{pppoe_user}")
+def diagnosis_endpoint(pppoe_user: str):
+    # La lógica pesada está en src/services/diagnosis.py
+    result = diagnosis_service.consultar_diagnostico(pppoe_user)
+    if "error" in result and not result.get("pppoe_username"):
+         # Si devolvió error puro sin datos parciales, es un 404 real
+         raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+@app.get("/live/{pppoe_user}")
+def live_traffic_endpoint(pppoe_user: str):
+    result = diagnosis_service.get_live_traffic(pppoe_user)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=500, detail=result.get("detail"))
+    return result

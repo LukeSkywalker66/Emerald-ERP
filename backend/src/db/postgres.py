@@ -134,6 +134,90 @@ class Database:
         self.db.add(log)
         self.commit()
 
+    # ------------------ BÚSQUEDA UNIFICADA ------------------
+    def search_client(self, query_str: str) -> list:
+        """
+        Busca clientes en ISPCube, Mikrotik y SmartOLT.
+        Prioriza ISPCube y filtra duplicados de las otras fuentes.
+        Adaptado para PostgreSQL (usa ILIKE).
+        """
+        term = f"%{query_str}%"
+        params = {"term": term}
+        
+        # 1. ISPCube (La fuente de verdad)
+        # Usamos ILIKE para búsqueda insensible a mayúsculas/minúsculas
+        sql_isp = text("""
+            SELECT 
+                c.pppoe_username as pppoe, 
+                cl.name as nombre, 
+                c.direccion as direccion, 
+                cl.id as id, 
+                'ispcube' as origen
+            FROM clientes cl
+            JOIN connections c ON cl.id = c.customer_id
+            WHERE 
+                cl.name ILIKE :term OR 
+                c.direccion ILIKE :term OR 
+                c.pppoe_username ILIKE :term OR 
+                cl.doc_number ILIKE :term
+            LIMIT 50
+        """)
+        
+        # 2. Mikrotik (Datos técnicos crudos)
+        sql_mk = text("""
+            SELECT 
+                name as pppoe, 
+                'No Vinculado' as nombre, 
+                CASE WHEN comment IS NOT NULL AND comment != '' THEN 'MK: ' || comment ELSE 'Sin Datos' END as direccion,
+                0 as id, 
+                'mikrotik' as origen
+            FROM ppp_secrets
+            WHERE name ILIKE :term OR last_caller_id ILIKE :term
+            LIMIT 50
+        """)
+
+        # 3. SmartOLT
+        sql_olt = text("""
+            SELECT 
+                pppoe_username as pppoe, 
+                'No Vinculado' as nombre, 
+                'OLT SN: ' || sn as direccion,
+                0 as id, 
+                'smartolt' as origen
+            FROM subscribers
+            WHERE pppoe_username ILIKE :term OR sn ILIKE :term
+            LIMIT 50
+        """)
+        
+        try:
+            # Ejecución 1: ISPCube
+            result_isp = self.db.execute(sql_isp, params).fetchall()
+            # Convertimos filas de SQLAlchemy a diccionarios
+            rows_isp = [dict(row._mapping) for row in result_isp]
+            
+            # Guardamos los PPPoEs encontrados para no repetirlos
+            pppoes_encontrados = set(r['pppoe'] for r in rows_isp if r['pppoe'])
+            
+            # Ejecución 2: Mikrotik
+            result_mk = self.db.execute(sql_mk, params).fetchall()
+            rows_mk = [dict(row._mapping) for row in result_mk]
+            
+            # Filtramos: Solo agregamos si NO está ya en la lista de ISPCube
+            clean_mk = [r for r in rows_mk if r['pppoe'] not in pppoes_encontrados]
+            
+            # Ejecución 3: SmartOLT
+            result_olt = self.db.execute(sql_olt, params).fetchall()
+            rows_olt = [dict(row._mapping) for row in result_olt]
+            
+            # Filtramos: Solo agregamos si NO está ya en la lista
+            clean_olt = [r for r in rows_olt if r['pppoe'] not in pppoes_encontrados]
+
+            return rows_isp + clean_mk + clean_olt
+
+        except Exception as e:
+            print(f"❌ Error en search_client: {e}")
+            return []
+        
     # --- CONSULTAS (MAIN.PY / DIAGNOSTICO.PY) ---
 
     def get_diagnosis(self, pppoe_user: str) -> dict:
