@@ -3,7 +3,7 @@
 domains=(emerald.2finternet.ar)
 rsa_key_size=4096
 data_path="./data/certbot"
-email="tu_email@ejemplo.com" # <--- CAMBIAR ESTO
+email="lucascaceres@gmail.com" 
 staging=0 # Poner en 1 si estás probando mucho para que no te bloqueen
 
 if [ -d "$data_path" ]; then
