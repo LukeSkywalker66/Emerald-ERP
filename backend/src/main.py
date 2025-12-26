@@ -18,10 +18,27 @@ from src import config
 # 👇 IMPORTAMOS EL NUEVO SERVICIO (Tu lógica adaptada)
 from src.services import diagnosis as diagnosis_service 
 
-# Inicializar tablas DB
-models.Base.metadata.create_all(bind=engine)
+# Ejecutar migraciones Alembic en startup en lugar de create_all
+from alembic import command as alembic_command
+from alembic.config import Config as AlembicConfig
+
+def run_db_migrations():
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # carpeta backend
+    alembic_ini = os.path.join(here, "alembic.ini")
+    alembic_dir = os.path.join(here, "alembic")
+
+    cfg = AlembicConfig(alembic_ini)
+    cfg.set_main_option("script_location", alembic_dir)
+    cfg.set_main_option("sqlalchemy.url", config.SQLALCHEMY_DATABASE_URL)
+
+    alembic_command.upgrade(cfg, "head")
 
 app = FastAPI(title="Emerald ERP + Beholder")
+
+@app.on_event("startup")
+def on_startup():
+    # Corre migraciones Alembic para asegurar esquema actualizado
+    run_db_migrations()
 
 app.add_middleware(
     CORSMiddleware,
@@ -137,14 +154,48 @@ def search_endpoint(q: str):
     # Ahora llamamos al servicio limpio
     return diagnosis_service.search_clients(q)
 
+# @app.get("/diagnosis/{pppoe_user}")
+# def diagnosis_endpoint(pppoe_user: str):
+#     # La lógica pesada está en src/services/diagnosis.py
+#     result = diagnosis_service.consultar_diagnostico(pppoe_user)
+#     if "error" in result and not result.get("pppoe_username"):
+#          # Si devolvió error puro sin datos parciales, es un 404 real
+#          raise HTTPException(status_code=404, detail=result["error"])
+#     return result
 @app.get("/diagnosis/{pppoe_user}")
 def diagnosis_endpoint(pppoe_user: str):
-    # La lógica pesada está en src/services/diagnosis.py
-    result = diagnosis_service.consultar_diagnostico(pppoe_user)
-    if "error" in result and not result.get("pppoe_username"):
-         # Si devolvió error puro sin datos parciales, es un 404 real
-         raise HTTPException(status_code=404, detail=result["error"])
-    return result
+    # 1. Print corregido (usando pppoe_user)
+    print(f"🛑 DEBUG 1: Entrando a diagnóstico para: {pppoe_user}", flush=True)
+    
+    try:
+        # Llamada al servicio
+        result = diagnosis_service.consultar_diagnostico(pppoe_user)
+        
+        # 2. Print corregido (mostramos result, no client)
+        print(f"🛑 DEBUG 2: Servicio respondió. Tipo: {type(result)}", flush=True)
+        print(f"🛑 DEBUG 3: Datos crudos: {result}", flush=True)
+
+        # 3. Validación de seguridad para que no explote si result es None
+        if result is None:
+            print("🔥 DEBUG: El servicio devolvió None!", flush=True)
+            raise HTTPException(status_code=404, detail="Cliente no encontrado (Devolvió None)")
+
+        # Tu lógica original del IF, pero con un print antes para saber si entra
+        if "error" in result and not result.get("pppoe_username"):
+             print(f"⚠️ DEBUG: Entrando al IF de error. Razón: {result.get('error')}", flush=True)
+             raise HTTPException(status_code=404, detail=result["error"])
+        
+        return result
+
+    except Exception as e:
+        # 4. ESTO ES LO QUE BUSCAMOS: El error real de Python (ej: MultipleResultsFound)
+        print(f"🔥🔥🔥 DEBUG CRASH EXCEPTION: {e}", flush=True)
+        import traceback
+        traceback.print_exc() # Esto imprime el choclo de líneas en el log
+        # Devolvemos 500 para verlo en el navegador también
+        raise HTTPException(status_code=500, detail=f"Error interno debuggeando: {str(e)}")
+
+
 
 @app.get("/live/{pppoe_user}")
 def live_traffic_endpoint(pppoe_user: str):

@@ -10,8 +10,9 @@ from alembic import context
 # 1. Agregamos la ruta 'src' para que Python encuentre tus archivos
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 # 2. Importamos la Base (donde se registran las tablas) y los Modelos
-from database import Base, DATABASE_URL
-from models import * # Importante: Esto carga tus clases (User, Ticket, etc)
+from src.database import Base
+from config import SQLALCHEMY_DATABASE_URL
+from src.models import *  # Importante: Esto carga tus clases (User, Ticket, etc)
 # --------------------
 
 # this is the Alembic Config object, which provides
@@ -28,8 +29,8 @@ if config.config_file_name is not None:
 # from myapp import mymodel
 # Le decimos a Alembic que mire nuestros modelos para saber qué tablas crear
 target_metadata = Base.metadata
-# Sobreescribimos la URL del archivo .ini con la real de Docker
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+# Sobreescribimos la URL del archivo .ini con la real configurada
+config.set_main_option("sqlalchemy.url", SQLALCHEMY_DATABASE_URL)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

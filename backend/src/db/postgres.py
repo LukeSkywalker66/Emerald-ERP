@@ -317,8 +317,36 @@ class Database:
     def init_db(self):
         # Reemplaza a [cite: 110]
         # Crea las tablas si no existen
-        models.Base.metadata.create_all(bind=engine)
+        # Ejecuta migraciones Alembic para asegurar el esquema
+        from alembic import command as alembic_command
+        from alembic.config import Config as AlembicConfig
+        import os
+        from src import config as app_config
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # carpeta backend
+        alembic_ini = os.path.join(here, "alembic.ini")
+        alembic_dir = os.path.join(here, "alembic")
+
+        cfg = AlembicConfig(alembic_ini)
+        cfg.set_main_option("script_location", alembic_dir)
+        cfg.set_main_option("sqlalchemy.url", app_config.SQLALCHEMY_DATABASE_URL)
+
+        alembic_command.upgrade(cfg, "head")
 
 # Helper para compatibilidad
 def init_db():
-    models.Base.metadata.create_all(bind=engine)
+    # Ejecuta migraciones Alembic para asegurar el esquema
+    from alembic import command as alembic_command
+    from alembic.config import Config as AlembicConfig
+    import os
+    from src import config as app_config
+
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # carpeta backend
+    alembic_ini = os.path.join(here, "alembic.ini")
+    alembic_dir = os.path.join(here, "alembic")
+
+    cfg = AlembicConfig(alembic_ini)
+    cfg.set_main_option("script_location", alembic_dir)
+    cfg.set_main_option("sqlalchemy.url", app_config.SQLALCHEMY_DATABASE_URL)
+
+    alembic_command.upgrade(cfg, "head")
