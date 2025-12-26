@@ -62,8 +62,11 @@ services:
     restart: always
     ports:
       - "80:80"  # Este es el ÚNICO puerto público HTTP
+      - "443:443"  # <--- AGREGAR ESTO (Puerto Seguro)
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+      # Le permite al contenedor leer los certificados del servidor anfitrión
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - frontend
       - backend
