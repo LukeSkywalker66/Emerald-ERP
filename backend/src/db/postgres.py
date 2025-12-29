@@ -137,24 +137,29 @@ class Database:
     # ------------------ BÚSQUEDA UNIFICADA ------------------
     def search_client(self, query_str: str) -> list:
         """
-        Busca clientes en ISPCube, Mikrotik y SmartOLT.
-        Prioriza ISPCube y filtra duplicados de las otras fuentes.
-        Adaptado para PostgreSQL (usa ILIKE).
+        Busca clientes unificando ISPCube y Mikrotik.
+        Se eliminó SmartOLT (Subscribers) porque si no está en Secrets, no es un servicio activo.
+        
+        LÓGICA DE EXCLUSIÓN (SQL):
+        La query de Mikrotik usa NOT EXISTS para excluir automáticamente 
+        los registros que ya tienen un par (Usuario + IP) idéntico en ISPCube.
         """
         term = f"%{query_str}%"
         params = {"term": term}
         
-        # 1. ISPCube (La fuente de verdad)
-        # Usamos ILIKE para búsqueda insensible a mayúsculas/minúsculas
+        # 1. ISPCube (Prioridad 1 - Administrativo)
         sql_isp = text("""
             SELECT 
                 c.pppoe_username as pppoe, 
                 cl.name as nombre, 
                 c.direccion as direccion, 
                 cl.id as id, 
-                'ispcube' as origen
+                'ispcube' as origen,
+                n.ip_address as nodo_ip,
+                n.name as nodo_nombre
             FROM clientes cl
             JOIN connections c ON cl.id = c.customer_id
+            LEFT JOIN nodes n ON c.node_id = n.node_id
             WHERE 
                 cl.name ILIKE :term OR 
                 c.direccion ILIKE :term OR 
@@ -163,56 +168,41 @@ class Database:
             LIMIT 50
         """)
         
-        # 2. Mikrotik (Datos técnicos crudos)
+        # 2. Mikrotik (Solo huérfanos o duplicados reales)
+        # Excluye lo que ya devolvió la query de arriba (mismo usuario Y misma IP)
         sql_mk = text("""
             SELECT 
-                name as pppoe, 
+                s.name as pppoe, 
                 'No Vinculado' as nombre, 
-                CASE WHEN comment IS NOT NULL AND comment != '' THEN 'MK: ' || comment ELSE 'Sin Datos' END as direccion,
+                CASE 
+                    WHEN s.comment IS NOT NULL AND s.comment != '' THEN 'MK: ' || s.comment 
+                    ELSE 'MK: Sin Datos'
+                END as direccion,
                 0 as id, 
-                'mikrotik' as origen
-            FROM ppp_secrets
-            WHERE name ILIKE :term OR last_caller_id ILIKE :term
+                'mikrotik' as origen,
+                s.router_ip as nodo_ip,
+                'Router ' || COALESCE(s.router_ip, '?') as nodo_nombre
+            FROM ppp_secrets s
+            WHERE s.name ILIKE :term
+            AND NOT EXISTS (
+                SELECT 1 
+                FROM connections c
+                JOIN nodes n ON c.node_id = n.node_id
+                WHERE c.pppoe_username = s.name 
+                  AND n.ip_address = s.router_ip
+            )
             LIMIT 50
         """)
 
-        # 3. SmartOLT
-        sql_olt = text("""
-            SELECT 
-                pppoe_username as pppoe, 
-                'No Vinculado' as nombre, 
-                'OLT SN: ' || sn as direccion,
-                0 as id, 
-                'smartolt' as origen
-            FROM subscribers
-            WHERE pppoe_username ILIKE :term OR sn ILIKE :term
-            LIMIT 50
-        """)
-        
         try:
-            # Ejecución 1: ISPCube
+            # Ejecución
             result_isp = self.db.execute(sql_isp, params).fetchall()
-            # Convertimos filas de SQLAlchemy a diccionarios
             rows_isp = [dict(row._mapping) for row in result_isp]
             
-            # Guardamos los PPPoEs encontrados para no repetirlos
-            pppoes_encontrados = set(r['pppoe'] for r in rows_isp if r['pppoe'])
-            
-            # Ejecución 2: Mikrotik
             result_mk = self.db.execute(sql_mk, params).fetchall()
             rows_mk = [dict(row._mapping) for row in result_mk]
             
-            # Filtramos: Solo agregamos si NO está ya en la lista de ISPCube
-            clean_mk = [r for r in rows_mk if r['pppoe'] not in pppoes_encontrados]
-            
-            # Ejecución 3: SmartOLT
-            result_olt = self.db.execute(sql_olt, params).fetchall()
-            rows_olt = [dict(row._mapping) for row in result_olt]
-            
-            # Filtramos: Solo agregamos si NO está ya en la lista
-            clean_olt = [r for r in rows_olt if r['pppoe'] not in pppoes_encontrados]
-
-            return rows_isp + clean_mk + clean_olt
+            return rows_isp + rows_mk
 
         except Exception as e:
             print(f"❌ Error en search_client: {e}")
@@ -220,16 +210,16 @@ class Database:
         
     # --- CONSULTAS (MAIN.PY / DIAGNOSTICO.PY) ---
 
-    def get_diagnosis(self, pppoe_user: str) -> dict:
-        # Reemplaza la lógica de [cite: 100-108] pero usando ORM Join
-        # Hacemos el query uniendo tablas
-        result = (
+   def get_diagnosis(self, pppoe_user: str, target_router_ip: str = None) -> dict:
+        """
+        Versión 3.0 (Precisión Quirúrgica):
+        Recupera el diagnóstico permitiendo filtrar por IP del router para desambiguar duplicados.
+        """
+        
+        # --- PASO 1: Buscar en Administrativo (Connections) ---
+        row_admin = (
             self.db.query(
-                models.Connection, 
-                models.Cliente, 
-                models.Subscriber, 
-                models.Node, 
-                models.Plan
+                models.Connection, models.Cliente, models.Subscriber, models.Node, models.Plan
             )
             .join(models.Cliente, models.Connection.customer_id == models.Cliente.id)
             .outerjoin(models.Subscriber, models.Connection.pppoe_username == models.Subscriber.pppoe_username)
@@ -239,46 +229,113 @@ class Database:
             .first()
         )
 
-        # Mapeo de respuesta idéntico al original para que el frontend no se rompa
-        if not result:
-            # Fallback a suscriptor suelto [cite: 106]
-            sub = self.db.query(models.Subscriber).filter(models.Subscriber.pppoe_username == pppoe_user).first()
-            if not sub:
-                return {"error": f"Cliente {pppoe_user} no encontrado."}
+        # --- PASO 2: Buscar TODOS los Secrets (Técnico) ---
+        all_secrets = self.db.query(models.PPPSecret).filter(models.PPPSecret.name == pppoe_user).all()
+        
+        selected_secret = None
+
+        # --- Lógica de Selección del Secreto (El Cerebro) ---
+        
+        # ESCENARIO A: Nos pasaron explícitamente qué router mirar (Ideal para 'No Vinculados')
+        if target_router_ip:
+            for sec in all_secrets:
+                if sec.router_ip == target_router_ip:
+                    selected_secret = sec
+                    break
+        
+        # ESCENARIO B: No pasaron IP, pero el cliente está vinculado a un Nodo Administrativo
+        elif row_admin:
+            _, _, _, node, _ = row_admin
+            if node and node.ip_address:
+                # Buscamos el secreto que coincida con el nodo administrativo
+                for sec in all_secrets:
+                    if sec.router_ip == node.ip_address:
+                        selected_secret = sec
+                        break
+        
+        # ESCENARIO C: Fallback (Si falló lo anterior o no hay datos, agarramos el primero)
+        if not selected_secret and all_secrets:
+            selected_secret = all_secrets[0]
+
+
+        # --- PASO 3: Construir Respuesta (Vinculado) ---
+        if row_admin:
+            conn, cliente, sub, node, plan = row_admin
             
-            return {
-                "cliente_nombre": "No Vinculado", "direccion": "N/A", "plan": "N/A",
-                "pppoe_username": pppoe_user, "onu_sn": sub.sn, "Modo": sub.mode,
-                "OLT": sub.olt_name, "nodo_nombre": "Desconocido", "nodo_ip": None,
-                "puerto": None, "unique_external_id": sub.unique_external_id
+            diagnosis = {
+                "unique_external_id": sub.unique_external_id if sub else None,
+                "pppoe_username": conn.pppoe_username,
+                "onu_sn": sub.sn if sub else None,
+                "Modo": sub.mode if sub else None,
+                "OLT": sub.olt_name if sub else None,
+                "nodo_nombre": node.name if node else "Desconocido",
+                "nodo_ip": node.ip_address if node else None,
+                "puerto": node.puerto if node else None,
+                "plan": plan.name if plan else "N/A",
+                "direccion": conn.direccion,
+                "cliente_nombre": cliente.name,
+                "mac": None
             }
+            
+            # Pisamos datos con la realidad del Mikrotik si existe el secreto
+            if selected_secret:
+                diagnosis['mac'] = selected_secret.last_caller_id
+                real_ip = selected_secret.router_ip
+                
+                # Si el secreto está en un router distinto al administrativo, informamos el real
+                if real_ip and (not node or real_ip != node.ip_address):
+                     # Intentamos buscar el nombre del nodo real
+                    real_node = self.db.query(models.Node).filter(models.Node.ip_address == real_ip).first()
+                    if real_node:
+                        diagnosis.update({"nodo_nombre": real_node.name, "nodo_ip": real_node.ip_address, "puerto": real_node.puerto})
+                    else:
+                        diagnosis.update({"nodo_nombre": f"Router {real_ip}", "nodo_ip": real_ip})
 
-        conn, cliente, sub, node, plan = result
+            return diagnosis
 
+        # --- PASO 4: Construir Respuesta (No Vinculado / Fallback Puro) ---
+        
+        # Si no está en administrativo y NO hay secrets, no existe.
+        if not selected_secret:
+             # Opcional: Podrías buscar en subscribers sueltos acá también, pero lo crítico son los secrets
+             return {"error": f"Cliente {pppoe_user} no encontrado."}
+
+        # Armamos el diagnóstico basado puramente en el Secreto seleccionado
         diagnosis = {
-            "unique_external_id": sub.unique_external_id if sub else None,
-            "pppoe_username": conn.pppoe_username,
-            "onu_sn": sub.sn if sub else None,
-            "Modo": sub.mode if sub else None,
-            "OLT": sub.olt_name if sub else None,
-            "nodo_nombre": node.name if node else None,
-            "nodo_ip": node.ip_address if node else None,
-            "puerto": node.puerto if node else None,
-            "plan": plan.name if plan else None,
-            "direccion": conn.direccion,
-            "cliente_nombre": cliente.name
+            "cliente_nombre": "No Vinculado",
+            "direccion": "N/A",
+            "plan": "N/A",
+            "pppoe_username": pppoe_user,
+            "onu_sn": "N/A", "Modo": "N/A", "OLT": "N/A", 
+            "nodo_nombre": f"Router {selected_secret.router_ip}", # Default
+            "nodo_ip": selected_secret.router_ip,
+            "puerto": None,
+            "unique_external_id": None,
+            "mac": selected_secret.last_caller_id
         }
         
-        # Agregamos lógica de router IP real (Secrets) [cite: 102]
-        secret = self.db.query(models.PPPSecret).filter(models.PPPSecret.name == pppoe_user).first()
-        if secret:
-            diagnosis['mac'] = secret.last_caller_id
-            if secret.router_ip and secret.router_ip != diagnosis['nodo_ip']:
-                real_node = self.db.query(models.Node).filter(models.Node.ip_address == secret.router_ip).first()
-                if real_node:
-                    diagnosis.update({"nodo_nombre": real_node.name, "nodo_ip": real_node.ip_address, "puerto": real_node.puerto})
-                else:
-                    diagnosis.update({"nodo_nombre": f"Router {secret.router_ip}", "nodo_ip": secret.router_ip})
+        # Si tiene comentario en Mikrotik, lo usamos como nombre
+        if selected_secret.comment:
+            diagnosis['cliente_nombre'] += f" ({selected_secret.comment})"
+
+        # Intentamos enriquecer el nodo buscando en la tabla Nodes por la IP del secreto
+        if selected_secret.router_ip:
+            real_node = self.db.query(models.Node).filter(models.Node.ip_address == selected_secret.router_ip).first()
+            if real_node:
+                 diagnosis.update({
+                     "nodo_nombre": real_node.name, 
+                     "puerto": real_node.puerto
+                 })
+
+        # Intentamos enriquecer con datos de subscriber (si coincide el pppoe)
+        sub_row = self.db.query(models.Subscriber).filter(models.Subscriber.pppoe_username == pppoe_user).first()
+        if sub_row:
+             diagnosis.update({
+                 "unique_external_id": sub_row.unique_external_id,
+                 "onu_sn": sub_row.sn,
+                 "OLT": sub_row.olt_name,
+                 "Modo": sub_row.mode
+             })
 
         return diagnosis
 
