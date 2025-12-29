@@ -207,16 +207,18 @@ class Database:
         except Exception as e:
             print(f"❌ Error en search_client: {e}")
             return []
-        
+
     # --- CONSULTAS (MAIN.PY / DIAGNOSTICO.PY) ---
 
-   def get_diagnosis(self, pppoe_user: str, target_router_ip: str = None) -> dict:
+    def get_diagnosis(self, pppoe_user: str, target_router_ip: str = None) -> dict:
         """
-        Versión 3.0 (Precisión Quirúrgica):
-        Recupera el diagnóstico permitiendo filtrar por IP del router para desambiguar duplicados.
+        Versión 3.1 (Blindada):
+        Recupera el diagnóstico. Si se especifica IP, asegura que los datos
+        administrativos coincidan con esa IP. Si no, los descarta para evitar mezclar clientes.
         """
         
         # --- PASO 1: Buscar en Administrativo (Connections) ---
+        # Buscamos si existe un 'lmora' oficial que paga el servicio
         row_admin = (
             self.db.query(
                 models.Connection, models.Cliente, models.Subscriber, models.Node, models.Plan
@@ -230,20 +232,31 @@ class Database:
         )
 
         # --- PASO 2: Buscar TODOS los Secrets (Técnico) ---
+        # Traemos todas las sesiones activas en los routers
         all_secrets = self.db.query(models.PPPSecret).filter(models.PPPSecret.name == pppoe_user).all()
         
         selected_secret = None
 
-        # --- Lógica de Selección del Secreto (El Cerebro) ---
+        # --- Lógica de Selección del Secreto ---
         
-        # ESCENARIO A: Nos pasaron explícitamente qué router mirar (Ideal para 'No Vinculados')
+        # ESCENARIO A: Búsqueda Quirúrgica (IP Específica)
         if target_router_ip:
             for sec in all_secrets:
                 if sec.router_ip == target_router_ip:
                     selected_secret = sec
                     break
+            
+            # [NUEVO] VALIDACIÓN DE INTEGRIDAD (Anti-Colisión) 🛡️
+            # Si pedimos diagnosticara al 'lmora' del Router B, pero el sistema administrativo
+            # dice que 'lmora' pertenece al Router A, entonces NO son la misma "persona/servicio".
+            # Ignoramos el dato administrativo para no mostrar info cruzada.
+            if row_admin:
+                _, _, _, node, _ = row_admin
+                # Si el nodo administrativo tiene IP y es distinta a la que pedimos...
+                if node and node.ip_address and node.ip_address != target_router_ip:
+                    row_admin = None  # <--- Forzamos modo "No Vinculado"
         
-        # ESCENARIO B: No pasaron IP, pero el cliente está vinculado a un Nodo Administrativo
+        # ESCENARIO B: Búsqueda General (Sin IP) - Comportamiento Clásico
         elif row_admin:
             _, _, _, node, _ = row_admin
             if node and node.ip_address:
@@ -253,12 +266,14 @@ class Database:
                         selected_secret = sec
                         break
         
-        # ESCENARIO C: Fallback (Si falló lo anterior o no hay datos, agarramos el primero)
+        # ESCENARIO C: Fallback
         if not selected_secret and all_secrets:
+            # Si a pesar de todo no elegimos uno (ej: la IP pedida no tenía secret, o no hay admin),
+            # agarramos el primero que venga.
             selected_secret = all_secrets[0]
 
 
-        # --- PASO 3: Construir Respuesta (Vinculado) ---
+        # --- PASO 3: Construir Respuesta (Vinculado / Oficial) ---
         if row_admin:
             conn, cliente, sub, node, plan = row_admin
             
@@ -277,14 +292,16 @@ class Database:
                 "mac": None
             }
             
-            # Pisamos datos con la realidad del Mikrotik si existe el secreto
+            # Enriquecemos con datos técnicos si matcheó el secreto
             if selected_secret:
                 diagnosis['mac'] = selected_secret.last_caller_id
-                real_ip = selected_secret.router_ip
+                # Acá NO sobreescribimos nodo_ip si difiere, porque en teoría
+                # ya validamos arriba que coincidan o decidimos usar row_admin.
+                # Salvo el caso de "Movimiento no registrado" (Escenario B).
                 
-                # Si el secreto está en un router distinto al administrativo, informamos el real
+                real_ip = selected_secret.router_ip
                 if real_ip and (not node or real_ip != node.ip_address):
-                     # Intentamos buscar el nombre del nodo real
+                     # Solo entra acá si NO pasamos target_ip (Escenario B - Cliente se mudó)
                     real_node = self.db.query(models.Node).filter(models.Node.ip_address == real_ip).first()
                     if real_node:
                         diagnosis.update({"nodo_nombre": real_node.name, "nodo_ip": real_node.ip_address, "puerto": real_node.puerto})
@@ -295,30 +312,30 @@ class Database:
 
         # --- PASO 4: Construir Respuesta (No Vinculado / Fallback Puro) ---
         
-        # Si no está en administrativo y NO hay secrets, no existe.
+        # Si llegamos acá es porque:
+        # A) No existe en Admin.
+        # B) Existe en Admin pero pedimos UNA IP DISTINTA (conflicto).
+        
         if not selected_secret:
-             # Opcional: Podrías buscar en subscribers sueltos acá también, pero lo crítico son los secrets
-             return {"error": f"Cliente {pppoe_user} no encontrado."}
+             return {"error": f"Cliente {pppoe_user} no encontrado en router {target_router_ip or 'cualquiera'}."}
 
-        # Armamos el diagnóstico basado puramente en el Secreto seleccionado
         diagnosis = {
             "cliente_nombre": "No Vinculado",
             "direccion": "N/A",
             "plan": "N/A",
             "pppoe_username": pppoe_user,
             "onu_sn": "N/A", "Modo": "N/A", "OLT": "N/A", 
-            "nodo_nombre": f"Router {selected_secret.router_ip}", # Default
+            "nodo_nombre": f"Router {selected_secret.router_ip}",
             "nodo_ip": selected_secret.router_ip,
             "puerto": None,
             "unique_external_id": None,
             "mac": selected_secret.last_caller_id
         }
         
-        # Si tiene comentario en Mikrotik, lo usamos como nombre
         if selected_secret.comment:
             diagnosis['cliente_nombre'] += f" ({selected_secret.comment})"
 
-        # Intentamos enriquecer el nodo buscando en la tabla Nodes por la IP del secreto
+        # Intentamos ponerle nombre lindo al nodo
         if selected_secret.router_ip:
             real_node = self.db.query(models.Node).filter(models.Node.ip_address == selected_secret.router_ip).first()
             if real_node:
@@ -327,7 +344,7 @@ class Database:
                      "puerto": real_node.puerto
                  })
 
-        # Intentamos enriquecer con datos de subscriber (si coincide el pppoe)
+        # Buscamos si hay una ONT suelta con ese usuario (SmartOLT)
         sub_row = self.db.query(models.Subscriber).filter(models.Subscriber.pppoe_username == pppoe_user).first()
         if sub_row:
              diagnosis.update({

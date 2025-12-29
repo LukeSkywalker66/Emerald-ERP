@@ -3,7 +3,7 @@ from src.clients import mikrotik, smartolt
 from src import config
 from src.config import logger
 
-def consultar_diagnostico(pppoe_user: str) -> dict:
+def consultar_diagnostico(pppoe_user: str, ip: str = None) -> dict:
     """
     Orquesta el diagnóstico:
     1. Busca datos base en DB (Postgres).
@@ -14,7 +14,7 @@ def consultar_diagnostico(pppoe_user: str) -> dict:
     try:
         # 1. Base de datos (Postgres)
         # Este método ya lo definimos en postgres.py y devuelve el dict estandarizado
-        base = db.get_diagnosis(pppoe_user)
+        base = db.get_diagnosis(pppoe_user, target_router_ip=ip)
         
         if "error" in base:
             return base

@@ -163,13 +163,13 @@ def search_endpoint(q: str):
 #          raise HTTPException(status_code=404, detail=result["error"])
 #     return result
 @app.get("/diagnosis/{pppoe_user}")
-def diagnosis_endpoint(pppoe_user: str):
+def diagnosis_endpoint(pppoe_user: str, ip: Optional[str] = None):
     # 1. Print corregido (usando pppoe_user)
     print(f"🛑 DEBUG 1: Entrando a diagnóstico para: {pppoe_user}", flush=True)
     
     try:
         # Llamada al servicio
-        result = diagnosis_service.consultar_diagnostico(pppoe_user)
+        result = diagnosis_service.consultar_diagnostico(pppoe_user: str, ip: Optional[str] = None)
         
         # 2. Print corregido (mostramos result, no client)
         print(f"🛑 DEBUG 2: Servicio respondió. Tipo: {type(result)}", flush=True)
