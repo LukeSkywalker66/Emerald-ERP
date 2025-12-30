@@ -24,12 +24,23 @@ def get_ticket_service(db: Session = Depends(get_db)) -> TicketService:
     return TicketService(repo, db)
 
 
+def _ensure_can_read(user):
+    # Placeholder de permisos: en futuro validar role/permissions
+    return True
+
+
+def _ensure_can_write(user):
+    # Placeholder de permisos: en futuro validar role/permissions
+    return True
+
+
 @router.post("/", response_model=TicketOut, status_code=status.HTTP_201_CREATED)
 def create_ticket(
     payload: TicketCreate,
     current_user=Depends(get_current_user),
     service: TicketService = Depends(get_ticket_service),
 ):
+    _ensure_can_write(current_user)
     ticket = service.create_ticket(payload, creator_id=current_user.id)
     return ticket
 
@@ -40,6 +51,7 @@ def get_ticket_detail(
     current_user=Depends(get_current_user),
     service: TicketService = Depends(get_ticket_service),
 ):
+    _ensure_can_read(current_user)
     ticket = service.ticket_repo.get_ticket_with_details(ticket_id)
     if not ticket:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
@@ -53,6 +65,7 @@ def add_comment(
     current_user=Depends(get_current_user),
     service: TicketService = Depends(get_ticket_service),
 ):
+    _ensure_can_write(current_user)
     if payload.event_type != TicketEventType.COMMENT:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="event_type must be COMMENT")
     ticket = service.add_comment(ticket_id, payload, current_user.id)
@@ -66,6 +79,7 @@ def change_status(
     current_user=Depends(get_current_user),
     service: TicketService = Depends(get_ticket_service),
 ):
+    _ensure_can_write(current_user)
     if data.status is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="status is required")
     ticket = service.change_status(ticket_id, data.status, current_user.id)
