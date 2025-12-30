@@ -18,6 +18,7 @@ from src.database import engine, Base, get_db
 from src import models
 from src import config
 from src.services.api_key_service import APIKeyService
+from src.routers.v1 import auth
 
 # 👇 IMPORTAMOS EL NUEVO SERVICIO (Tu lógica adaptada)
 from src.services import diagnosis as diagnosis_service 
@@ -43,6 +44,13 @@ def run_db_migrations():
 
 app = FastAPI(title="Emerald ERP + Beholder")
 
+# Incluir routers v1
+app.include_router(
+    auth.router,
+    prefix="/api/v1",
+    tags=["Authentication"]
+)
+
 @app.on_event("startup")
 def on_startup():
     # 1. Validar configuración
@@ -52,8 +60,8 @@ def on_startup():
     
     log_configuration_summary()
     
-    # 2. Corre migraciones Alembic para asegurar esquema actualizado
-    run_db_migrations()
+    # 2. Migraciones Alembic ya se ejecutaron en Docker
+    # No ejecutar aquí para evitar cuelgues en desarrollo
 
 app.add_middleware(
     CORSMiddleware,
@@ -85,6 +93,8 @@ async def security_middleware(request: Request, call_next):
         "/api/live",          # Beholder - tráfico vivo
         "/api/health",        # Health check
         "/health",            # Health check (sin /api)
+        "/api/v1/auth/login", # Auth - login
+        "/api/v1/auth/register", # Auth - registro
         "/"                   # Root
     ]
     

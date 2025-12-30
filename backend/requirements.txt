@@ -4,8 +4,8 @@ sqlalchemy
 psycopg2-binary
 alembic
 python-dotenv
-pydantic
-passlib[bcrypt]
+pydantic[email]
+passlib[argon2]
 bcrypt==4.0.1
 requests==2.32.3   
 routeros-api==0.21.0    
@@ -14,3 +14,4 @@ loguru==0.7.2
 celery
 redis
 python-jose[cryptography]
+python-multipart

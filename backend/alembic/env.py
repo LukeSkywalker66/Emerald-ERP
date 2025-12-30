@@ -9,10 +9,25 @@ from alembic import context
 
 # 1. Agregamos la ruta 'src' para que Python encuentre tus archivos
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
-# 2. Importamos la Base (donde se registran las tablas) y los Modelos
-from src.database import Base
+
+# 2. Importar AMBAS bases de datos (vieja y nueva arquitectura)
+# Base vieja (para mantener tablas existentes)
+from src.database import Base as OldBase
+from src.models import *  # Modelos antiguos (Ticket, Service, Client, etc.)
+
+# Base nueva (para agregar usuarios y roles)
+from src.database.base import Base as NewBase
+from src.models.user import Role, User  # Modelos nuevos
+
+# Combinar metadata de ambas bases
+from sqlalchemy import MetaData
+combined_metadata = MetaData()
+for table in OldBase.metadata.tables.values():
+    table.to_metadata(combined_metadata)
+for table in NewBase.metadata.tables.values():
+    table.to_metadata(combined_metadata)
+
 from config import SQLALCHEMY_DATABASE_URL
-from src.models import *  # Importante: Esto carga tus clases (User, Ticket, etc)
 # --------------------
 
 # this is the Alembic Config object, which provides
@@ -28,7 +43,7 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 # from myapp import mymodel
 # Le decimos a Alembic que mire nuestros modelos para saber qué tablas crear
-target_metadata = Base.metadata
+target_metadata = combined_metadata
 # Sobreescribimos la URL del archivo .ini con la real configurada
 config.set_main_option("sqlalchemy.url", SQLALCHEMY_DATABASE_URL)
 

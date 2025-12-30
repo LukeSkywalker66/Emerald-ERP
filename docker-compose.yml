@@ -26,6 +26,7 @@ services:
     restart: always
     ports:
       - "5678:5678"  # <---  (Puerto del Debugger)
+      - "8500:8500"  # <--- (API Backend)
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       TZ: America/Argentina/Buenos_Aires  # Sincronizar logs con hora local

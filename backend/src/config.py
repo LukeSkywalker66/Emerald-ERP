@@ -106,6 +106,17 @@ ISPCUBE_USER = os.getenv("ISPCUBE_USER")
 ISPCUBE_PASSWORD = os.getenv("ISPCUBE_PASSWORD")
 ISPCUBE_CLIENTID = os.getenv("ISPCUBE_CLIENTID")
 
+# --- SEGURIDAD Y AUTENTICACIÓN ---
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    import secrets
+    SECRET_KEY = secrets.token_urlsafe(32)
+    logger = logging.getLogger("Emerald.Config")
+    logger.warning("⚠️ SECRET_KEY no configurada. Generando clave temporal (NO USAR EN PRODUCCIÓN)")
+
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+
 # --- CONFIGURACIÓN DE LOGGING ---
 # Usamos BASE_DIR para ubicar la carpeta de logs dentro de backend/data/logs
 BACKEND_DIR = Path(__file__).resolve().parent.parent
