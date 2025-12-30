@@ -1,0 +1,4269 @@
+--- CONTEXTO DEL PROYECTO ---
+Estructura de archivos aplanada para análisis.
+
+
+==================================================
+ARCHIVO: TODO_EL_PROYECTO.txt
+==================================================
+
+
+==================================================
+ARCHIVO: README.md
+==================================================
+💎 Emerald ERP
+Sistema de Gestión Integral para ISP (Internet Service Providers)
+
+📖 Descripción
+
+Emerald ERP es una plataforma moderna diseñada para administrar la operación técnica y comercial de un ISP. Integra la gestión de clientes, planes de servicio, tickets de soporte técnico y órdenes de trabajo en una sola interfaz unificada.
+
+El sistema está construido con una arquitectura de microservicios contenerizados, utilizando FastAPI para un backend de alto rendimiento y React (Vite) para una experiencia de usuario fluida.
+
+🚀 Stack Tecnológico
+
+- Infraestructura: Docker & Docker Compose
+- Base de Datos: PostgreSQL 15 (Persistencia)
+- Backend: Python 3.11 + FastAPI + SQLAlchemy + Alembic
+- Frontend: React 19 + Vite + Bootstrap 
+
+5📂 Estructura del Proyecto
+
+emerald-erp/
+├── backend/
+│   ├── src/
+│   │   ├── main.py          # Entry point de la API
+│   │   ├── models.py        # Esquema de Base de Datos (ORM)
+│   │   ├── database.py      # Configuración de conexión Postgres
+│   │   ├── populate.py      # Script de semillas (Seed Data)
+│   │   └── ...
+│   ├── alembic/             # Migraciones de base de datos
+│   ├── Dockerfile           # Definición del contenedor Python
+│   └── requirements.txt     # Dependencias
+├── frontend/
+│   ├── src/                 # Código fuente React
+│   ├── Dockerfile           # Definición del contenedor Node
+│   └── package.json
+├── docker-compose.yml       # Orquestación de servicios
+└── README.md
+
+
+⚡ Guía de Inicio Rápido (Local)
+
+1. Requisitos
+
+- Docker y Docker Compose instalados.
+- Git.
+
+2. InstalaciónBash# 
+    1. Clonar el repositorio
+    - git clone https://github.com/LukeSkywalker66/Emerald-ERP.git
+    - cd emerald-erp
+
+    # 2. Configurar variables de entorno (Opcional, docker-compose tiene defaults)
+    # El sistema usará por defecto user: admin, pass: adminpassword
+
+    # 3. Levantar la infraestructura
+    - docker-compose up --build -d
+    
+3. Inicialización de Datos
+Una vez que los contenedores estén corriendo, necesitamos crear las tablas y cargar datos de prueba.
+Bash
+# Ejecutar el script de población dentro del contenedor de backend
+docker-compose exec backend python src/populate.py
+
+4. Acceso al Sistema
+Servicio            URL                                     LocalCredenciales (Demo)
+Frontend (App)      http://localhost:4000                   N/A
+Backend (API)       http://localhost:4001                   N/A
+Documentación API   http://localhost:4001/docs              N/A
+PgAdmin(DB)         http://localhost:4002                   admin@isp.com / admin
+
+🛠 Comandos Útiles
+Ver logs del backend:
+Bash
+docker-compose logs -f backend
+
+Generar una nueva migración (tras cambios en models.py):
+Bash
+docker-compose exec backend alembic revision --autogenerate -m "descripcion_cambio"
+docker-compose exec backend alembic upgrade head
+
+Reiniciar todo desde cero (borrar BD):
+Bash
+docker-compose down -v
+docker-compose up --build -d
+
+==================================================
+ARCHIVO: docker-compose.yml
+==================================================
+
+services:
+  # 1. Base de Datos
+  db:
+    image: postgres:15-alpine
+    container_name: emerald_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s      # Preguntar cada 5 segundos
+      timeout: 5s       # Si tarda más de 5s en responder, falló
+      retries: 5        # Intentar 5 veces antes de rendirse
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432" # Solo accesible por túnel SSH
+
+  # 2. Backend
+  backend:
+    build: ./backend
+    container_name: emerald_backend
+    restart: always
+    ports:
+      - "5678:5678"  # <---  (Puerto del Debugger)
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db:
+        condition: service_healthy  # <--- LA CLAVE MÁGICA
+    volumes:
+      - ./backend:/app
+    env_file:
+      - .env
+
+  # 3. Frontend
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: emerald_frontend
+    restart: always
+    # YA NO TIENE "ports".
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      # CAMBIO: Ahora sí lee del archivo .env
+      # Si no encuentra la variable, usa '/api' por defecto.
+      - VITE_API_URL=${VITE_API_URL:-/api}
+      - CHOKIDAR_USEPOLLING=true
+    depends_on:
+      - backend
+
+  # 4. Nginx (El Nuevo Portero)
+  nginx:
+    image: nginx:alpine
+    container_name: emerald_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./data/certbot/conf:/etc/letsencrypt  # <--- Donde se guardan los certs
+      - ./data/certbot/www:/var/www/certbot   # <--- Donde se valida el desafío
+    depends_on:
+      - frontend
+      - backend
+
+  certbot:
+    image: certbot/certbot
+    container_name: emerald_certbot
+    volumes:
+      - ./data/certbot/conf:/etc/letsencrypt
+      - ./data/certbot/www:/var/www/certbot
+    # Este comando renueva certificados automáticamente cada 12hs
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done;'"
+  # 5. El Frontend de Beholder (Viejo pero confiable)
+  # Nuevo Servicio: Beholder UI
+  beholder:
+    build: 
+      context: ./beholder_frontend
+      dockerfile: Dockerfile
+    container_name: emerald_beholder
+    restart: always
+    environment:
+      # ACÁ OCURRE LA MAGIA DE INTEGRACIÓN:
+      # Le decimos: "Tu API ya no es la 138...:8500. Tu API es /api (el backend nuevo)"
+      - VITE_API_URL=${BEHOLDER_API_URL:-/api}
+      # Si necesitás la API KEY, la pasás desde el .env principal
+      - VITE_API_KEY=${BEHOLDER_API_KEY} 
+    volumes:
+      - ./beholder_frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+
+==================================================
+ARCHIVO: init-letsencrypt.sh
+==================================================
+#!/bin/bash
+
+domains=(emerald.2finternet.ar)
+rsa_key_size=4096
+data_path="./data/certbot"
+email="lucascaceres@gmail.com" 
+staging=0 # Poner en 1 si estás probando mucho para que no te bloqueen
+
+if [ -d "$data_path" ]; then
+  read -p "Ya existen datos de certificados. ¿Quieres reemplazarlos? (y/N) " decision
+  if [ "$decision" != "Y" ] && [ "$decision" != "y" ]; then
+    exit
+  fi
+fi
+
+if [ ! -e "$data_path/conf/options-ssl-nginx.conf" ] || [ ! -e "$data_path/conf/ssl-dhparams.pem" ]; then
+  echo "### Descargando parámetros de seguridad recomendados..."
+  mkdir -p "$data_path/conf"
+  curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf > "$data_path/conf/options-ssl-nginx.conf"
+  curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot/certbot/ssl-dhparams.pem > "$data_path/conf/ssl-dhparams.pem"
+fi
+
+echo "### Creando certificado dummy para $domains ..."
+path="/etc/letsencrypt/live/$domains"
+mkdir -p "$data_path/conf/live/$domains"
+docker compose run --rm --entrypoint "\
+  openssl req -x509 -nodes -newkey rsa:$rsa_key_size -days 1\
+    -keyout '$path/privkey.pem' \
+    -out '$path/fullchain.pem' \
+    -subj '/CN=localhost'" certbot
+
+echo "### Iniciando nginx ..."
+docker compose up --force-recreate -d nginx
+echo
+
+echo "### Borrando certificado dummy ..."
+docker compose run --rm --entrypoint "\
+  rm -Rf /etc/letsencrypt/live/$domains && \
+  rm -Rf /etc/letsencrypt/archive/$domains && \
+  rm -Rf /etc/letsencrypt/renewal/$domains.conf" certbot
+echo
+
+echo "### Solicitando certificado Let's Encrypt ..."
+# Unirse dominios
+domain_args=""
+for domain in "${domains[@]}"; do
+  domain_args="$domain_args -d $domain"
+done
+
+# Seleccionar modo staging o producción
+case "$staging" in
+  0) email_arg="--email $email" ;;
+  1) email_arg="--register-unsafely-without-email" ;;
+esac
+
+if [ $staging != "0" ]; then staging_arg="--staging"; fi
+
+docker compose run --rm --entrypoint "\
+  certbot certonly --webroot -w /var/www/certbot \
+    $staging_arg \
+    $email_arg \
+    $domain_args \
+    --rsa-key-size $rsa_key_size \
+    --agree-tos \
+    --force-renewal" certbot
+echo
+
+echo "### Recargando nginx ..."
+docker compose exec nginx nginx -s reload
+
+==================================================
+ARCHIVO: ROADMAP.md
+==================================================
+# 🗺️ Roadmap de Mejoras - Emerald ERP
+
+## 🎯 Prioridad Alta
+
+### Backend/API
+- [ ] Reemplazar `Base.metadata.create_all` por migraciones Alembic en startup
+- [ ] Restringir CORS: eliminar `allow_origins=["*"]` y definir lista por entorno
+- [ ] Implementar autenticación básica (API key/token) en endpoints de tickets
+- [ ] Estandarizar validación Pydantic con enums para `priority`/`status`
+- [ ] Manejo estructurado de errores con `HTTPException` y logging consistente
+- [ ] Añadir paginación a `/tickets` y `/services_options`
+
+### Data Sync / Integraciones
+- [ ] Reemplazar "tierra quemada" por upserts incrementales con control de cambios
+- [ ] Implementar retry con backoff exponencial en clientes externos
+- [ ] Añadir timeouts explícitos y rate limiting en APIs externas
+- [ ] Proteger secretos: no loggear tokens, implementar rotación de cache
+- [ ] Persistir estado de sincronización para reintentos parciales
+
+### DevEx/Infra
+- [ ] Crear `.env.example` con documentación de variables requeridas
+- [ ] Configurar pipeline CI básico (lint + tests + build)
+- [ ] Añadir healthcheck endpoints en backend
+- [ ] Configurar `depends_on` + `healthcheck` en docker-compose
+- [ ] Implementar pre-commit hooks (black/isort/ruff para Python)
+
+## 🔄 Prioridad Media
+
+### Backend
+- [ ] Migrar a async/await (FastAPI + `async_sessionmaker`)
+- [ ] Mover operaciones IO bloqueantes a `run_in_threadpool`
+- [ ] Añadir filtros avanzados en endpoints de listado
+- [ ] Implementar soft deletes en tablas críticas
+
+### Base de Datos
+- [ ] Formalizar Foreign Keys donde corresponda
+- [ ] Añadir índices compuestos para queries frecuentes
+- [ ] Implementar particionado en tablas de alto crecimiento
+- [ ] Reemplazar `clear_table` por transacciones ACID optimizadas
+- [ ] Considerar `TRUNCATE ... CASCADE` según volumen
+
+### Frontend Tickets (React/Vite)
+- [ ] Migrar a TypeScript
+- [ ] Implementar React Query para caching y gestión de estado
+- [ ] Centralizar cliente HTTP con manejo de errores
+- [ ] Validar formularios y mostrar errores de red en UI
+- [ ] Separar componentes (tabla, modales, KPIs) en archivos independientes
+- [ ] Añadir protección ante datos null/undefined en modales
+
+### Frontend Beholder
+- [ ] Añadir estados de loading/error con skeletons
+- [ ] Tipar `resultData` y props de componentes
+- [ ] Implementar tests de componentes críticos
+- [ ] Unificar tema/diseño con sistema de tokens
+
+## 📊 Prioridad Baja
+
+### Observabilidad
+- [ ] Implementar métricas por fuente de datos (Prometheus/Grafana)
+- [ ] Añadir distributed tracing (OpenTelemetry)
+- [ ] Configurar alertas automáticas por fallos de sync
+- [ ] Dashboard de salud del sistema
+
+### Testing
+- [ ] Alcanzar 70%+ coverage en backend
+- [ ] Tests de integración para jobs de sync
+- [ ] Tests E2E para flujos críticos de frontend
+- [ ] Contract testing para APIs externas
+
+### Arquitectura
+- [ ] Evaluar separación de jobs de sync en servicio independiente
+- [ ] Implementar message queue para tareas asíncronas (Celery/RQ)
+- [ ] Considerar API Gateway para unificar frontends
+- [ ] Documentar arquitectura y flujos de datos
+
+### Data/Modelado
+- [ ] Crear capa de transformers para datos externos
+- [ ] Implementar validación de schemas externos
+- [ ] Auditoría de cambios en tablas críticas
+- [ ] Versionado de configuraciones de sync
+
+## 🚀 Quick Wins
+
+- [ ] Añadir logging con rotación automática
+- [ ] Documentar comandos útiles en README
+- [ ] Crear script de setup inicial para desarrollo local
+- [ ] Añadir ejemplos de .env para diferentes entornos
+- [ ] Configurar prettier/eslint en frontends
+- [ ] Añadir badges de CI/coverage en README
+
+---
+
+**Última actualización:** 26 de diciembre de 2025  
+**Versión:** 1.0
+
+
+==================================================
+ARCHIVO: feeback_copilot.md
+==================================================
+Proyecto contenerizado con FastAPI + SQLAlchemy en main.py y tareas de sincronización contra ISPCube, Mikrotik y SmartOLT en sync.py; modelo de datos definido en models.py.
+Configuración centralizada vía .env en config.py; conexión Postgres en database.py.
+Frontend de tickets en React/Vite (Bootstrap) en App.jsx; segundo frontend “Beholder” en App.tsx para diagnóstico centralizado.
+Orquestación con docker-compose (Postgres, backend, frontends, nginx).
+Mejoras sugeridas (eficiencia y profesionalismo)
+
+Backend/API
+
+Reemplazar Base.metadata.create_all en main.py por migraciones Alembic en el startup para no desalinear schema entre entornos.
+Evitar CORS * y definir allow_origins por entorno; agregar auth mínima (token/API key) en endpoints de tickets.
+Estandarizar respuestas y validación Pydantic (enums para priority/status, constraints de longitudes); manejar 4xx/5xx con HTTPException y logging estructurado.
+Convertir a async (FastAPI + async_sessionmaker) o, al menos, mover IO externo a hilos (run_in_threadpool) para no bloquear el loop.
+Añadir paginación/ filtros a /tickets y /services_options para evitar cargas completas en vistas y en DB.
+Data sync / Integraciones
+
+Los jobs en sync.py hacen “tierra quemada” y bloqueante; introducir upserts por lotes, control de cambios (checksum/updated_at) y backoff con retries.
+Encapsular API externas con límites de rate y timeouts explícitos; añadir métricas y trazas por fuente (SmartOLT/ISPCube/Mikrotik) para observabilidad.
+Proteger secretos: no loggear tokens; rotar _token_cache con expiración y persistir estado de sync (última página/offset) para reintentos parciales.
+DB/modelado
+
+Formalizar FKs donde aplique (ej. clientes/emails/teléfonos) y añadir índices compuestos usados en búsquedas (pppoe_username, node_id+plan_id).
+Mover lógica de mapeo y validación de datos externos a capas separadas (transformers) y cubrirlas con tests unitarios.
+Reemplazar clear_table masivo por transacciones ACID con TRUNCATE ... CASCADE o DELETE + VACUUM según volumen, y usar particionado si las tablas crecen (ppp_secrets, subscribers).
+Frontend tickets (Vite React)
+
+Centralizar cliente HTTP y estados de carga/error; considerar React Query para caching de /tickets y /services_options.
+Validar formularios y mostrar errores de red en UI; hoy los fetch no manejan status ≠ 200.
+Tipar el modelo (TypeScript o al menos PropTypes) para tickets/services; separar componentes (tabla, modal, KPIs).
+Leer VITE_API_URL desde .env y documentar defaults; añadir protección ante service: null en modales.
+Frontend Beholder
+
+Añadir manejo de loading/error y skeletons en App.tsx; tipar resultData y las props en componentes.
+Unificar diseño/tema y reutilizar tokens de estilo; incorporar tests de componentes críticos.
+DevEx/infra
+
+Añadir .env.example y documentación de variables (ISPCube/Mikrotik/SmartOLT); pipeline CI (lint + tests + build) para backend y ambos frontends.
+Logging con rotación y niveles por módulo; healthcheck endpoints para backend y scripts docker-compose con depends_on + healthcheck.
+Incorporar pre-commit (black/isort/ruff para Python; eslint/prettier para JS/TS) y coverage mínimo en tests.
+Posibles siguientes pasos
+
+Definir CI básico (lint + tests + build) y .env.example.
+Endurecer API (CORS restringido, auth mínima, validaciones).
+Refactor de jobs de sync con upserts, retries y métricas.
+Mejorar frontend de tickets con React Query y manejo de errores.
+
+==================================================
+ARCHIVO: docs/adr/001-implementacion-ssl.md.md
+==================================================
+
+
+==================================================
+ARCHIVO: .github/workflows/deploy.yml
+==================================================
+name: Deploy to Production
+
+# ¿Cuándo se ejecuta? Cuando hay un push a la rama 'master'
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            # Comandos que GitHub ejecutará en tu Debian:
+            cd /home/administrador/apps/emerald-erp
+            git pull origin master
+            docker compose up -d --build
+            # Opcional: Limpiar imágenes viejas para ahorrar espacio
+            docker image prune -f
+
+==================================================
+ARCHIVO: frontend/eslint.config.js
+==================================================
+import js from '@eslint/js'
+import globals from 'globals'
+import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
+import { defineConfig, globalIgnores } from 'eslint/config'
+
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{js,jsx}'],
+    extends: [
+      js.configs.recommended,
+      reactHooks.configs.flat.recommended,
+      reactRefresh.configs.vite,
+    ],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: globals.browser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        ecmaFeatures: { jsx: true },
+        sourceType: 'module',
+      },
+    },
+    rules: {
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+    },
+  },
+])
+
+
+==================================================
+ARCHIVO: frontend/package.json
+==================================================
+{
+  "name": "app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "vite": "^7.2.4"
+  }
+}
+
+
+==================================================
+ARCHIVO: frontend/vite.config.js
+==================================================
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    host: true,        // Escuchar en 0.0.0.0 (Para Docker)
+    allowedHosts: true // 👈 LA CLAVE: Permitir cualquier dominio (emerald.2finternet.ar)
+  }
+})
+
+
+==================================================
+ARCHIVO: frontend/Dockerfile
+==================================================
+FROM node:22-alpine
+WORKDIR /app
+COPY package.json .
+RUN npm install
+# Exponemos el puerto de Vite
+EXPOSE 5173
+COPY . .
+CMD ["npm", "run", "dev", "--", "--host"]
+
+
+
+
+
+
+==================================================
+ARCHIVO: frontend/index.html
+==================================================
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Emerald ERP</title>
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+
+==================================================
+ARCHIVO: frontend/src/main.jsx
+==================================================
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App.jsx'
+
+createRoot(document.getElementById('root')).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+)
+
+
+==================================================
+ARCHIVO: frontend/src/index.css
+==================================================
+:root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  font-weight: 500;
+  color: #646cff;
+  text-decoration: inherit;
+}
+a:hover {
+  color: #535bf2;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+button:hover {
+  border-color: #646cff;
+}
+button:focus,
+button:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+  a:hover {
+    color: #747bff;
+  }
+  button {
+    background-color: #f9f9f9;
+  }
+}
+
+
+==================================================
+ARCHIVO: frontend/src/App.css
+==================================================
+/* RESET Y FONDO GLOBAL */
+body {
+  background-color: #f8f9fa; /* Gris casi blanco */
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  color: #1f2937;
+  margin: 0; /* Importante para que la navbar toque los bordes */
+}
+
+/* NAVBAR SUPERIOR (NUEVO) */
+.navbar-top {
+  background-color: #1e293b; /* Azul noche oscuro */
+  color: white;
+  padding: 1rem 0;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2rem;
+}
+
+.navbar-brand {
+  font-weight: 700;
+  font-size: 1.25rem;
+  letter-spacing: -0.025em;
+  color: white;
+  text-decoration: none;
+}
+
+.navbar-text-small {
+  color: #94a3b8; /* Gris azulado claro */
+  font-size: 0.875rem;
+  margin-left: 1rem;
+  font-weight: 400;
+  border-left: 1px solid #475569;
+  padding-left: 1rem;
+}
+
+/* CONTENEDOR PRINCIPAL */
+.container {
+  max-width: 1200px;
+  margin: 0 auto; /* Centrado horizontal */
+  padding: 0 1.5rem; /* Margen a los costados para móbiles */
+}
+
+/* TARJETAS KPI */
+.kpi-card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  padding: 1.5rem;
+  height: 100%;
+  border-left: 5px solid transparent;
+  transition: transform 0.2s;
+}
+
+.kpi-card:hover { transform: translateY(-3px); }
+.kpi-success { border-left-color: #10b981; }
+.kpi-warning { border-left-color: #f59e0b; }
+
+.kpi-title {
+  color: #64748b;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+.kpi-value {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+/* TABLA */
+.table-container {
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  margin-top: 2rem;
+}
+
+.table-header {
+  padding: 1.25rem 1.5rem;
+  background-color: white;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.table-header h5 {
+  margin: 0;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.custom-table { width: 100%; margin-bottom: 0; }
+.custom-table thead th {
+  background-color: #f8fafc;
+  color: #475569;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+.custom-table tbody td {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #334155;
+  font-size: 0.9rem;
+}
+
+/* BADGES */
+.status-badge {
+  padding: 0.25em 0.7em;
+  border-radius: 99px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.badge-high { background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+.badge-normal { background-color: #f3f4f6; color: #4b5563; border: 1px solid #e5e7eb; }
+.badge-open { background-color: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+
+/* BOTÓN */
+.btn-primary-custom {
+  background-color: #3b82f6;
+  border: none;
+  font-weight: 600;
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+.btn-primary-custom:hover { background-color: #2563eb; }
+/* ... (Todo tu CSS anterior sigue igual, agregá esto al final) ... */
+
+/* ESTILOS DEL MODAL */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5); /* Fondo oscuro semitransparente */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000; /* Siempre arriba de todo */
+  backdrop-filter: blur(2px); /* Efecto borroso pro */
+}
+
+.modal-content {
+  background: white;
+  width: 90%;
+  max-width: 600px; /* Ancho máximo */
+  border-radius: 12px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  animation: modalSlideIn 0.2s ease-out;
+  overflow: hidden; /* Para que el header no se salga */
+}
+
+.modal-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #f9fafb;
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+.modal-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #e5e7eb;
+  background-color: #f9fafb;
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+}
+
+/* Animación suave */
+@keyframes modalSlideIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Botón de cerrar (X) */
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #6b7280;
+  cursor: pointer;
+  line-height: 1;
+}
+.btn-close:hover { color: #1f2937; }
+
+==================================================
+ARCHIVO: frontend/src/App.jsx
+==================================================
+import { useState, useEffect } from 'react'
+import './App.css'
+
+function App() {
+  const [tickets, setTickets] = useState([])
+  const [loading, setLoading] = useState(true)
+  
+  // MODAL DETALLE (VER)
+  const [selectedTicket, setSelectedTicket] = useState(null)
+  
+  // MODAL CREACIÓN (NUEVO)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [servicesList, setServicesList] = useState([]) 
+  const [newTicketData, setNewTicketData] = useState({
+    title: '',
+    description: '',
+    priority: 'medium',
+    service_id: ''
+  })
+  
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+
+  // DICCIONARIOS
+  const statusMap = { 'open': 'Abierto', 'in_progress': 'En Progreso', 'resolved': 'Resuelto', 'closed': 'Cerrado' }
+  const priorityMap = { 'low': 'Baja', 'medium': 'Media', 'high': 'Alta', 'critical': 'Crítica' }
+
+  // CARGA INICIAL
+  useEffect(() => {
+    fetchTickets()
+    fetchServices()
+  }, [])
+
+  const fetchTickets = () => {
+    fetch(`${API_URL}/tickets`)
+      .then(res => res.json())
+      .then(data => {
+        setTickets(data)
+        setLoading(false)
+      })
+      .catch(err => console.error("Error:", err))
+  }
+
+  const fetchServices = () => {
+    fetch(`${API_URL}/services_options`)
+      .then(res => res.json())
+      .then(data => setServicesList(data))
+      .catch(err => console.error("Error services:", err))
+  }
+
+  // CREAR TICKET (POST)
+  const handleCreateSubmit = (e) => {
+    e.preventDefault()
+    
+    if(!newTicketData.service_id) {
+        alert("Por favor selecciona un cliente")
+        return
+    }
+
+    const payload = {
+        title: newTicketData.title,
+        description: newTicketData.description,
+        priority: newTicketData.priority,
+        service_id: parseInt(newTicketData.service_id)
+    }
+
+    fetch(`${API_URL}/tickets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(res => res.json())
+    .then(savedTicket => {
+        setTickets([savedTicket, ...tickets]) 
+        setShowCreateModal(false)
+        setNewTicketData({ title: '', description: '', priority: 'medium', service_id: '' }) 
+    })
+    .catch(err => alert("Error creando ticket: " + err))
+  }
+
+  return (
+    <div>
+      {/* NAVBAR */}
+      <nav className="navbar-top">
+        <div className="container d-flex justify-content-between align-items-center">
+          <div className="d-flex align-items-center">
+            <span className="navbar-brand">Emerald ERP</span>
+            <span className="navbar-text-small">Gestión de ISP</span>
+          </div>
+          <div className="text-white small">Admin (Clark Kent)</div>
+        </div>
+      </nav>
+
+      <div className="container">
+        {/* KPIS */}
+        <div className="row mb-4">
+          <div className="col-md-3 mb-3">
+            <div className="kpi-card kpi-success">
+              <div className="kpi-title">Tickets Pendientes</div>
+              <div className="kpi-value">{tickets.filter(t => t.status === 'open').length}</div>
+            </div>
+          </div>
+          <div className="col-md-3 mb-3">
+            <div className="kpi-card kpi-warning">
+              <div className="kpi-title">En Atención</div>
+              <div className="kpi-value">{tickets.filter(t => t.status === 'in_progress').length}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* TABLA PRINCIPAL */}
+        <div className="table-container">
+          <div className="table-header">
+            <h5>Bandeja de Entrada</h5>
+            <button 
+                className="btn btn-primary btn-primary-custom btn-sm"
+                onClick={() => setShowCreateModal(true)}
+            >
+                + Nuevo Reclamo
+            </button>
+          </div>
+          
+          {loading ? (
+            <div className="p-5 text-center text-muted">Cargando sistema...</div>
+          ) : (
+            <div className="table-responsive">
+              <table className="table custom-table table-hover">
+                <thead>
+                  <tr>
+                    <th>Nº</th>
+                    <th>Asunto</th>
+                    <th>Prioridad</th>
+                    <th>Estado</th>
+                    <th>Detalle</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tickets.map(ticket => (
+                    <tr key={ticket.id} onClick={() => setSelectedTicket(ticket)} style={{cursor: 'pointer'}}>
+                      <td className="fw-bold">#{ticket.id}</td>
+                      <td className="fw-semibold text-dark">{ticket.title}</td>
+                      <td>
+                        <span className={`status-badge ${ticket.priority === 'high' ? 'badge-high' : 'badge-normal'}`}>
+                          {priorityMap[ticket.priority] || ticket.priority}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="status-badge badge-open">{statusMap[ticket.status] || ticket.status}</span>
+                      </td>
+                      <td className="text-muted small">{ticket.description?.substring(0, 50)}...</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* --- MODAL 1: DETALLE (LECTURA) --- */}
+      {selectedTicket && (
+        <div className="modal-overlay" onClick={() => setSelectedTicket(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            
+            <div className="modal-header">
+              <div>
+                <h5 className="mb-0 fw-bold">Reclamo #{selectedTicket.id}</h5>
+                <small className="text-muted">Ingresado el {new Date(selectedTicket.created_at).toLocaleDateString()}</small>
+              </div>
+              <button className="btn-close" onClick={() => setSelectedTicket(null)}>×</button>
+            </div>
+
+            <div className="modal-body">
+              <h4 className="mb-3">{selectedTicket.title}</h4>
+              
+              <div className="row mb-4">
+                <div className="col-6">
+                  <label className="small text-muted fw-bold">ESTADO</label>
+                  <div><span className="badge bg-light text-dark border">{statusMap[selectedTicket.status]}</span></div>
+                </div>
+                <div className="col-6">
+                  <label className="small text-muted fw-bold">PRIORIDAD</label>
+                  <div>
+                    <span className={`status-badge ${selectedTicket.priority === 'high' ? 'badge-high' : 'badge-normal'}`}>
+                        {priorityMap[selectedTicket.priority]}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <label className="small text-muted fw-bold">DESCRIPCIÓN DEL PROBLEMA</label>
+                <p className="p-3 bg-light rounded border">{selectedTicket.description}</p>
+              </div>
+
+              {/* DATOS DEL CLIENTE RECUPERADOS */}
+              {selectedTicket.service && selectedTicket.service.client ? (
+                <div className="mb-3 border-top pt-3">
+                   <label className="small text-muted fw-bold">DATOS DEL CLIENTE Y SERVICIO</label>
+                   <div className="d-flex align-items-center mt-2">
+                      <div className="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center fw-bold" style={{width: 40, height: 40, marginRight: 12, fontSize: '1.2rem'}}>
+                        {selectedTicket.service.client.name.charAt(0)}
+                      </div>
+                      <div className="w-100">
+                          <div className="d-flex justify-content-between align-items-center">
+                            <div className="fw-bold text-dark">{selectedTicket.service.client.name}</div>
+                            {selectedTicket.service.plan && (
+                                <span className="badge bg-secondary text-white">
+                                    ⬇ {selectedTicket.service.plan.bandwidth_down}M / ⬆ {selectedTicket.service.plan.bandwidth_up}M
+                                </span>
+                            )}
+                          </div>
+                          <div className="small text-muted">
+                            {selectedTicket.service.installation_address}
+                          </div>
+                          <div className="small text-primary font-monospace">
+                             IP: {selectedTicket.service.ip_address}
+                          </div>
+                      </div>
+                   </div>
+                </div>
+              ) : (
+                <div className="alert alert-warning">Ticket sin datos de servicio asociados</div>
+              )}
+
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn btn-secondary btn-sm" onClick={() => setSelectedTicket(null)}>Cerrar</button>
+              <button className="btn btn-primary btn-primary-custom btn-sm">Asignar Técnico</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL 2: NUEVO TICKET (FORMULARIO) --- */}
+      {showCreateModal && (
+        <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h5 className="mb-0 fw-bold">Nuevo Reclamo Técnico</h5>
+              <button className="btn-close" onClick={() => setShowCreateModal(false)}>×</button>
+            </div>
+            
+            <form onSubmit={handleCreateSubmit}>
+                <div className="modal-body">
+                    
+                    <div className="mb-3">
+                        <label className="form-label small fw-bold text-muted">CLIENTE / SERVICIO AFECTADO</label>
+                        <select 
+                            className="form-select" 
+                            value={newTicketData.service_id}
+                            onChange={(e) => setNewTicketData({...newTicketData, service_id: e.target.value})}
+                            required
+                        >
+                            <option value="">Seleccione un cliente...</option>
+                            {servicesList.map(svc => (
+                                <option key={svc.id} value={svc.id}>
+                                    {svc.client.name} — {svc.installation_address} ({svc.ip_address})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="mb-3">
+                        <label className="form-label small fw-bold text-muted">ASUNTO</label>
+                        <input 
+                            type="text" 
+                            className="form-control"
+                            placeholder="Ej: Sin internet, cable cortado..."
+                            value={newTicketData.title}
+                            onChange={(e) => setNewTicketData({...newTicketData, title: e.target.value})}
+                            required
+                        />
+                    </div>
+
+                    <div className="mb-3">
+                        <label className="form-label small fw-bold text-muted">PRIORIDAD</label>
+                        <select 
+                            className="form-select"
+                            value={newTicketData.priority}
+                            onChange={(e) => setNewTicketData({...newTicketData, priority: e.target.value})}
+                        >
+                            <option value="low">Baja</option>
+                            <option value="medium">Media</option>
+                            <option value="high">Alta</option>
+                            <option value="critical">Crítica</option>
+                        </select>
+                    </div>
+
+                    <div className="mb-3">
+                        <label className="form-label small fw-bold text-muted">DETALLE DEL PROBLEMA</label>
+                        <textarea 
+                            className="form-control" 
+                            rows="3"
+                            value={newTicketData.description}
+                            onChange={(e) => setNewTicketData({...newTicketData, description: e.target.value})}
+                            required
+                        ></textarea>
+                    </div>
+
+                </div>
+                <div className="modal-footer">
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowCreateModal(false)}>Cancelar</button>
+                    <button type="submit" className="btn btn-primary btn-primary-custom btn-sm">Crear Ticket</button>
+                </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+    </div>
+  )
+}
+
+export default App
+
+==================================================
+ARCHIVO: backend/requirements.txt
+==================================================
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+alembic
+python-dotenv
+pydantic
+passlib[bcrypt]
+bcrypt==4.0.1
+requests==2.32.3   
+routeros-api==0.21.0    
+python-dotenv==1.0.1
+loguru==0.7.2
+
+==================================================
+ARCHIVO: backend/Dockerfile
+==================================================
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir debugpy
+COPY . .
+CMD ["python", "-Xfrozen_modules=off", "-m", "debugpy", "--listen", "0.0.0.0:5678", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8500", "--reload"]
+
+==================================================
+ARCHIVO: backend/alembic/env.py
+==================================================
+import os
+import sys
+from logging.config import fileConfig
+
+from sqlalchemy import engine_from_config
+from sqlalchemy import pool
+
+from alembic import context
+
+# 1. Agregamos la ruta 'src' para que Python encuentre tus archivos
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
+# 2. Importamos la Base (donde se registran las tablas) y los Modelos
+from src.database import Base
+from config import SQLALCHEMY_DATABASE_URL
+from src.models import *  # Importante: Esto carga tus clases (User, Ticket, etc)
+# --------------------
+
+# this is the Alembic Config object, which provides
+# access to the values within the .ini file in use.
+config = context.config
+
+# Interpret the config file for Python logging.
+# This line sets up loggers basically.
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+# add your model's MetaData object here
+# for 'autogenerate' support
+# from myapp import mymodel
+# Le decimos a Alembic que mire nuestros modelos para saber qué tablas crear
+target_metadata = Base.metadata
+# Sobreescribimos la URL del archivo .ini con la real configurada
+config.set_main_option("sqlalchemy.url", SQLALCHEMY_DATABASE_URL)
+
+# other values from the config, defined by the needs of env.py,
+# can be acquired:
+# my_important_option = config.get_main_option("my_important_option")
+# ... etc.
+
+
+def run_migrations_offline() -> None:
+    """Run migrations in 'offline' mode.
+
+    This configures the context with just a URL
+    and not an Engine, though an Engine is acceptable
+    here as well.  By skipping the Engine creation
+    we don't even need a DBAPI to be available.
+
+    Calls to context.execute() here emit the given string to the
+    script output.
+
+    """
+    url = config.get_main_option("sqlalchemy.url")
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def run_migrations_online() -> None:
+    """Run migrations in 'online' mode.
+
+    In this scenario we need to create an Engine
+    and associate a connection with the context.
+
+    """
+    connectable = engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+
+    with connectable.connect() as connection:
+        context.configure(
+            connection=connection, target_metadata=target_metadata
+        )
+
+        with context.begin_transaction():
+            context.run_migrations()
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
+
+
+==================================================
+ARCHIVO: backend/alembic/versions/678033205aa3_sincronizacion_post_stamp.py
+==================================================
+"""Sincronizacion post-stamp
+
+Revision ID: 678033205aa3
+Revises: 221e88a56548
+Create Date: 2025-12-26 13:58:04.102534
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = '678033205aa3'
+down_revision: Union[str, Sequence[str], None] = '221e88a56548'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    pass
+    # ### end Alembic commands ###
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    pass
+    # ### end Alembic commands ###
+
+
+==================================================
+ARCHIVO: backend/alembic/versions/221e88a56548_creacion_inicial_de_tablas.py
+==================================================
+"""Creacion inicial de tablas
+
+Revision ID: 221e88a56548
+Revises: 
+Create Date: 2025-12-16 15:53:08.098992
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = '221e88a56548'
+down_revision: Union[str, Sequence[str], None] = None
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.create_table('clients',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('name', sa.String(), nullable=True),
+    sa.Column('billing_address', sa.String(), nullable=True),
+    sa.Column('phone', sa.String(), nullable=True),
+    sa.Column('email', sa.String(), nullable=True),
+    sa.Column('cuit', sa.String(), nullable=True),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_clients_id'), 'clients', ['id'], unique=False)
+    op.create_index(op.f('ix_clients_name'), 'clients', ['name'], unique=False)
+    op.create_table('plans',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('name', sa.String(), nullable=True),
+    sa.Column('bandwidth_down', sa.Integer(), nullable=True),
+    sa.Column('price', sa.Float(), nullable=True),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_plans_id'), 'plans', ['id'], unique=False)
+    op.create_table('users',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('username', sa.String(), nullable=True),
+    sa.Column('password_hash', sa.String(), nullable=True),
+    sa.Column('role', sa.String(), nullable=True),
+    sa.Column('is_active', sa.Boolean(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.Column('last_login', sa.DateTime(timezone=True), nullable=True),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_users_id'), 'users', ['id'], unique=False)
+    op.create_index(op.f('ix_users_username'), 'users', ['username'], unique=True)
+    op.create_table('client_services',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('client_id', sa.Integer(), nullable=True),
+    sa.Column('plan_id', sa.Integer(), nullable=True),
+    sa.Column('ip_address', sa.String(), nullable=True),
+    sa.Column('mac_address', sa.String(), nullable=True),
+    sa.Column('installation_address', sa.String(), nullable=True),
+    sa.Column('geolocation', sa.String(), nullable=True),
+    sa.Column('site_contact_name', sa.String(), nullable=True),
+    sa.Column('site_contact_phone', sa.String(), nullable=True),
+    sa.ForeignKeyConstraint(['client_id'], ['clients.id'], ),
+    sa.ForeignKeyConstraint(['plan_id'], ['plans.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_client_services_id'), 'client_services', ['id'], unique=False)
+    op.create_table('tickets',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('service_id', sa.Integer(), nullable=True),
+    sa.Column('creator_id', sa.Integer(), nullable=True),
+    sa.Column('assigned_id', sa.Integer(), nullable=True),
+    sa.Column('category', sa.String(), nullable=True),
+    sa.Column('status', sa.String(), nullable=True),
+    sa.Column('priority', sa.String(), nullable=True),
+    sa.Column('title', sa.String(), nullable=True),
+    sa.Column('description', sa.Text(), nullable=True),
+    sa.Column('public_note', sa.Text(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+    sa.ForeignKeyConstraint(['assigned_id'], ['users.id'], ),
+    sa.ForeignKeyConstraint(['creator_id'], ['users.id'], ),
+    sa.ForeignKeyConstraint(['service_id'], ['client_services.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_tickets_id'), 'tickets', ['id'], unique=False)
+    op.create_table('service_sheets',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('ticket_id', sa.Integer(), nullable=True),
+    sa.Column('author_id', sa.Integer(), nullable=True),
+    sa.Column('started_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('ended_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('signal_power', sa.Float(), nullable=True),
+    sa.Column('onu_sn', sa.String(), nullable=True),
+    sa.Column('nap_box_data', sa.String(), nullable=True),
+    sa.Column('materials_used', sa.JSON(), nullable=True),
+    sa.Column('tech_notes', sa.Text(), nullable=True),
+    sa.Column('photos_url', sa.JSON(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.ForeignKeyConstraint(['author_id'], ['users.id'], ),
+    sa.ForeignKeyConstraint(['ticket_id'], ['tickets.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_service_sheets_id'), 'service_sheets', ['id'], unique=False)
+    # ### end Alembic commands ###
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_index(op.f('ix_service_sheets_id'), table_name='service_sheets')
+    op.drop_table('service_sheets')
+    op.drop_index(op.f('ix_tickets_id'), table_name='tickets')
+    op.drop_table('tickets')
+    op.drop_index(op.f('ix_client_services_id'), table_name='client_services')
+    op.drop_table('client_services')
+    op.drop_index(op.f('ix_users_username'), table_name='users')
+    op.drop_index(op.f('ix_users_id'), table_name='users')
+    op.drop_table('users')
+    op.drop_index(op.f('ix_plans_id'), table_name='plans')
+    op.drop_table('plans')
+    op.drop_index(op.f('ix_clients_name'), table_name='clients')
+    op.drop_index(op.f('ix_clients_id'), table_name='clients')
+    op.drop_table('clients')
+    # ### end Alembic commands ###
+
+
+==================================================
+ARCHIVO: backend/src/database.py
+==================================================
+# backend/src/database.py
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
+# IMPORTANTE: Importamos la URL desde nuestra configuración centralizada
+from src.config import SQLALCHEMY_DATABASE_URL
+
+# Creamos el motor usando la URL que armó config.py
+engine = create_engine(SQLALCHEMY_DATABASE_URL)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
+
+# Dependencia para FastAPI
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+
+==================================================
+ARCHIVO: backend/src/models.py
+==================================================
+from sqlalchemy import Column, Integer, String, DateTime, Text, PrimaryKeyConstraint
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.sql import func
+from src.database import Base
+
+# --- Tablas de Infraestructura ---
+class Subscriber(Base):
+    __tablename__ = "subscribers"
+    id = Column(Integer, primary_key=True, index=True) # ID interno autoincremental (Solución duplicados SmartOLT)
+    unique_external_id = Column(String, index=True)
+    sn = Column(String)
+    olt_name = Column(String)
+    olt_id = Column(String)
+    board = Column(String)
+    port = Column(String)
+    onu = Column(String)
+    onu_type_id = Column(String)
+    mode = Column(String)
+    
+    # RELACIONES "BLANDAS" (Sin ForeignKey estricto para evitar trabas)
+    node_id = Column(Integer, index=True, nullable=True)
+    connection_id = Column(Integer, index=True, nullable=True)
+    vlan = Column(String, nullable=True)
+    pppoe_username = Column(String, index=True, nullable=True)
+    
+
+class Node(Base):
+    __tablename__ = "nodes"
+    # Respetamos tus nombres originales
+    node_id = Column(Integer, primary_key=True) 
+    name = Column(String)
+    ip_address = Column(String) # Volvemos a ip_address
+    puerto = Column(String)
+
+class Plan(Base):
+    __tablename__ = "plans"
+    plan_id = Column(Integer, primary_key=True)
+    name = Column(String)
+    speed = Column(String)
+    description = Column(String)
+
+class Connection(Base):
+    __tablename__ = "connections"
+    connection_id = Column(Integer, primary_key=True)
+    pppoe_username = Column(String, index=True)
+    customer_id = Column(Integer, index=True) 
+    node_id = Column(Integer)
+    plan_id = Column(Integer)
+    direccion = Column(String)
+
+# --- Tablas de Clientes (CRM) ---
+class Cliente(Base):
+    __tablename__ = "clientes"
+    id = Column(Integer, primary_key=True)
+    code = Column(String)
+    name = Column(String, index=True)
+    doc_number = Column(String)
+    address = Column(String)
+    status = Column(String)
+    tax_residence = Column(String)
+    type = Column(String)
+    
+    # Raw Data
+    raw_data = Column(JSONB, nullable=True)
+
+class ClienteEmail(Base):
+    __tablename__ = "clientes_emails"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    customer_id = Column(Integer) # Sin FK estricta
+    email = Column(String)
+
+class ClienteTelefono(Base):
+    __tablename__ = "clientes_telefonos"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    customer_id = Column(Integer) # Sin FK estricta
+    number = Column(String)
+
+# --- Tablas Técnicas ---
+class PPPSecret(Base):
+    __tablename__ = "ppp_secrets"
+    name = Column(String, primary_key=True)
+    router_ip = Column(String, primary_key=True)
+    password = Column(String)
+    profile = Column(String)
+    service = Column(String)
+    last_caller_id = Column(String, index=True)
+    comment = Column(String)
+    last_logged_out = Column(String)
+    
+    __table_args__ = (
+        PrimaryKeyConstraint('name', 'router_ip'),
+    )
+
+class SyncStatus(Base):
+    __tablename__ = "sync_status"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    fuente = Column(String)
+    ultima_actualizacion = Column(DateTime(timezone=True), server_default=func.now())
+    estado = Column(String)
+    detalle = Column(String)
+
+==================================================
+ARCHIVO: backend/src/main.py
+==================================================
+import sys
+import os
+from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session, joinedload
+from typing import List
+from datetime import datetime
+from typing import Optional
+
+# Path setup para que Python encuentre 'src'
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Imports de Emerald
+from src.database import engine, Base, get_db
+from src import models
+from src import config
+
+# 👇 IMPORTAMOS EL NUEVO SERVICIO (Tu lógica adaptada)
+from src.services import diagnosis as diagnosis_service 
+
+# Ejecutar migraciones Alembic en startup en lugar de create_all
+from alembic import command as alembic_command
+from alembic.config import Config as AlembicConfig
+
+def run_db_migrations():
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # carpeta backend
+    alembic_ini = os.path.join(here, "alembic.ini")
+    alembic_dir = os.path.join(here, "alembic")
+
+    cfg = AlembicConfig(alembic_ini)
+    cfg.set_main_option("script_location", alembic_dir)
+    cfg.set_main_option("sqlalchemy.url", config.SQLALCHEMY_DATABASE_URL)
+
+    alembic_command.upgrade(cfg, "head")
+
+app = FastAPI(title="Emerald ERP + Beholder")
+
+@app.on_event("startup")
+def on_startup():
+    # Corre migraciones Alembic para asegurar esquema actualizado
+    run_db_migrations()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- MIDDLEWARE DE SEGURIDAD ---
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    # Dejamos pasar libre al Frontend y a la Demo
+    whitelist = [
+        "/docs", "/redoc", "/openapi.json", 
+        "/tickets", "/services_options", # Emerald CRM
+        "/search", "/diagnosis", "/live", "/health", "/" # Beholder UI
+    ]
+    
+    if request.method == "OPTIONS" or any(request.url.path.startswith(p) for p in whitelist):
+        return await call_next(request)
+    
+    # Para bots o scripts externos, pedimos API KEY
+    key = request.headers.get("x-api-key")
+    if getattr(config, 'API_KEY', None) and key != config.API_KEY:
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    
+    return await call_next(request)
+
+from pydantic import BaseModel
+# --- ESQUEMAS DE LECTURA (Lo que sale hacia afuera) ---
+class PlanSchema(BaseModel):
+    name: str
+    bandwidth_down: int
+    bandwidth_up: int
+    class Config: from_attributes = True
+
+class ClientSchema(BaseModel):
+    name: str
+    phone: str | None = None
+    billing_address: str | None = None
+    class Config: from_attributes = True
+
+class ServiceSchema(BaseModel):
+    id: int # Necesitamos el ID para seleccionarlo
+    ip_address: str | None = None
+    installation_address: str | None = None
+    client: ClientSchema | None = None
+    plan: PlanSchema | None = None
+    class Config: from_attributes = True
+
+class TicketResponse(BaseModel):
+    id: int
+    title: str
+    priority: str
+    status: str
+    category: str | None = None
+    description: str | None = None
+    created_at: datetime | None = None
+    service: ServiceSchema | None = None 
+    class Config: from_attributes = True
+
+# --- ESQUEMAS DE CREACIÓN (Lo que entra desde el formulario) ---
+class TicketCreate(BaseModel):
+    title: str
+    description: str
+    priority: str
+    service_id: int
+    # No pedimos status (siempre nace open) ni usuario (hardcodeamos admin por ahora)
+
+# --- ENDPOINTS ---
+
+@app.get("/tickets", response_model=List[TicketResponse])
+def get_tickets(db: Session = Depends(get_db)):
+    tickets = db.query(models.Ticket).options(
+        joinedload(models.Ticket.service).joinedload(models.ClientService.client),
+        joinedload(models.Ticket.service).joinedload(models.ClientService.plan)
+    ).order_by(models.Ticket.id.desc()).all()
+    return tickets
+
+@app.get("/services_options", response_model=List[ServiceSchema])
+def get_services_options(db: Session = Depends(get_db)):
+    services = db.query(models.ClientService).options(
+        joinedload(models.ClientService.client),
+        joinedload(models.ClientService.plan)
+    ).all()
+    return services
+
+@app.post("/tickets", response_model=TicketResponse)
+def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
+    db_ticket = models.Ticket(
+        title=ticket.title, description=ticket.description, priority=ticket.priority,
+        service_id=ticket.service_id, status="open", creator_id=1, created_at=datetime.now()
+    )
+    db.add(db_ticket)
+    db.commit()
+    db.refresh(db_ticket)
+    return db.query(models.Ticket).options(
+        joinedload(models.Ticket.service).joinedload(models.ClientService.client),
+        joinedload(models.Ticket.service).joinedload(models.ClientService.plan)
+    ).filter(models.Ticket.id == db_ticket.id).first()
+
+# ==========================
+# 🔵 SECCIÓN BEHOLDER (Monitor)
+# ==========================
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "system": "Emerald Core + Beholder"}
+
+@app.get("/search")
+def search_endpoint(q: str):
+    # Ahora llamamos al servicio limpio
+    return diagnosis_service.search_clients(q)
+
+# @app.get("/diagnosis/{pppoe_user}")
+# def diagnosis_endpoint(pppoe_user: str):
+#     # La lógica pesada está en src/services/diagnosis.py
+#     result = diagnosis_service.consultar_diagnostico(pppoe_user)
+#     if "error" in result and not result.get("pppoe_username"):
+#          # Si devolvió error puro sin datos parciales, es un 404 real
+#          raise HTTPException(status_code=404, detail=result["error"])
+#     return result
+@app.get("/diagnosis/{pppoe_user}")
+def diagnosis_endpoint(pppoe_user: str, ip: Optional[str] = None):
+    # 1. Print corregido (usando pppoe_user)
+    print(f"🛑 DEBUG 1: Entrando a diagnóstico para: {pppoe_user}", flush=True)
+    
+    try:
+        # Llamada al servicio
+        result = diagnosis_service.consultar_diagnostico(pppoe_user, ip)
+        
+        # 2. Print corregido (mostramos result, no client)
+        print(f"🛑 DEBUG 2: Servicio respondió. Tipo: {type(result)}", flush=True)
+        print(f"🛑 DEBUG 3: Datos crudos: {result}", flush=True)
+
+        # 3. Validación de seguridad para que no explote si result es None
+        if result is None:
+            print("🔥 DEBUG: El servicio devolvió None!", flush=True)
+            raise HTTPException(status_code=404, detail="Cliente no encontrado (Devolvió None)")
+
+        # Tu lógica original del IF, pero con un print antes para saber si entra
+        if "error" in result and not result.get("pppoe_username"):
+             print(f"⚠️ DEBUG: Entrando al IF de error. Razón: {result.get('error')}", flush=True)
+             raise HTTPException(status_code=404, detail=result["error"])
+        
+        return result
+
+    except Exception as e:
+        # 4. ESTO ES LO QUE BUSCAMOS: El error real de Python (ej: MultipleResultsFound)
+        print(f"🔥🔥🔥 DEBUG CRASH EXCEPTION: {e}", flush=True)
+        import traceback
+        traceback.print_exc() # Esto imprime el choclo de líneas en el log
+        # Devolvemos 500 para verlo en el navegador también
+        raise HTTPException(status_code=500, detail=f"Error interno debuggeando: {str(e)}")
+
+
+
+@app.get("/live/{pppoe_user}")
+def live_traffic_endpoint(pppoe_user: str):
+    result = diagnosis_service.get_live_traffic(pppoe_user)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=500, detail=result.get("detail"))
+    return result
+
+==================================================
+ARCHIVO: backend/src/config.py
+==================================================
+import os
+import logging
+import sys
+from pathlib import Path
+from dotenv import load_dotenv
+
+# --- CARGA DE .ENV ---
+# Definimos la ruta base del archivo actual (config.py)
+# Asumiendo ruta: backend/src/config.py (o similar dentro de src)
+# .parent = carpeta contenedora (src)
+# .parent.parent = carpeta del backend (backend)
+# .parent.parent.parent = RAÍZ DEL PROYECTO (donde está el .env)
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+ENV_PATH = BASE_DIR / ".env"
+
+# Cargamos el .env explícitamente.
+# Nota: En Docker, esto no encontrará el archivo (porque no lo montamos),
+# pero no importa porque Docker ya inyectó las variables al sistema.
+load_dotenv(dotenv_path=ENV_PATH)
+
+# --- CREDENCIALES DE BASE DE DATOS (POSTGRES) ---
+POSTGRES_USER = os.getenv("POSTGRES_USER", "admin")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "adminpassword")
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "db") 
+POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
+POSTGRES_DB = os.getenv("POSTGRES_DB", "emerald_stock")
+
+# Construimos la URL para SQLAlchemy
+SQLALCHEMY_DATABASE_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+
+# --- VARIABLES DE ENTORNO ---
+API_KEY = os.getenv("API_KEY")
+SMARTOLT_BASEURL = os.getenv("SMARTOLT_BASEURL")
+SMARTOLT_TOKEN = os.getenv("SMARTOLT_TOKEN")
+MK_HOST = os.getenv("MK_HOST")
+MK_USER = os.getenv("MK_USER")
+MK_PASS = os.getenv("MK_PASS")
+# Convertimos a int de forma segura, con default 8728 (puerto api mikrotik default) u 8799
+MK_PORT = int(os.getenv("MK_PORT", 8799))
+GENIEACS_URL = os.getenv("GENIEACS_URL")
+ISPCUBE_BASEURL = os.getenv("ISPCUBE_BASEURL")
+ISPCUBE_APIKEY = os.getenv("ISPCUBE_APIKEY")
+ISPCUBE_USER = os.getenv("ISPCUBE_USER")
+ISPCUBE_PASSWORD = os.getenv("ISPCUBE_PASSWORD")
+ISPCUBE_CLIENTID = os.getenv("ISPCUBE_CLIENTID")
+
+# --- CONFIGURACIÓN DE LOGGING ---
+# Usamos BASE_DIR para ubicar la carpeta de logs dentro de backend/data/logs
+# BASE_DIR es la raiz, asi que bajamos a backend/data/logs
+# O si preferís mantenerlo dentro de backend, ajustamos la ruta:
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+LOG_DIR = BACKEND_DIR / "data" / "logs"
+
+# Crear directorio si no existe
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+# Configuración: Guardar en archivo Y mostrar en consola (para ver logs de Docker)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_DIR / "sync.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+logger = logging.getLogger("Emerald")
+
+==================================================
+ARCHIVO: backend/src/jobs/sync.py
+==================================================
+from src.db.postgres import Database, init_db
+from src.clients import smartolt, ispcube, mikrotik
+from src import config, models
+from src.utils.safe_call import safe_call
+import time
+
+def sync_nodes(db):
+    print("   ↳ Buscando Nodos en ISPCube...", end=" ", flush=True)
+    try:
+        nodes = ispcube.obtener_nodos()
+        if nodes:
+            db.clear_table(models.Node)
+            for n in nodes:
+                db.insert_node(n["id"], n["name"], n["ip"], n["puerto"])
+            config.logger.info(f"[SYNC] {len(nodes)} nodos sincronizados.")
+            db.log_sync_status("ispcube", "ok", f"{len(nodes)} nodos sincronizados")
+            print(f"✅ ({len(nodes)} encontrados)")
+        else:
+            print("⚠️ Lista vacía")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        config.logger.error(f"[SYNC] Error Nodos: {e}")
+
+def sync_secrets(db):
+    nodes = db.get_nodes_for_sync()
+    if not nodes:
+        config.logger.warning("[SYNC] No hay nodos para sync secrets.")
+        return
+
+    db.clear_table(models.PPPSecret)
+    print(f"   ↳ Consultando {len(nodes)} Mikrotiks:")
+    total_secrets = 0
+
+    for node in nodes:
+        ip = node["ip"]
+        name = node["name"]
+        port = node["port"] if node["port"] else config.MK_PORT
+        print(f"      > {name} ({ip})...", end=" ", flush=True)
+        
+        try:
+            secrets = mikrotik.get_all_secrets(ip, port)
+            if secrets is not None:
+                for s in secrets:
+                    db.insert_secret(s, ip)
+                count = len(secrets)
+                total_secrets += count
+                print(f"✅ ({count})")
+            else:
+                print("⚠️ Sin respuesta")
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            config.logger.error(f"[SYNC] Error en router {ip}: {e}")
+    
+    db.commit()
+    config.logger.info(f"[SYNC] {total_secrets} secrets sincronizados.")
+    print(f"   ↳ Resumen: {total_secrets} secrets guardados.")
+
+def sync_onus(db):
+    print("   ↳ Consultando SmartOLT...", end=" ", flush=True)
+    try:
+        onus = smartolt.get_all_onus()
+        if onus:
+            # 1. Borramos todo (Tierra quemada)
+            db.clear_table(models.Subscriber)
+            
+            # 2. Insertamos todo (incluso si el ID externo se repite)
+            for onu in onus:
+                db.insert_subscriber(
+                    onu.get("unique_external_id"), 
+                    onu.get("sn"), 
+                    onu.get("olt_name"), 
+                    onu.get("olt_id"), 
+                    onu.get("board"), 
+                    onu.get("port"), 
+                    onu.get("onu"), 
+                    onu.get("onu_type_id"), 
+                    onu.get("name"), 
+                    onu.get("mode"),
+                    onu.get("vlan")  # <--- AGREGADO: Pasamos la VLAN del JSON
+                )
+            
+            # 3. Guardamos los cambios en bloque
+            db.commit() 
+            
+            db.log_sync_status("smartolt", "ok", f"{len(onus)} ONUs sincronizadas")
+            config.logger.info(f"[SYNC] {len(onus)} ONUs sincronizadas.")
+            print(f"✅ ({len(onus)} ONUs)")
+        else:
+            print("⚠️ Sin datos")
+    except Exception as e:
+        db.rollback() # <--- Importante por si falla
+        print(f"❌ Error: {e}")
+        config.logger.error(f"[SYNC] Error SmartOLT: {e}")
+
+def sync_plans(db):
+    print("   ↳ [ISPCube] Bajando Planes...", end=" ", flush=True)
+    try:
+        planes = ispcube.obtener_planes()
+        if planes:
+            # db.cursor.execute("DELETE FROM plans")
+            db.clear_table(models.Plan)
+            for p in planes:
+                db.insert_plan(p["id"], p["name"], p.get("speed"), p.get("comment"))
+            config.logger.info(f"[SYNC] {len(planes)} planes sincronizados.")
+            print(f"✅ ({len(planes)})")
+        else: print("⚠️")
+    except Exception as e: print(f"❌ {e}")
+
+def sync_connections(db):
+    print("   ↳ [ISPCube] Bajando Conexiones (Lista Completa)...", end=" ", flush=True)
+    try:
+        # VOLVEMOS AL MÉTODO CLÁSICO
+        conexiones = ispcube.obtener_todas_conexiones()
+        if conexiones:
+            # db.cursor.execute("DELETE FROM connections")
+            db.clear_table(models.Connection)
+            for c in conexiones:
+                if not c.get("id") or not c.get("user"): continue
+                db.insert_connection(
+                    str(c["id"]), str(c["user"]), str(c["customer_id"]), 
+                    str(c["node_id"]), str(c["plan_id"]), c.get("direccion")
+                )
+            config.logger.info(f"[SYNC] {len(conexiones)} conexiones sincronizadas.")
+            db.log_sync_status("ispcube", "ok", f"{len(conexiones)} conexiones sincronizadas")
+            print(f"✅ ({len(conexiones)})")
+        else:
+            print("⚠️ Vacío")
+    except Exception as e:
+        print(f"❌ {e}")
+        config.logger.error(f"[SYNC] Error Connections: {e}")
+
+def sync_clientes(db):
+    print("   ↳ [ISPCube] Bajando Clientes...", end=" ", flush=True)
+    try:
+        clientes = ispcube.obtener_clientes()
+        if clientes:
+            # db.cursor.execute("DELETE FROM clientes")
+            # db.cursor.execute("DELETE FROM clientes_emails")
+            # db.cursor.execute("DELETE FROM clientes_telefonos")
+            db.clear_table(models.ClienteEmail)
+            db.clear_table(models.ClienteTelefono)
+            db.clear_table(models.Cliente)
+            
+            for c in clientes:
+                db.insert_cliente(mapear_cliente(c))
+                insertar_contactos_relacionados(db, c)
+
+            db.commit()
+            config.logger.info(f"[SYNC] {len(clientes)} clientes sincronizados.")
+            db.log_sync_status("ispcube", "ok", f"{len(clientes)} clientes sincronizados")
+            print(f"✅ ({len(clientes)})")
+        else:
+            print("⚠️ Vacío")
+    except Exception as e:
+        print(f"❌ {e}")
+
+# --- UTILIDADES ---
+def insertar_contactos_relacionados(db, json_cliente: dict):
+    for email_obj in json_cliente.get("contact_emails", []):
+        if email_obj.get("email"):
+            db.insert_cliente_email(json_cliente["id"], email_obj.get("email"))
+    for tel_obj in json_cliente.get("phones", []):
+        if tel_obj.get("number"):
+            db.insert_cliente_telefono(json_cliente["id"], tel_obj.get("number"))
+
+def mapear_cliente(json_cliente: dict) -> dict:
+    return {
+        "id": json_cliente.get("id"),
+        "code": json_cliente.get("code"),
+        "name": json_cliente.get("name"),
+        "tax_residence": json_cliente.get("tax_residence"),
+        "type": json_cliente.get("type"),
+        "tax_situation_id": json_cliente.get("tax_situation_id"),
+        "identification_type_id": json_cliente.get("identification_type_id"),
+        "doc_number": json_cliente.get("doc_number"),
+        "auto_bill_sending": json_cliente.get("auto_bill_sending"),
+        "auto_payment_recipe_sending": json_cliente.get("auto_payment_recipe_sending"),
+        "nickname": json_cliente.get("nickname"),
+        "comercial_activity": json_cliente.get("comercial_activity"),
+        "address": json_cliente.get("address"),
+        "between_address1": json_cliente.get("between_address1"),
+        "between_address2": json_cliente.get("between_address2"),
+        "city_id": json_cliente.get("city_id"),
+        "lat": json_cliente.get("lat"),
+        "lng": json_cliente.get("lng"),
+        "extra1": json_cliente.get("extra1"),
+        "extra2": json_cliente.get("extra2"),
+        "entity_id": json_cliente.get("entity_id"),
+        "collector_id": json_cliente.get("collector_id"),
+        "seller_id": json_cliente.get("seller_id"),
+        "block": json_cliente.get("block"),
+        "free": json_cliente.get("free"),
+        "apply_late_payment_due": json_cliente.get("apply_late_payment_due"),
+        "apply_reconnection": json_cliente.get("apply_reconnection"),
+        "contract": json_cliente.get("contract"),
+        "contract_type_id": json_cliente.get("contract_type_id"),
+        "contract_expiration_date": json_cliente.get("contract_expiration_date"),
+        "paycomm": json_cliente.get("paycomm"),
+        "expiration_type_id": json_cliente.get("expiration_type_id"),
+        "business_id": json_cliente.get("business_id"),
+        "first_expiration_date": json_cliente.get("first_expiration_date"),
+        "second_expiration_date": json_cliente.get("second_expiration_date"),
+        "next_month_corresponding_date": json_cliente.get("next_month_corresponding_date"),
+        "start_date": json_cliente.get("start_date"),
+        "perception_id": json_cliente.get("perception_id"),
+        "phonekey": json_cliente.get("phonekey"),
+        "debt": json_cliente.get("debt"),
+        "duedebt": json_cliente.get("duedebt"),
+        "speed_limited": json_cliente.get("speed_limited"),
+        "status": json_cliente.get("status"),
+        "enable_date": json_cliente.get("enable_date"),
+        "block_date": json_cliente.get("block_date"),
+        "created_at": json_cliente.get("created_at"),
+        "updated_at": json_cliente.get("updated_at"),
+        "deleted_at": json_cliente.get("deleted_at"),
+        "temporary": json_cliente.get("temporary"),
+    }
+
+def nightly_sync():
+    init_db()
+    db = Database()
+    print("\n[SYNC] 🚀 Iniciando Sincronización...\n")
+    try:
+        sync_nodes(db)
+        sync_secrets(db)
+        sync_onus(db)
+        sync_plans(db)
+        sync_connections(db) # Vuelve a usar el método "todo de una vez"
+        sync_clientes(db)
+        
+        print("\n   ↳ Cruzando datos (Match Connections)...", end=" ", flush=True)
+        db.match_connections()
+        db.commit()
+        print("✅ OK")
+        
+        config.logger.info("[SYNC] Sincronización completa finalizada.")
+    finally:
+        db.close()
+        print("\n[SYNC] ✨ Finalizado.\n")
+
+if __name__ == "__main__":
+    nightly_sync()
+
+==================================================
+ARCHIVO: backend/src/jobs/core.py
+==================================================
+# backend/src/jobs/core.py
+from datetime import datetime
+from database import SessionLocal
+from models import SyncLog
+from jobs.synchronizers import ispcube_sync, smartolt_sync
+
+def run_safe_sync(source_name, sync_function):
+    """
+    Wrapper que ejecuta una sincronización y guarda el resultado en la DB.
+    """
+    db = SessionLocal()
+    log_entry = SyncLog(source=source_name, status="RUNNING")
+    db.add(log_entry)
+    db.commit()
+    
+    try:
+        # Ejecutamos la función del obrero
+        stats = sync_function(db)
+        
+        # Si todo sale bien:
+        log_entry.status = "SUCCESS"
+        log_entry.records_processed = stats.get("processed", 0)
+        log_entry.records_inserted = stats.get("inserted", 0)
+        log_entry.records_updated = stats.get("updated", 0)
+        
+    except Exception as e:
+        # Si falla:
+        log_entry.status = "ERROR"
+        log_entry.error_message = str(e)
+        # ACÁ SÍ imprimimos el error completo a la consola para debuggear
+        print(f"❌ Error crítico en {source_name}: {e}") 
+        
+    finally:
+        log_entry.end_time = datetime.now()
+        db.commit()
+        db.close()
+
+def run_nightly_process():
+    print("🚀 Iniciando proceso nocturno...")
+    
+    # 1. Clientes ISPCube
+    run_safe_sync("ispcube_clients", ispcube_sync.sync_clients)
+    
+    # 2. ONUs SmartOLT
+    # run_safe_sync("smartolt_onus", smartolt_sync.sync_onus)
+    
+    print("✅ Proceso finalizado.")
+
+if __name__ == "__main__":
+    run_nightly_process()
+
+==================================================
+ARCHIVO: backend/src/jobs/__init__.py
+==================================================
+
+
+==================================================
+ARCHIVO: backend/src/jobs/synchronizers/mikrotik_sync.py
+==================================================
+
+
+==================================================
+ARCHIVO: backend/src/jobs/synchronizers/smartolt_sync.py
+==================================================
+
+
+==================================================
+ARCHIVO: backend/src/jobs/synchronizers/ispcube_sync.py
+==================================================
+# backend/src/jobs/synchronizers/ispcube_sync.py
+import logging
+from sqlalchemy.dialects.postgresql import insert
+from models import Client, SyncLog  # Importamos tus modelos
+from clients import ispcube         # Tu cliente API existente
+
+logger = logging.getLogger(__name__)
+
+def sync_clients(db_session):
+    """
+    Se encarga SOLAMENTE de sincronizar clientes de ISPCube.
+    Retorna un dict con estadísticas para el log.
+    """
+    stats = {"processed": 0, "inserted": 0, "updated": 0}
+    
+    # 1. Extract (Extraer)
+    raw_data = ispcube.obtener_clientes() # [cite: 55, 383]
+    stats["processed"] = len(raw_data)
+
+    # 2. Load (Cargar)
+    for data in raw_data:
+        # Lógica de Upsert (Insertar o Actualizar)
+        client = db_session.query(Client).filter(Client.source_id == data['id']).first()
+        
+        if not client:
+            client = Client(source_id=data['id'])
+            db_session.add(client)
+            stats["inserted"] += 1
+        else:
+            stats["updated"] += 1
+            
+        # Actualizamos datos y guardamos el JSON crudo
+        client.name = data.get('name')
+        client.raw_data = data 
+        
+    db_session.commit()
+    return stats
+
+==================================================
+ARCHIVO: backend/src/jobs/synchronizers/__init__.py
+==================================================
+
+
+==================================================
+ARCHIVO: backend/src/utils/safe_call.py
+==================================================
+from functools import wraps
+from src.config import logger
+
+def safe_call(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            result = func(*args, **kwargs)
+            if isinstance(result, dict):
+                return {"estado": "ok", **result}
+            return {"estado": "ok", "resultado": result}
+        except Exception as e:
+            logger.error(f"Error en {func.__name__}: {e}")
+            return {"estado": "error", "detalle": str(e)}
+    return wrapper
+
+==================================================
+ARCHIVO: backend/src/utils/__init__.py
+==================================================
+
+
+==================================================
+ARCHIVO: backend/src/db/postgres.py
+==================================================
+# backend/src/db/postgres.py
+from sqlalchemy import text
+from src.database import SessionLocal, engine
+from src import models
+from datetime import datetime
+
+class Database:
+    def __init__(self):
+        self.db = SessionLocal()
+
+    def close(self):
+        self.db.close()
+    
+    def commit(self):
+        self.db.commit()
+
+    # --- INSERTS (Replicando sqlite.py) ---
+    def insert_subscriber(self, unique_external_id, sn, olt_name, olt_id, board, port, onu, onu_type_id, name, mode, vlan=None):
+        # Usamos merge o add. Como ahora tenemos un ID autoincremental, 
+        # lo mejor es simplemente AGREGAR (add) una nueva fila siempre.
+        # Ya no usamos merge() basándonos en external_id porque hay duplicados.
+        
+        new_sub = models.Subscriber(
+            unique_external_id=unique_external_id,
+            sn=sn,
+            olt_name=olt_name,
+            olt_id=olt_id,
+            board=board,
+            port=port,
+            onu=onu,
+            onu_type_id=onu_type_id,
+            pppoe_username=name,
+            mode=mode,
+            vlan=vlan # Asegurate de pasar este dato si viene
+        )
+        self.db.add(new_sub)
+        # No hacemos commit acá, lo hacemos al final del bloque en sync.py para velocidad
+
+    def insert_node(self, node_id, name, ip_address, puerto):
+        new_node = models.Node(
+            node_id=str(node_id), # Aseguramos String
+            name=name,
+            ip_address=ip_address, # Nombre corregido
+            puerto=str(puerto)
+        )
+        self.db.merge(new_node)
+
+    def insert_plan(self, plan_id, name, speed, description):
+        new_plan = models.Plan(
+            plan_id=str(plan_id), # Aseguramos String
+            name=name,
+            speed=speed,
+            description=description
+        )
+        self.db.merge(new_plan)
+
+    def insert_connection(self, connection_id, pppoe_username, customer_id, node_id, plan_id, direccion):
+        new_conn = models.Connection(
+            connection_id=str(connection_id), # Aseguramos String
+            pppoe_username=pppoe_username,
+            customer_id=customer_id,
+            node_id=str(node_id),
+            plan_id=str(plan_id),
+            direccion=direccion # Nombre corregido
+        )
+        self.db.merge(new_conn)
+    
+    def insert_cliente(self, cliente_data: dict):
+        # Reemplaza a [cite: 83]
+        # Mapeamos manual o usamos unpacking si los campos coinciden exacto
+        # Agregamos raw_data para nuestra mejora estratégica
+        obj = models.Cliente(
+            id=cliente_data.get('id'),
+            code=cliente_data.get('code'),
+            name=cliente_data.get('name'),
+            doc_number=cliente_data.get('doc_number'),
+            address=cliente_data.get('address'),
+            status=cliente_data.get('status'),
+            # ... mapear el resto de columnas necesarias ...
+            raw_data=cliente_data 
+        )
+        self.db.merge(obj)
+
+    def insert_cliente_email(self, customer_id, email):
+        # Reemplaza a
+        obj = models.ClienteEmail(customer_id=customer_id, email=email)
+        self.db.add(obj) # Acá usamos add porque es log append, o merge si tiene ID
+
+    def insert_cliente_telefono(self, customer_id, number):
+        # Reemplaza a [cite: 84]
+        obj = models.ClienteTelefono(customer_id=customer_id, number=number)
+        self.db.add(obj)
+
+    def insert_secret(self, secret_data: dict, router_ip: str):
+        # Reemplaza a
+        obj = models.PPPSecret(
+            name=secret_data.get("name"),
+            router_ip=router_ip,
+            password=secret_data.get("password"),
+            profile=secret_data.get("profile"),
+            service=secret_data.get("service"),
+            last_caller_id=secret_data.get("last-caller-id"),
+            comment=secret_data.get("comment"),
+            last_logged_out=secret_data.get("last-logged-out")
+        )
+        self.db.merge(obj)
+
+    # --- UTILIDADES DE SYNC ---
+
+    def get_nodes_for_sync(self) -> list:
+        # Reemplaza a [cite: 85]
+        nodes = self.db.query(models.Node).filter(models.Node.ip_address != None).all()
+        return [{
+            "ip": n.ip_address, 
+            "port": int(n.puerto) if n.puerto and n.puerto.isdigit() else None, 
+            "name": n.name
+        } for n in nodes]
+
+    def match_connections(self):
+        # Reemplaza a [cite: 86]
+        # SQLAlchemy puro para UPDATE con JOIN es complejo, usamos SQL explícito para mantener la lógica exacta
+        sql = text("""
+            UPDATE subscribers
+            SET node_id = c.node_id, connection_id = c.connection_id
+            FROM connections c
+            WHERE subscribers.pppoe_username = c.pppoe_username
+        """)
+        self.db.execute(sql)
+        self.commit()
+
+    def log_sync_status(self, fuente, estado, detalle=""):
+        # Reemplaza a [cite: 86]
+        log = models.SyncStatus(fuente=fuente, estado=estado, detalle=detalle)
+        self.db.add(log)
+        self.commit()
+
+    # ------------------ BÚSQUEDA UNIFICADA ------------------
+    def search_client(self, query_str: str) -> list:
+        """
+        Busca clientes unificando ISPCube y Mikrotik.
+        Se eliminó SmartOLT (Subscribers) porque si no está en Secrets, no es un servicio activo.
+        
+        LÓGICA DE EXCLUSIÓN (SQL):
+        La query de Mikrotik usa NOT EXISTS para excluir automáticamente 
+        los registros que ya tienen un par (Usuario + IP) idéntico en ISPCube.
+        """
+        term = f"%{query_str}%"
+        params = {"term": term}
+        
+        # 1. ISPCube (Prioridad 1 - Administrativo)
+        sql_isp = text("""
+            SELECT 
+                c.pppoe_username as pppoe, 
+                cl.name as nombre, 
+                c.direccion as direccion, 
+                cl.id as id, 
+                'ispcube' as origen,
+                n.ip_address as nodo_ip,
+                n.name as nodo_nombre
+            FROM clientes cl
+            JOIN connections c ON cl.id = c.customer_id
+            LEFT JOIN nodes n ON c.node_id = n.node_id
+            WHERE 
+                cl.name ILIKE :term OR 
+                c.direccion ILIKE :term OR 
+                c.pppoe_username ILIKE :term OR 
+                cl.doc_number ILIKE :term
+            LIMIT 50
+        """)
+        
+        # 2. Mikrotik (Solo huérfanos o duplicados reales)
+        # Excluye lo que ya devolvió la query de arriba (mismo usuario Y misma IP)
+        sql_mk = text("""
+            SELECT 
+                s.name as pppoe, 
+                COALESCE(NULLIF(s.comment, ''), 'No Vinculado') as nombre,
+                'IP: ' || CAST(s.router_ip AS VARCHAR) as direccion,
+                0 as id, 
+                'mikrotik' as origen,
+                s.router_ip as nodo_ip,
+                'Router ' || COALESCE(s.router_ip, '?') as nodo_nombre
+            FROM ppp_secrets s
+            WHERE s.name ILIKE :term
+            AND NOT EXISTS (
+                SELECT 1 
+                FROM connections c
+                JOIN nodes n ON c.node_id = n.node_id
+                WHERE c.pppoe_username = s.name 
+                  AND n.ip_address = s.router_ip
+            )
+            LIMIT 50
+        """)
+
+        try:
+            # Ejecución
+            result_isp = self.db.execute(sql_isp, params).fetchall()
+            rows_isp = [dict(row._mapping) for row in result_isp]
+            
+            result_mk = self.db.execute(sql_mk, params).fetchall()
+            rows_mk = [dict(row._mapping) for row in result_mk]
+            
+            return rows_isp + rows_mk
+
+        except Exception as e:
+            print(f"❌ Error en search_client: {e}")
+            return []
+
+    # --- CONSULTAS (MAIN.PY / DIAGNOSTICO.PY) ---
+
+    def get_diagnosis(self, pppoe_user: str, target_router_ip: str = None) -> dict:
+        """
+        Versión: SQL Power Query (La Definitiva) 🚀
+        Unifica toda la lógica de prioridades y cruces en una sola consulta SQL.
+        """
+        
+        # Preparamos la cláusula de IP. 
+        # Si viene IP, filtramos estricto. Si no, ordenamos para priorizar al administrativo.
+        ip_clause = "AND s.router_ip = :ip" if target_router_ip else ""
+        order_clause = "ORDER BY c.id DESC NULLS LAST LIMIT 1" if not target_router_ip else ""
+
+        # Query Maestra
+        sql_query = text(f"""
+            SELECT 
+                -- 1. IDENTIDAD
+                COALESCE(cl.name, NULLIF(s.comment, ''), 'No Vinculado') as cliente_nombre,
+                s.name as pppoe_username,
+                
+                -- 2. UBICACIÓN (Corregido 'address')
+                COALESCE(NULLIF(c.direccion, ''), NULLIF(cl.address, ''), 'Sin dirección') as direccion,
+                
+                -- 3. PLAN
+                COALESCE(pl.name, s.profile, 'N/A') as plan,
+                
+                -- 4. DATOS TÉCNICOS
+                n.name as nodo_nombre,
+                s.router_ip as nodo_ip,
+                n.puerto as puerto,
+                s.last_caller_id as mac,
+                s.last_logged_out,  -- Agregado para el Frontend
+                
+                -- 5. DATOS ONT (SmartOLT)
+                sub.sn as onu_sn,
+                sub.olt_name as OLT,
+                sub.mode as Modo,
+                sub.unique_external_id
+                
+                -- 6. STATUS (Intentamos pegar status si existe tabla ppp_active o similar, sino N/A)
+                -- (Aquí asumimos que la validación de 'Online' la hace el servicio o viene de otro lado,
+                --  pero traemos lo básico del secret).
+                --s.disabled as is_disabled
+
+            FROM ppp_secrets s
+
+            -- A. Nodo
+            LEFT JOIN nodes n ON s.router_ip = n.ip_address
+
+            -- B. Conexión Administrativa (Match Estricto: User + Nodo)
+            LEFT JOIN connections c ON s.name = c.pppoe_username AND n.node_id = c.node_id
+
+            -- C. Cliente y Plan
+            LEFT JOIN clientes cl ON c.customer_id = cl.id
+            LEFT JOIN plans pl ON c.plan_id = pl.plan_id
+
+            -- D. SmartOLT
+            LEFT JOIN subscribers sub ON s.name = sub.pppoe_username
+
+            WHERE s.name = :pppoe_user
+            {ip_clause}
+            {order_clause}
+        """)
+
+        try:
+            params = {"pppoe_user": pppoe_user}
+            if target_router_ip:
+                params["ip"] = target_router_ip
+
+            result = self.db.execute(sql_query, params).fetchone()
+
+            if not result:
+                return {"error": f"Cliente {pppoe_user} no encontrado."}
+
+            # Convertimos el resultado (Row) a Diccionario
+            row = dict(result._mapping)
+
+            # --- MAPEO PARA FRONTEND ---
+            # El OutputBox espera objetos anidados, así que reconstruimos esa estructura aquí.
+            
+            diagnosis = {
+                "cliente_nombre": row["cliente_nombre"],
+                "direccion": row["direccion"],
+                "plan": row["plan"],
+                "pppoe_username": row["pppoe_username"],
+                "nodo_nombre": row["nodo_nombre"] if row["nodo_nombre"] else f"Router {row['nodo_ip']}",
+                "nodo_ip": row["nodo_ip"],
+                "puerto": row["puerto"],
+                
+                # Datos de OLT planos en la raíz (OutputBox los busca ahí)
+                "OLT": row["olt"],
+                "onu_sn": row["onu_sn"],
+                "unique_external_id": row["unique_external_id"],
+                "Modo": row["modo"],
+
+                # Objeto Mikrotik (Necesario para que no se rompa OutputBox)
+                "mikrotik": {
+                    "active": "Online" if not row.get("is_disabled") else "Disabled", # Simplificación, idealmente cruzar con ppp_active
+                    "uptime": "N/A", # La query de secrets no tiene uptime, eso está en ppp_active
+                    "secret": {
+                        "last-logged-out": row["last_logged_out"],
+                        "remote-address": row["nodo_ip"]
+                    }
+                },
+
+                # Objetos ONU (Placeholders para que no rompa si el servicio no los llena después)
+                "onu_status_smrt": {
+                    "onu_status": "N/A",
+                    "last_status_change": "N/A"
+                },
+                "onu_signal_smrt": {
+                    "onu_signal": "N/A",
+                    "onu_signal_value": "N/A"
+                }
+            }
+            
+            return diagnosis
+
+        except Exception as e:
+            print(f"❌ Error en SQL Power Query: {e}")
+            return {"error": str(e)}
+
+    def get_router_for_pppoe(self, pppoe_user: str):
+        # Reemplaza a [cite: 96]
+        result = (
+            self.db.query(models.PPPSecret.router_ip, models.Node.puerto)
+            .outerjoin(models.Node, models.PPPSecret.router_ip == models.Node.ip_address)
+            .filter(func.lower(func.trim(models.PPPSecret.name)) == pppoe_user.strip().lower())
+            .first()
+        )
+        if result:
+            return result.router_ip, result.puerto
+        return None
+    
+    # En backend/src/db/postgres.py
+
+    # ... otros métodos ...
+
+    def clear_table(self, model_class):
+        """
+        Borra todo el contenido de la tabla asociada al modelo.
+        Equivalente a DELETE FROM tabla;
+        """
+        try:
+            self.db.query(model_class).delete()
+            self.commit()
+        except Exception as e:
+            self.db.rollback()
+            print(f"❌ Error limpiando tabla {model_class.__tablename__}: {e}")
+    
+    def rollback(self):
+        """Deshace la transacción actual en caso de error para no bloquear la DB."""
+        self.db.rollback()
+
+    def init_db(self):
+        # Reemplaza a [cite: 110]
+        # Crea las tablas si no existen
+        # Ejecuta migraciones Alembic para asegurar el esquema
+        from alembic import command as alembic_command
+        from alembic.config import Config as AlembicConfig
+        import os
+        from src import config as app_config
+
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # carpeta backend
+        alembic_ini = os.path.join(here, "alembic.ini")
+        alembic_dir = os.path.join(here, "alembic")
+
+        cfg = AlembicConfig(alembic_ini)
+        cfg.set_main_option("script_location", alembic_dir)
+        cfg.set_main_option("sqlalchemy.url", app_config.SQLALCHEMY_DATABASE_URL)
+
+        alembic_command.upgrade(cfg, "head")
+
+# Helper para compatibilidad
+def init_db():
+    # Ejecuta migraciones Alembic para asegurar el esquema
+    from alembic import command as alembic_command
+    from alembic.config import Config as AlembicConfig
+    import os
+    from src import config as app_config
+
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # carpeta backend
+    alembic_ini = os.path.join(here, "alembic.ini")
+    alembic_dir = os.path.join(here, "alembic")
+
+    cfg = AlembicConfig(alembic_ini)
+    cfg.set_main_option("script_location", alembic_dir)
+    cfg.set_main_option("sqlalchemy.url", app_config.SQLALCHEMY_DATABASE_URL)
+
+    alembic_command.upgrade(cfg, "head")
+
+==================================================
+ARCHIVO: backend/src/db/__init__.py
+==================================================
+
+
+==================================================
+ARCHIVO: backend/src/clients/smartolt.py
+==================================================
+import requests
+from src import config
+from src.config import logger
+from src.utils.safe_call import safe_call 
+
+SMARTOLT_BASEURL = config.SMARTOLT_BASEURL
+SMARTOLT_TOKEN = config.SMARTOLT_TOKEN
+
+
+def _request(method, endpoint, **kwargs):
+    try:
+        headers = kwargs.pop("headers", {})
+        headers["X-Token"] = SMARTOLT_TOKEN
+        url = f"{SMARTOLT_BASEURL}{endpoint}"
+        resp = requests.request(method, url, headers=headers, **kwargs)
+        resp.raise_for_status()
+        return resp
+    except Exception as e:
+        logger.error(f"Error en request API smartOLT: {e}")
+        return {"estado": "error", "API smartOLT detalle": str(e)}
+
+
+def get_all_onus():
+    try:
+        """Devuelve el lote completo de ONUs desde SmartOLT."""
+        resp = _request("GET", "/onu/get_all_onus_details")
+        data = resp.json() # type : ignore
+        if not data.get("status"):
+            logger.error("SmartOLT no devolvió estado OK")
+        return data.get("onus", [])
+    except Exception as e:
+        logger.error(f"Error al obtener listado de onus: {e}")
+        return {"estado": "error", "API smartOLT detalle": str(e)}
+    
+
+def get_onu_status(onu_id):
+    try:
+        resp = _request("GET", f"/onu/get_onu_status/{onu_id}")
+        data = resp.json() # type : ignore
+        if not data.get("status"):
+            logger.error(f"SmartOLT no devolvió estado OK para ONU {onu_id}")
+        return data 
+    except Exception as e:
+        logger.error(f"Error al consultar estado ONU {onu_id}: {e}")
+        return {"estado": "error", "API smartOLT, detalle": str(e)}
+
+
+def get_onu_signals(onu_id):
+    try:
+        resp = _request("GET", f"/onu/get_onu_signal/{onu_id}")
+        data = resp.json()  # type : ignore
+        if not data.get("status"):
+            logger.error(f"SmartOLT no devolvió estado OK para ONU {onu_id}")
+        return data
+    except Exception as e:
+        logger.error(f"Error al consultar señales ONU {onu_id}: {e}")
+        return {"estado": "error", "API smartOLT, detalle": str(e)}
+    
+def get_attached_vlans(onu_id):
+    """Obtiene las VLANs adjuntas de una ONU por external_id."""
+    #lista el detalle de la onu, para sacar las attached vlans de sus serviceports
+    
+    resp = _request("GET", f"/onu/get_onu_details/{onu_id}")
+    data = resp.json()
+    vlans = []
+    if data.get("status"):
+        serviceports = data["onu_details"].get("service_ports", [])
+        vlans = [sp["vlan"] for sp in serviceports if "vlan" in sp]
+
+    return vlans
+
+==================================================
+ARCHIVO: backend/src/clients/mikrotik.py
+==================================================
+import time
+from src.config import logger
+from src.utils.safe_call import safe_call
+from routeros_api import RouterOsApiPool
+from src import config
+
+# Credenciales comunes para todos los Mikrotik
+MIKROTIK_USER = config.MK_USER
+MIKROTIK_PASS = config.MK_PASS
+MIKROTIK_PORT = config.MK_PORT   # 👈 tu puerto personalizado
+MIKROTIK_IP   = config.MK_HOST  
+
+#Nota para producción: borrar =MIKROTIK_IP y pasar IP como parámetro en cada función
+
+def _connect(router_ip, port, username=MIKROTIK_USER, password=MIKROTIK_PASS):
+    try:
+        pool = RouterOsApiPool(
+            router_ip,
+            username=username, # type: ignore
+            password=password, # type: ignore
+            port=port,              
+            plaintext_login=True
+        )
+        return pool, pool.get_api()
+    except Exception as e:
+        logger.error(f"Error de conexión al router {router_ip}: {e}")
+        return {"error": str(e)}
+
+def obtener_secret(router_ip, pppoe_user, puerto): #MIKROTIK_IP, router_ip
+    try:
+        pool, api = _connect(router_ip, puerto)
+        secrets = api.get_resource('/ppp/secret')
+        result = secrets.get(name=pppoe_user)
+        pool.disconnect()
+        if not result:
+            logger.error(f"Secret {pppoe_user} no encontrado en {router_ip}")
+        return result[0]
+    except Exception as e:
+        logger.error(f"Error al obtener secret {pppoe_user} en {router_ip}: {e}")
+        return {"error": str(e)}
+
+# Obtener todos los secrets del router
+def get_all_secrets(router_ip, port):
+    """
+    Descarga la lista completa de secrets del router.
+    """
+    try:
+        pool, api = _connect(router_ip, port)
+        # Pedimos todos los secrets
+        secrets = api.get_resource('/ppp/secret').get()
+        pool.disconnect()
+        return secrets
+    except Exception as e:
+        logger.error(f"Error al obtener todos los secrets de {router_ip}: {e}")
+        return []
+
+# def crear_secret(router_ip, datos_secret):
+#     pool, api = _connect(router_ip)
+#     secrets = api.get_resource('/ppp/secret')
+#     secrets.add(
+#         name=datos_secret['name'] + "R", # Borrar la "R" para producción
+#         password=datos_secret['password'],
+#         profile=datos_secret.get('profile', 'default'),
+#         service=datos_secret.get('service', 'pppoe')
+#     )
+#     pool.disconnect()
+#     logger.info(f"Secret {datos_secret['name']} creado en {router_ip}")
+
+# def borrar_secret(router_ip, pppoe_user):
+#     pool, api = _connect(router_ip)
+#     secrets = api.get_resource('/ppp/secret')
+#     result = secrets.get(name=pppoe_user)
+#     if result:
+#         secret = result[0]
+#         secret_id = secret.get('.id') or secret.get('id')
+
+#         #id=result[0]['.id']
+#         secrets.remove(id=secret_id)
+#         logger.info(f"Secret {pppoe_user} eliminado de {router_ip}")
+#     pool.disconnect()
+
+# def migrar_secret(origen_ip, destino_ip, pppoe_user):
+   
+#     datos = obtener_secret(origen_ip, pppoe_user)
+
+
+#     crear_secret(destino_ip, datos)
+#     # Validación inicial
+#     if not validar_pppoe(destino_ip, pppoe_user):
+#         logger.info(f"Esperando 60s para revalidar {pppoe_user} en {destino_ip}...")
+#         time.sleep(60)
+
+#         # Segundo intento
+#         if not validar_pppoe(destino_ip, pppoe_user):
+#             logger.error(f"❌ {pppoe_user} no levantó en {destino_ip}, rollback.")
+#             #borrar_secret(destino_ip, pppoe_user)
+#             return False
+
+#     # Si llegó acá, está online → borrar en origen
+#     borrar_secret(origen_ip, pppoe_user)
+#     logger.info(f"✅ {pppoe_user} migrado de {origen_ip} a {destino_ip}")
+#     return True
+
+
+# def rollback_secret(origen_ip, destino_ip, pppoe_user):
+    
+#     origen_ip = MIKROTIK_IP #borrar para producción
+#     destino_ip = MIKROTIK_IP #borrar para producción
+
+#     datos = obtener_secret(destino_ip, pppoe_user)
+#     crear_secret(origen_ip, datos)
+#     borrar_secret(destino_ip, pppoe_user)
+#     return True
+
+def validar_pppoe(router_ip: str, pppoe_user: str, puerto: str) -> dict:
+    try:
+        pool, api = _connect(router_ip, puerto)
+        #pool, api = _connect(MIKROTIK_IP) #borrar para producción
+        activos = api.get_resource('/ppp/active')
+        result = activos.get(name=pppoe_user)
+        pool.disconnect()
+
+        if result:
+            logger.info(f"PPP user {pppoe_user} activo en {router_ip}")
+            return {"active": True, **result[0]}
+        else:
+            logger.warning(f"PPP user {pppoe_user} NO activo en {router_ip}")
+            try:
+                #modificar aca
+                secret = obtener_secret(router_ip, pppoe_user, puerto)
+                return {"active": False, "secret": secret}
+            except Exception:
+                return {"active": False}
+    except Exception as e:
+        logger.error(f"Error al validar PPPoE en {router_ip}: {e}")
+        return {"active": False, "error": str(e)}
+        # Si no está activo y no se encuentra el secret, no se puede obtener más info
+# def validar_pppoe(router_ip: str, pppoe_user: str) -> dict:
+#     try:
+#         pool, api = _connect(router_ip)
+#         activos = api.get_resource('/ppp/active')
+#         result = activos.get(name=pppoe_user)
+#         pool.disconnect()
+
+#         if result:
+#             # Tomamos el primer dict y lo expandimos directamente
+#             return {"active": True, **result[0]}
+#         else:
+#             return {"active": False}
+#     except Exception as e:
+#         logger.error(f"Error al validar PPPoE en {router_ip}: {e}")
+#         return {"active": False, "error": str(e)}
+def obtener_trafico_en_vivo(router_ip, pppoe_user, port):
+    """
+    Consulta la velocidad actual (Live Traffic) de la interfaz del usuario.
+    Usa el comando '/interface monitor-traffic' en modo 'once'.
+    """
+    try:
+        pool, api = _connect(router_ip, port)
+        
+        # El nombre de la interfaz dinámica suele ser <pppoe-usuario>
+        interface_name = f"<pppoe-{pppoe_user}>"
+        
+        # Ejecutamos el monitor una sola vez (snapshot)
+        # Esto devuelve una lista con un diccionario
+        stats = api.get_resource('/interface').call('monitor-traffic', {
+            'interface': interface_name,
+            'once': 'true'
+        })
+        
+        pool.disconnect()
+        
+        if stats and len(stats) > 0:
+            return {
+                "rx": stats[0].get("rx-bits-per-second", "0"), # Bajada (Download)
+                "tx": stats[0].get("tx-bits-per-second", "0")  # Subida (Upload)
+            }
+        else:
+            return {"error": "Interfaz no activa o no encontrada"}
+            
+    except Exception as e:
+        logger.error(f"Error tráfico en vivo {pppoe_user} ({router_ip}): {e}")
+        return {"error": str(e)}
+
+==================================================
+ARCHIVO: backend/src/clients/ispcube.py
+==================================================
+import requests
+import sys
+from src import config
+from src.config import logger
+
+ISPCUBE_BASEURL = config.ISPCUBE_BASEURL
+ISPCUBE_APIKEY = config.ISPCUBE_APIKEY
+ISPCUBE_USER = config.ISPCUBE_USER
+ISPCUBE_PASSWORD = config.ISPCUBE_PASSWORD
+ISPCUBE_CLIENTID = config.ISPCUBE_CLIENTID
+
+_token_cache = None
+
+def _obtener_token():
+    url = f"{ISPCUBE_BASEURL}/sanctum/token"
+    payload = {"username": ISPCUBE_USER, "password": ISPCUBE_PASSWORD}
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "api-key": ISPCUBE_APIKEY,
+        "client-id": ISPCUBE_CLIENTID,
+        "login-type": "api"
+    }
+    resp = requests.post(url, json=payload, headers=headers)
+    resp.raise_for_status()
+    return resp.json()["token"]
+
+def _get_token(force_refresh=False):
+    global _token_cache
+    if force_refresh or _token_cache is None:
+        _token_cache = _obtener_token()
+    return _token_cache
+
+def _headers(token=None):
+    return {
+        "Authorization": f"Bearer {token or _get_token()}",
+        "api-key": ISPCUBE_APIKEY,
+        "client-id": ISPCUBE_CLIENTID,
+        "login-type": "api",
+        "Accept": "application/json",
+        "username": ISPCUBE_USER
+    }
+
+def _request(method, url, **kwargs):
+    token = _get_token()
+    headers = kwargs.pop("headers", {})
+    headers.update(_headers(token))
+    
+    resp = requests.request(method, url, headers=headers, **kwargs)
+    
+    if resp.status_code == 401:
+        logger.warning("Token expirado, renovando...")
+        token = _get_token(force_refresh=True)
+        headers.update(_headers(token))
+        resp = requests.request(method, url, headers=headers, **kwargs)
+    
+    resp.raise_for_status()
+    return resp
+
+# ------------------ Funciones públicas ------------------
+
+def obtener_nodos():
+    url = f"{ISPCUBE_BASEURL}/nodes/nodes_list"
+    resp = _request("GET", url)
+    body = resp.json()
+    items = body["data"] if isinstance(body, dict) and "data" in body else body
+    nodos = []
+    for n in items:
+        nodos.append({
+            "id": n.get("id"),
+            "name": n.get("comment"),
+            "ip": n.get("ip"),
+            "puerto": n.get("port")
+        })
+    return nodos
+
+def obtener_todas_conexiones():
+    """
+    Devuelve lista de conexiones con datos básicos usando endpoint de lista completa.
+    """
+    url = f"{ISPCUBE_BASEURL}/connections/connections_list"
+    # Timeout extendido por seguridad, pero lógica original
+    resp = _request("GET", url, timeout=60)
+    conexiones = resp.json()
+
+    if not isinstance(conexiones, list):
+        logger.error("Respuesta inesperada de ISPCube al listar conexiones")
+        return []
+
+    resultado = []
+    for c in conexiones:
+        if c.get("conntype") == "pppoe":
+            resultado.append({
+                "user": c.get("user"),
+                "customer_id": c.get("customer_id"),
+                "id": c.get("id"),
+                "node_id": c.get("node_id"),
+                "plan_id": c.get("plan_id"),
+                "direccion": c.get("address")
+            })
+    return resultado
+
+def obtener_planes():
+    url = f"{ISPCUBE_BASEURL}/plans/plans_list"
+    resp = _request("GET", url)
+    planes = resp.json()
+
+    if not isinstance(planes, list):
+        logger.error("Respuesta inesperada de ISPCube al listar planes")
+        return []
+
+    resultado = []
+    for p in planes:
+        resultado.append({
+            "id": p.get("id"),
+            "name": p.get("name"),
+            "speed": p.get("speed"),
+            "comment": p.get("comment")
+        })
+    return resultado
+
+def obtener_clientes():
+    """
+    Devuelve lista completa de clientes usando PAGINACIÓN (esto sí funciona bien).
+    """
+    url = f"{ISPCUBE_BASEURL}/customers/customers_list"
+    all_customers = []
+    LIMIT = 500
+    offset = 0
+    
+    print(f"     ↳ [Paginación] Iniciando descarga de clientes...")
+    
+    while True:
+        try:
+            params = {"limit": LIMIT, "offset": offset}
+            resp = _request("GET", url, params=params)
+            batch = resp.json()
+            
+            if not isinstance(batch, list) or len(batch) == 0:
+                break 
+            
+            all_customers.extend(batch)
+            sys.stdout.write(f"\r     ↳ [Paginación] Bajados: {len(all_customers)} clientes...")
+            sys.stdout.flush()
+            
+            if len(batch) < LIMIT:
+                break
+            
+            offset += LIMIT
+        except Exception as e:
+            print(f"\n❌ Error bajando bloque offset={offset}: {e}")
+            break
+
+    print(f" ✅ Total: {len(all_customers)}")
+    return all_customers
+
+==================================================
+ARCHIVO: backend/src/clients/__init__.py
+==================================================
+
+
+==================================================
+ARCHIVO: backend/src/services/__init__.py
+==================================================
+
+
+==================================================
+ARCHIVO: backend/src/services/diagnosis.py
+==================================================
+from src.db.postgres import Database
+from src.clients import mikrotik, smartolt
+from src import config
+from src.config import logger
+
+def consultar_diagnostico(pppoe_user: str, ip: str = None) -> dict:
+    """
+    Orquesta el diagnóstico:
+    1. Busca datos base en DB (Postgres).
+    2. Consulta Mikrotik en tiempo real (si hay IP).
+    3. Consulta SmartOLT en tiempo real (si hay ID externo).
+    """
+    db = Database()
+    try:
+        # 1. Base de datos (Postgres)
+        # Este método ya lo definimos en postgres.py y devuelve el dict estandarizado
+        base = db.get_diagnosis(pppoe_user, target_router_ip=ip)
+        
+        if "error" in base:
+            return base
+
+        diagnosis = base.copy()
+
+        # 2. Mikrotik
+        # Si no tenemos nodo_ip (cliente solo en OLT), usamos el default MK_HOST del .env
+        router_ip = base.get("nodo_ip")
+        
+        if not router_ip:
+            logger.warning(f"Sin IP de nodo para {pppoe_user}. Usando MK_HOST por defecto.")
+            router_ip = config.MK_HOST
+
+        # Validamos PPPoE (si router_ip es válido)
+        if router_ip:
+            # Aseguramos que el puerto sea int
+            port = int(base.get("puerto") or config.MK_PORT)
+            pppoe_info = mikrotik.validar_pppoe(router_ip, pppoe_user, port)
+            diagnosis["mikrotik"] = pppoe_info
+        else:
+            diagnosis["mikrotik"] = {"active": False, "error": "No Router IP"}
+
+        # 3. SmartOLT (Solo si tenemos unique_external_id)
+        external_id = base.get("unique_external_id")
+        
+        if external_id:
+            diagnosis["onu_status_smrt"] = smartolt.get_onu_status(external_id)
+            diagnosis["onu_signal_smrt"] = smartolt.get_onu_signals(external_id)
+            # diagnosis["onu_vlan"] = smartolt.get_attached_vlans(external_id) # Opcional según performance
+        else:
+             # Caso raro: Cliente en ISPCube pero sin ONU vinculada
+             diagnosis["onu_status_smrt"] = {"status": False, "error": "Sin ONU asociada"}
+             diagnosis["onu_signal_smrt"] = {"status": False, "error": "Sin ONU asociada"}
+
+        return diagnosis
+
+    except Exception as e:
+        logger.exception(f"Error en diagnóstico de {pppoe_user}. Detalles: {e}")
+        # Retornamos lo que tengamos para no romper el frontend
+        return diagnosis if 'diagnosis' in locals() else {"error": str(e)}
+    finally:
+        db.close()
+
+def search_clients(query: str):
+    """Búsqueda unificada delegada a la DB"""
+    if not query or len(query) < 3:
+        return []
+    
+    db = Database()
+    try:
+        return db.search_client(query)
+    finally:
+        db.close()
+
+def get_live_traffic(pppoe_user: str):
+    """Tráfico en vivo directo al Mikrotik"""
+    db = Database()
+    try:
+        router_data = db.get_router_for_pppoe(pppoe_user)
+        if not router_data:
+            return {"status": "error", "detail": "Cliente no vinculado a un router."}
+        
+        router_ip, router_port = router_data
+        if not router_port:
+            router_port = config.MK_PORT
+            
+        trafico = mikrotik.obtener_trafico_en_vivo(router_ip, pppoe_user, int(router_port))
+        
+        if "error" in trafico:
+             return {"status": "error", "detail": trafico["error"]}
+             
+        rx_mbps = round(int(trafico.get("rx", 0)) / 1000000, 2)
+        tx_mbps = round(int(trafico.get("tx", 0)) / 1000000, 2)
+        
+        return {
+            "status": "ok",
+            "download_mbps": rx_mbps,
+            "upload_mbps": tx_mbps,
+            "raw": trafico
+        }
+    except Exception as e:
+        logger.error(f"Fallo live traffic {pppoe_user}: {e}")
+        return {"status": "error", "detail": str(e)}
+    finally:
+        db.close()
+
+==================================================
+ARCHIVO: beholder_frontend/eslint.config.js
+==================================================
+import js from '@eslint/js'
+import globals from 'globals'
+import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
+import tseslint from 'typescript-eslint'
+import { defineConfig, globalIgnores } from 'eslint/config'
+
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      js.configs.recommended,
+      tseslint.configs.recommended,
+      reactHooks.configs.flat.recommended,
+      reactRefresh.configs.vite,
+    ],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: globals.browser,
+    },
+  },
+])
+
+
+==================================================
+ARCHIVO: beholder_frontend/README.md
+==================================================
+# React + TypeScript + Vite
+
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+
+Currently, two official plugins are available:
+
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+
+## React Compiler
+
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+
+## Expanding the ESLint configuration
+
+If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+
+```js
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+
+      // Remove tseslint.configs.recommended and replace with this
+      tseslint.configs.recommendedTypeChecked,
+      // Alternatively, use this for stricter rules
+      tseslint.configs.strictTypeChecked,
+      // Optionally, add this for stylistic rules
+      tseslint.configs.stylisticTypeChecked,
+
+      // Other configs...
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
+```
+
+You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+
+```js
+// eslint.config.js
+import reactX from 'eslint-plugin-react-x'
+import reactDom from 'eslint-plugin-react-dom'
+
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+      // Enable lint rules for React
+      reactX.configs['recommended-typescript'],
+      // Enable lint rules for React DOM
+      reactDom.configs.recommended,
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
+```
+
+
+==================================================
+ARCHIVO: beholder_frontend/Roadmap02-12.md
+==================================================
+Roadmap: **fortalecer la búsqueda en el frontend**  **expandir la sincronización en el backend**
+
+---
+
+## 🧩 Fase 1: Búsqueda inteligente en el frontend
+
+### 🎯 Objetivo
+Un solo campo de búsqueda que acepte:
+- PPPoE
+- Nombre de cliente
+- Datos parciales
+- Ignorando mayúsculas/minúsculas
+
+### 🔧 Estrategia técnica
+
+#### 1. **Normalizar el input**
+```tsx
+const normalizar = (texto: string) => texto.trim().toLowerCase();
+```
+
+#### 2. **Buscar en múltiples campos**
+En el handler de búsqueda, filtrá contra todos los campos relevantes:
+
+```tsx
+const resultados = clientes.filter((c) => {
+  const query = normalizar(pppoe);
+  return (
+    normalizar(c.pppoe).includes(query) ||
+    normalizar(c.nombre).includes(query) ||
+    normalizar(c.direccion).includes(query)
+  );
+});
+```
+
+#### 3. **Mostrar lista si hay múltiples resultados**
+```tsx
+{resultados.length > 1 && (
+  <ul className="result-list">
+    {resultados.map((cliente) => (
+      <li key={cliente.pppoe} onClick={() => setSeleccionado(cliente)}>
+        {cliente.nombre} ({cliente.pppoe})
+      </li>
+    ))}
+  </ul>
+)}
+```
+
+#### 4. **Mantener la lista visible**
+- No borrás `resultados` al hacer click en un item.
+- Solo se borra si se hace click en “Buscar” o se presiona Enter.
+
+#### 5. **Estilos responsivos**
+```css
+.result-list {
+  margin-top: 0.5rem;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.result-list li {
+  padding: 0.5rem;
+  cursor: pointer;
+}
+.result-list li:hover {
+  background-color: #f0f0f0;
+}
+```
+
+---
+
+## 🧩 Fase 2: Backend – sincronización extendida
+
+### 🎯 Objetivo
+- Consultar la API de ISPCube para traer tabla de clientes.
+- Enriquecer cada cliente con su VLAN desde SmartOLT.
+- Guardar todo en tu base local para búsquedas rápidas.
+
+### 🔧 Estrategia técnica
+
+#### 1. **Consulta a ISPCube**
+```ts
+GET https://ispcube.api/clientes
+Authorization: Bearer <token>
+```
+
+Parseás nombre, PPPoE, dirección, plan, etc.
+
+#### 2. **Consulta a SmartOLT por VLAN**
+Por cada cliente con ONU registrada:
+```ts
+GET https://smartolt.com/api/onu_info?serial=HWTCE56F449D
+```
+
+Extraés `vlan_id`, `olt_name`, `signal`, etc.
+
+#### 3. **Unificación y almacenamiento**
+Guardás en tu tabla local:
+```ts
+{
+  nombre: "CARPE EMILIA",
+  pppoe: "ecarpe",
+  direccion: "DEAN FUNES 195 DPTO 1",
+  plan: "50Mb",
+  vlan: 120,
+  olt: "Villa Dolores 2",
+  onu_sn: "HWTCE56F449D"
+}
+```
+sumar la api de cnMaestro a la consulta.
+En la base de clientes
+---
+
+## 🧠 Ventajas
+
+- La búsqueda se vuelve instantánea y tolerante a errores.
+- El operador puede buscar por lo que tenga a mano.
+- La sincronización te permite tener una base local robusta, ideal para escalar.
+
+---
+
+
+
+
+==================================================
+ARCHIVO: beholder_frontend/tsconfig.node.json
+==================================================
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "types": ["node"],
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["vite.config.ts"]
+}
+
+
+==================================================
+ARCHIVO: beholder_frontend/postcss.config.js
+==================================================
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
+
+==================================================
+ARCHIVO: beholder_frontend/package.json
+==================================================
+{
+  "name": "beholder_ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "autoprefixer": "^10.4.23",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.46.4",
+    "vite": "^7.2.4"
+  }
+}
+
+
+==================================================
+ARCHIVO: beholder_frontend/tsconfig.app.json
+==================================================
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "types": ["vite/client"],
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["src"]
+}
+
+
+==================================================
+ARCHIVO: beholder_frontend/Dockerfile
+==================================================
+FROM node:22-alpine
+WORKDIR /app
+COPY package.json .
+RUN npm install
+# Exponemos el puerto de Vite
+EXPOSE 5173
+COPY . .
+CMD ["npm", "run", "dev", "--", "--host"]
+
+==================================================
+ARCHIVO: beholder_frontend/tsconfig.json
+==================================================
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}
+
+
+==================================================
+ARCHIVO: beholder_frontend/tailwind.config.js
+==================================================
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+
+==================================================
+ARCHIVO: beholder_frontend/vite.config.ts
+==================================================
+import { defineConfig } from 'vite' 
+import react from '@vitejs/plugin-react'
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  base: '/monitor/', 
+  server: {
+    host: true, // <--- Esto es lo importante para Docker
+    port: 5173,
+    allowedHosts: true // 👈 LA CLAVE: Permitir cualquier dominio (emerald.2finternet.ar)
+  }
+})
+
+
+
+==================================================
+ARCHIVO: beholder_frontend/index.html
+==================================================
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>beholder_ui</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
+
+==================================================
+ARCHIVO: beholder_frontend/src/main.tsx
+==================================================
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App.tsx'
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+)
+
+
+==================================================
+ARCHIVO: beholder_frontend/src/App.tsx
+==================================================
+import { useState } from "react";
+import SearchBox from "./components/SearchBox";
+import OutputBox from "./components/OutputBox";
+import './App.css';
+import logo from './assets/beholder2.png';
+
+function App() {
+  const [resultData, setResultData] = useState<any>(null);
+
+  return (
+    <div className="layout">
+      {/* Panel izquierdo */}
+      <aside className="sidebar">
+        <img src={logo} alt="Logo Beholder" className="logo-sidebar" />
+        <h1>Beholder</h1>
+        <h2>Diagnóstico centralizado de 2F Internet</h2>
+        <SearchBox onResult={setResultData} />
+      </aside>
+
+      {/* Panel derecho */}
+      <main className="results">
+        {resultData && <OutputBox data={resultData} />}
+      </main>
+    </div>
+  );
+}
+
+export default App;
+
+==================================================
+ARCHIVO: beholder_frontend/src/index.css
+==================================================
+:root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  color: rgb(255, 255, 255);
+  background-color: #242424;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  font-weight: 500;
+  color: #646cff;
+  text-decoration: inherit;
+}
+a:hover {
+  color: #535bf2;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+button:hover {
+  border-color: #646cff;
+}
+button:focus,
+button:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+  a:hover {
+    color: #747bff;
+  }
+  button {
+    background-color: #f9f9f9;
+  }
+}
+
+
+==================================================
+ARCHIVO: beholder_frontend/src/App.css
+==================================================
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.layout {
+  display: flex;
+  min-height: 100vh;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f3f4f6;
+}
+
+/* --- SIDEBAR --- */
+.sidebar {
+  width: 400px; 
+  background-color: #f8f9fa;
+  padding: 2rem;
+  text-align: center;
+  box-shadow: 2px 0 10px rgba(0,0,0,0.05);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+}
+
+.logo-sidebar {
+  width: 200px;
+  height: auto;
+  margin: 0 auto 1.5rem auto;
+  display: block;
+}
+
+.sidebar h1 {
+  font-size: 2rem;
+  margin: 0.5rem 0;
+  color: #2c3e50;
+}
+
+.sidebar h2 {
+  font-size: 1rem;
+  color: #7f8c8d;
+  margin-bottom: 2rem;
+  font-weight: 400;
+}
+
+/* --- RESULTS AREA --- */
+.results {
+  flex: 1;
+  padding: 2rem;
+  background-color: #ffffff;
+  overflow-y: auto;
+}
+
+/* --- GRILLA RESPONSIVE (LA LÓGICA NUEVA) --- */
+.grid {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+  /* Móvil por defecto: 1 sola columna vertical */
+  grid-template-columns: 1fr;
+}
+
+/* Tablet / Laptops chicas (>= 768px): 2 columnas */
+@media (min-width: 768px) {
+  .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* PC Escritorio (>= 1200px): 4 columnas para aprovechar el ancho */
+@media (min-width: 1200px) {
+  .grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* --- CELDAS --- */
+.cell {
+  background-color: #f8f9fa;
+  padding: 1rem;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  border: 1px solid #e9ecef;
+  transition: transform 0.2s;
+  
+  /* Alineación interna: Etiqueta arriba, valor abajo */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.cell:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.cell strong {
+  display: block;
+  font-size: 0.75rem; /* Etiqueta un poco más chica */
+  text-transform: uppercase;
+  color: #6b7280;
+  margin-bottom: 0.25rem;
+  font-weight: 600;
+}
+
+/* --- CLASES DE ESPACIO (SPANS) --- */
+
+/* Por defecto (Móvil), el span no hace nada (todo es 1 col) */
+.cell.span-2 { grid-column: span 1; }
+
+/* En Tablet, span-2 ocupa todo el ancho de la tablet (2 cols) */
+@media (min-width: 768px) {
+  .cell.span-2 { grid-column: span 2; }
+}
+
+/* En PC, span-2 ocupa la mitad de la pantalla (2 de 4 columnas) */
+@media (min-width: 1200px) {
+  .cell.span-2 { grid-column: span 2; }
+}
+
+/* --- ESTADOS --- */
+.estado-ok {
+  background-color: #d4edda;
+  border-left: 5px solid #28a745;
+  color: #155724;
+}
+
+.estado-error {
+  background-color: #f8d7da;
+  border-left: 5px solid #dc3545;
+  color: #721c24;
+}
+
+/* --- HEADERS --- */
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #f1f1f1;
+}
+
+.diagnostic-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #34495e;
+  margin: 0;
+}
+
+/* --- MODO OSCURO --- */
+@media (prefers-color-scheme: dark) {
+  body, .layout { background-color: #1a1a1a; }
+  .sidebar { background-color: #252525; border-right: 1px solid #333; }
+  .sidebar h1 { color: #ecf0f1; }
+  .sidebar h2 { color: #bdc3c7; }
+  .results { background-color: #1a1a1a; }
+  
+  .cell { 
+    background-color: #333; 
+    border-color: #444; 
+    color: #e0e0e0; 
+  }
+  .cell strong { color: #9ca3af; }
+  .diagnostic-title { color: #ecf0f1; }
+
+  .estado-ok { background-color: #1b4d2e; border-left-color: #2ecc71; color: #d4edda; }
+  .estado-error { background-color: #63171b; border-left-color: #e74c3c; color: #f8d7da; }
+}
+
+/* --- MOBILE LAYOUT ADJUSTMENTS --- */
+@media (max-width: 768px) {
+  .layout { flex-direction: column; }
+  .sidebar { width: 100%; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+  .results { padding: 1rem; }
+}
+
+==================================================
+ARCHIVO: beholder_frontend/src/components/OutputBox.tsx
+==================================================
+import CopyButton from "./CopyButton";
+
+interface OutputBoxProps {
+  data: any;
+}
+
+export default function OutputBox({ data }: OutputBoxProps) {
+  const traducciones: Record<string, string> = {
+    Online: "En línea",
+    "Power fail": "Problema de energía",
+    LOS: "Sin señal/sin luz",
+    Offline: "Fuera de línea",
+    true: "Conectado",
+    false: "Desconectado",
+    Critical: "Crítico - Luz muy alta",
+    Warning: "Advertencia - Luz alta",
+    "Very good": "Muy buena - Luz óptima",
+  };
+
+  // Texto para el portapapeles
+  const outputText = `
+    Cliente: ${data?.cliente_nombre ?? "-"}
+    Domicilio: ${data?.direccion ?? "-"}
+    Usuario PPPoE: ${data?.pppoe_original ?? data?.pppoe_username ?? "-"}
+    Plan: ${data?.plan ?? "-"}
+    Nodo: ${data?.nodo_nombre ? data.nodo_nombre + " - " + (data?.nodo_ip ?? "-") : "-"}
+    OLT: ${data?.OLT ?? "-"}
+    Estado PPPoE: ${traducciones[data?.mikrotik?.active] ?? "-"}
+    Tiempo activo: ${data?.mikrotik?.uptime ?? "-"}
+    Última conexión: ${data?.mikrotik?.secret?.["last-logged-out"] ?? "-"}
+    ONU s/n: ${data?.onu_sn ?? "-"}
+    ONU Estado: ${traducciones[data?.onu_status_smrt?.onu_status] ?? "-"}
+    ONU Último cambio de estado: ${data?.onu_status_smrt?.last_status_change ?? "-"}
+    ONU Señal: ${traducciones[data?.onu_signal_smrt?.onu_signal] ?? "-"}
+    Señal Detalle: ${data?.onu_signal_smrt?.onu_signal_value ?? "-"}
+    `;
+
+  return (
+    // Se agregan clases dark: para el fondo y borde
+    <div className="border rounded-xl p-6 mt-4 bg-white dark:bg-[#2c2c2c] shadow-sm border-gray-100 dark:border-gray-700 transition-colors">
+      <div className="header-row">
+        <h3 className="diagnostic-title dark:text-white">Diagnóstico normalizado</h3>
+        <CopyButton text={outputText} />
+      </div>
+      
+      <div className="grid">
+        
+        {/* FILA 1: DATOS PRINCIPALES (Ocupan mitad y mitad en PC) */}
+        <div className="cell span-2">
+            <strong>Cliente:</strong> 
+            <span className="text-lg font-medium">{data?.cliente_nombre ?? "-"}</span>
+        </div>
+        <div className="cell span-2">
+            <strong>Domicilio:</strong> 
+            <span>{data?.direccion ?? "-"}</span>
+        </div>
+        
+        {/* FILA 2: DATOS DE RED (4 columnas en PC) */}
+        <div className="cell">
+            <strong>Usuario PPPoE:</strong> 
+            {data?.pppoe_original ?? data?.pppoe_username ?? "-"}
+        </div>
+        <div className="cell">
+            <strong>Plan:</strong> 
+            {data?.plan ?? "-"}
+        </div>
+        <div className="cell">
+            <strong>Nodo:</strong> 
+            {data?.nodo_nombre ? data.nodo_nombre : "-"}
+            <span className="text-xs text-gray-500">{data?.nodo_ip ?? ""}</span>
+        </div>
+        <div className="cell">
+            <strong>OLT:</strong> 
+            {data?.OLT ?? "-"}
+        </div>
+        
+        {/* FILA 3: ESTADOS (Colorizados) */}
+        <div className={`cell ${data?.mikrotik?.active ? "estado-ok" : "estado-error"}`}>
+          <strong>Estado PPPoE:</strong> {traducciones[data?.mikrotik?.active] ?? "-"}
+        </div>
+        <div className="cell">
+            <strong>Tiempo activo:</strong> {data?.mikrotik?.uptime ?? "-"}
+        </div>
+        <div className={`cell ${data?.onu_status_smrt?.onu_status === "Online" ? "estado-ok" : "estado-error"}`}>
+          <strong>ONU Estado:</strong> {traducciones[data?.onu_status_smrt?.onu_status] ?? "-"}
+        </div>
+        <div className="cell">
+            <strong>ONU Señal:</strong> {traducciones[data?.onu_signal_smrt?.onu_signal] ?? "-"}
+        </div>
+
+        {/* FILA 4: DETALLES */}
+        <div className="cell">
+            <strong>Última conexión:</strong> {data?.mikrotik?.secret?.["last-logged-out"] ?? "-"}
+        </div>
+        <div className="cell">
+            <strong>ONU s/n:</strong> {data?.onu_sn ?? "-"}
+        </div>
+        <div className="cell">
+            <strong>Último cambio:</strong> {data?.onu_status_smrt?.last_status_change ?? "-"}
+        </div>
+        <div className="cell">
+            <strong>Señal Detalle:</strong> {data?.onu_signal_smrt?.onu_signal_value ?? "-"}
+        </div>
+        
+      </div>
+    </div>
+  );
+}
+
+==================================================
+ARCHIVO: beholder_frontend/src/components/SearchBox.tsx
+==================================================
+import { useState } from "react";
+
+interface SearchResult {
+  pppoe: string;
+  nombre: string;
+  direccion: string;
+  origen: string;
+  nodo_ip?: string; // <--- 1. AGREGADO: La IP del nodo para diferenciar duplicados
+}
+
+export default function SearchBox({ onResult }: { onResult: (data: any) => void }) {
+  const [query, setQuery] = useState("");
+  const [candidates, setCandidates] = useState<SearchResult[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [statusMsg, setStatusMsg] = useState(""); 
+
+  const handleSearch = async () => {
+    if (!query.trim()) return;
+    
+    setLoading(true);
+    setError(null);
+    setCandidates([]);
+    onResult(null); 
+    setStatusMsg("🔍 Buscando...");
+
+    try {
+      const resp = await fetch(
+        `${import.meta.env.VITE_API_URL}/search?q=${query}`,
+        { headers: { "x-api-key": import.meta.env.VITE_API_KEY } }
+      );
+
+      if (!resp.ok) throw new Error(`Error ${resp.status}`);
+      const results: SearchResult[] = await resp.json();
+
+      if (results.length === 0) {
+        setError("No se encontraron coincidencias.");
+        setStatusMsg("");
+      } else if (results.length === 1) {
+        setStatusMsg("🎯 Único. Diagnosticando...");
+        // 2. MODIFICADO: Pasamos la IP también en la auto-selección
+        await fetchDiagnosis(results[0].pppoe, results[0].nodo_ip);
+      } else {
+        setCandidates(results);
+        setStatusMsg(`✅ ${results.length} coincidencias:`);
+      }
+    } catch (err: any) {
+      setError("Error de conexión.");
+      setStatusMsg("");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 3. MODIFICADO: Acepta parámetro opcional 'ip'
+  const fetchDiagnosis = async (pppoe: string, ip?: string) => {
+    setLoading(true);
+    setCandidates([]); 
+    setStatusMsg(`📡 Diagnosticando ${pppoe}...`);
+    
+    try {
+      // Construimos la URL base
+      let url = `${import.meta.env.VITE_API_URL}/diagnosis/${pppoe}`;
+      // Si tenemos IP, la agregamos como Query Parameter
+      if (ip) {
+        url += `?ip=${ip}`;
+      }
+
+      const resp = await fetch(
+        url,
+        { headers: { "x-api-key": import.meta.env.VITE_API_KEY } }
+      );
+      if (!resp.ok) throw new Error("Fallo");
+      
+      const data = await resp.json();
+      onResult({ ...data, pppoe_original: pppoe });
+      setStatusMsg(""); 
+    } catch (err: any) {
+      setError(`Error: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="w-full h-full flex flex-col">
+      {/* Input y Botón */}
+      <div className="flex flex-col gap-3 mb-4 shrink-0">
+        <div className="relative">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              if (error) setError(null);
+              if (statusMsg) setStatusMsg("");
+            }}
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+            placeholder="Nombre, Dirección, DNI o Usuario..."
+            className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 outline-none text-gray-700 bg-white"
+          />
+          <span className="absolute left-3 top-3.5 text-gray-400">🔍</span>
+        </div>
+        
+        <button
+          onClick={handleSearch}
+          disabled={loading}
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow transition-all transform active:scale-95 disabled:opacity-50"
+        >
+          {loading ? "Buscando..." : "Buscar Cliente"}
+        </button>
+      </div>
+
+      {/* Mensajes */}
+      <div className="mb-3 min-h-[20px] shrink-0">
+        {loading && <p className="text-blue-600 font-medium text-sm animate-pulse">{statusMsg}</p>}
+        {!loading && statusMsg && candidates.length > 0 && <p className="text-green-600 font-medium text-sm">{statusMsg}</p>}
+        {error && <div className="bg-red-50 text-red-600 p-2 rounded border border-red-200 text-sm">❌ {error}</div>}
+      </div>
+
+      {/* Lista de Resultados */}
+      {candidates.length > 0 && (
+        <ul className="flex flex-col gap-3 overflow-y-auto pr-2 pb-4 flex-1">
+          {candidates.map((c, i) => (
+            <li
+              key={`${c.pppoe}-${i}`} 
+              // 4. MODIFICADO: Al hacer click, enviamos la IP específica de este resultado
+              onClick={() => fetchDiagnosis(c.pppoe, c.nodo_ip)}
+              className="shrink-0 bg-white p-4 rounded-lg border border-gray-200 shadow-sm hover:shadow-md hover:border-blue-400 cursor-pointer transition-all group text-left relative overflow-hidden"
+            >
+              {/* Borde lateral */}
+              <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${c.origen === 'ispcube' ? 'bg-blue-500' : 'bg-gray-400'}`}></div>
+
+              <div className="pl-3">
+                {/* 1. Encabezado: Nombre y Badge */}
+                <div className="flex justify-between items-start mb-2">
+                  <span className="font-bold text-gray-800 group-hover:text-blue-700 text-sm uppercase leading-tight">
+                    {c.nombre}
+                  </span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border ml-2 whitespace-nowrap ${c.origen === 'ispcube' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                    {c.origen === 'ispcube' ? 'CLIENTE' : 'NO VINC'}
+                  </span>
+                </div>
+                
+                {/* 2. PPPoE (Dato Primordial - Más grande y destacado) */}
+                <div className="flex items-center gap-2 mb-1.5 bg-gray-50 p-1.5 rounded border border-gray-100">
+                   <span title="Usuario PPPoE">👤</span>
+                   <code className="text-blue-800 font-bold font-mono text-sm">
+                      {c.pppoe}
+                   </code>
+                </div>
+                
+                {/* 3. Dirección (Secundaria) */}
+                <div className="flex items-start gap-1.5 text-xs text-gray-500">
+                  <span className="shrink-0 mt-0.5" title="Dirección">📍</span>
+                  <span className="leading-snug break-words">
+                    {c.direccion || <i className="text-gray-400">Sin dirección</i>}
+                  </span>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+==================================================
+ARCHIVO: beholder_frontend/src/components/CopyButton.tsx
+==================================================
+import { useState } from "react";
+
+interface CopyButtonProps {
+  text: string; // el texto que querés copiar
+}
+
+export default function CopyButton({ text }: CopyButtonProps) {
+  const [copied, setCopied] = useState(false);
+
+  const copyToClipboard = async () => {
+    console.log("Click detectado, texto:", text);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        // ✅ Camino moderno (HTTPS / localhost)
+        await navigator.clipboard.writeText(text);
+        console.log("Camino moderno (HTTPS / localhost) usado para copiar al portapapeles.");
+      } else {
+        // ✅ Fallback para HTTP inseguro
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+        console.log("Fallback usado para copiar al portapapeles.");
+      }
+
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Error copiando al portapapeles", err);
+    }
+  };
+
+
+  return (
+    <div className="copy-button">
+      <button onClick={copyToClipboard}>
+        📋 Copiar
+      </button>
+      {copied && <span style={{ marginLeft: "8px" }}>✔ Copiado</span>}
+    </div>
+  );
+
+}

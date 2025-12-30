@@ -386,7 +386,7 @@ def init_db():
     import os
     from src import config as app_config
 
-    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # carpeta backend
+    here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # carpeta backend
     alembic_ini = os.path.join(here, "alembic.ini")
     alembic_dir = os.path.join(here, "alembic")
 

@@ -99,5 +99,44 @@ services:
     depends_on:
       - backend
 
+# 6. CELERY + REDIS (El Obrero Nocturno)
+  # 1. REDIS (El mensajero)
+  redis:
+    image: redis:alpine
+    container_name: emerald_redis
+    restart: always
+    # 🔒 SEGURIDAD: Solo accesible desde localhost (o tunel SSH), no desde internet
+    ports:
+      - "127.0.0.1:6379:6379"
+    # 🏥 SALUD: Permite que otros servicios sepan cuando Redis está listo de verdad
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # 2. WORKER + BEAT (El obrero que trabaja de noche)
+  celery_worker:
+    build: ./backend
+    container_name: emerald_worker
+    restart: always
+    command: celery -A src.celery_app worker --beat --loglevel=info
+    volumes:
+      - ./backend:/app
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      # 🚦 SEMÁFORO: No arranca hasta que los otros estén en verde (healthy)
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      backend:
+        condition: service_started
+
 volumes:
   postgres_data:

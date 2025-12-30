@@ -2,6 +2,7 @@ from src.db.postgres import Database, init_db
 from src.clients import smartolt, ispcube, mikrotik
 from src import config, models
 from src.utils.safe_call import safe_call
+from src.celery_app import celery_app
 import time
 
 def sync_nodes(db):
@@ -216,7 +217,8 @@ def mapear_cliente(json_cliente: dict) -> dict:
         "temporary": json_cliente.get("temporary"),
     }
 
-def nightly_sync():
+@celery_app.task(name="src.jobs.sync.nightly_sync_task")
+def nightly_sync_task():
     init_db()
     db = Database()
     print("\n[SYNC] 🚀 Iniciando Sincronización...\n")
@@ -239,4 +241,4 @@ def nightly_sync():
         print("\n[SYNC] ✨ Finalizado.\n")
 
 if __name__ == "__main__":
-    nightly_sync()
+    nightly_sync_task()
