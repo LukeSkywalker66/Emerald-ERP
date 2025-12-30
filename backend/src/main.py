@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
 from typing import List
 from datetime import datetime
+from typing import Optional
 
 # Path setup para que Python encuentre 'src'
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -169,7 +170,7 @@ def diagnosis_endpoint(pppoe_user: str, ip: Optional[str] = None):
     
     try:
         # Llamada al servicio
-        result = diagnosis_service.consultar_diagnostico(pppoe_user: str, ip: Optional[str] = None)
+        result = diagnosis_service.consultar_diagnostico(pppoe_user, ip)
         
         # 2. Print corregido (mostramos result, no client)
         print(f"🛑 DEBUG 2: Servicio respondió. Tipo: {type(result)}", flush=True)

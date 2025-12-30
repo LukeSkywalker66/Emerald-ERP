@@ -1,27 +1,5 @@
-### Prueba sin API key (debe fallar)
-GET http://127.0.0.1:8088/health
 
-### Prueba con API key (debe funcionar)
-GET http://127.0.0.1:8500/health
-x-api-key: supersecreta123
-### Buscar suscriptor inexistente (debe dar 404)
-GET http://localhost:8500/live/usuarioprueba
-x-api-key: Zo9fUbuGS5QhJUi8k4zvydAOrHBcBsZx9vz67Woy4Bk9PVSql1rjycpoI2yrajd8
-### Buscar suscriptor de prueba (debe dar 200)
-GET http://127.0.0.1:8500/diagnosis/acastro
-x-api-key: Zo9fUbuGS5QhJUi8k4zvydAOrHBcBsZx9vz67Woy4Bk9PVSql1rjycpoI2yrajd8
-
-### probar produccion
-GET http://localhost:8500/diagnosis/acastro
-x-api-key: Zo9fUbuGS5QhJUi8k4zvydAOrHBcBsZx9vz67Woy4Bk9PVSql1rjycpoI2yrajd8
-
-###
-
-GET http://138.59.172.24:8500/live/mdlujan
-x-api-key: Zo9fUbuGS5QhJUi8k4zvydAOrHBcBsZx9vz67Woy4Bk9PVSql1rjycpoI2yrajd8
-
-
-@host = http://127.0.0.1:8500
+@host = https://138.59.172.26:8500
 @apikey = Zo9fUbuGS5QhJUi8k4zvydAOrHBcBsZx9vz67Woy4Bk9PVSql1rjycpoI2yrajd8
 
 ### 1. Health Check (Verificar que el servicio responde)
@@ -35,7 +13,7 @@ x-api-key: {{apikey}}
 
 ### 3. BÚSQUEDA: Por Dirección (Cliente administrativo)
 # Prueba buscar una calle común
-GET {{host}}/search?q=San Martin
+GET {{host}}/search?q=lmora
 x-api-key: {{apikey}}
 
 ### 4. BÚSQUEDA: Por PPPoE Parcial (Híbrido)
@@ -63,3 +41,31 @@ x-api-key: {{apikey}}
 ###
 GET {{host}}/diagnosis/usuario_solo_tecnico
 x-api-key: {{apikey}}
+
+###
+# ==========================================
+# 🧪 PRUEBA 1: BÚSQUEDA (Search)
+# ==========================================
+# Esto valida que el search_client nuevo devuelva la lista con IPs
+GET {{baseUrl}}/search?q=lmora
+x-api-key: {{apiKey}}
+
+###
+
+# ==========================================
+# 🧪 PRUEBA 2: DIAGNÓSTICO SIMPLE (Admin)
+# ==========================================
+# Esto simula el diagnóstico normal (ISPCube).
+# Debería ser rápido.
+GET {{baseUrl}}/diagnosis/lmora
+x-api-key: {{apiKey}}
+
+###
+
+# ==========================================
+# 🧪 PRUEBA 3: DIAGNÓSTICO ESPECÍFICO (Fantasma)
+# ==========================================
+# ACÁ ESTÁ LA VERDAD.
+# Reemplazá la IP '138.59.175.17' por la IP real del router "fantasma" que viste en la DB.
+GET {{baseUrl}}/diagnosis/lmora?ip=138.59.175.17
+x-api-key: {{apiKey}}

@@ -173,11 +173,8 @@ class Database:
         sql_mk = text("""
             SELECT 
                 s.name as pppoe, 
-                'No Vinculado' as nombre, 
-                CASE 
-                    WHEN s.comment IS NOT NULL AND s.comment != '' THEN 'MK: ' || s.comment 
-                    ELSE 'MK: Sin Datos'
-                END as direccion,
+                COALESCE(NULLIF(s.comment, ''), 'No Vinculado') as nombre,
+                'IP: ' || CAST(s.router_ip AS VARCHAR) as direccion,
                 0 as id, 
                 'mikrotik' as origen,
                 s.router_ip as nodo_ip,
@@ -212,149 +209,123 @@ class Database:
 
     def get_diagnosis(self, pppoe_user: str, target_router_ip: str = None) -> dict:
         """
-        Versión 3.1 (Blindada):
-        Recupera el diagnóstico. Si se especifica IP, asegura que los datos
-        administrativos coincidan con esa IP. Si no, los descarta para evitar mezclar clientes.
+        Versión: SQL Power Query (La Definitiva) 🚀
+        Unifica toda la lógica de prioridades y cruces en una sola consulta SQL.
         """
         
-        # --- PASO 1: Buscar en Administrativo (Connections) ---
-        # Buscamos si existe un 'lmora' oficial que paga el servicio
-        row_admin = (
-            self.db.query(
-                models.Connection, models.Cliente, models.Subscriber, models.Node, models.Plan
-            )
-            .join(models.Cliente, models.Connection.customer_id == models.Cliente.id)
-            .outerjoin(models.Subscriber, models.Connection.pppoe_username == models.Subscriber.pppoe_username)
-            .outerjoin(models.Node, models.Connection.node_id == models.Node.node_id)
-            .outerjoin(models.Plan, models.Connection.plan_id == models.Plan.plan_id)
-            .filter(models.Connection.pppoe_username == pppoe_user)
-            .first()
-        )
+        # Preparamos la cláusula de IP. 
+        # Si viene IP, filtramos estricto. Si no, ordenamos para priorizar al administrativo.
+        ip_clause = "AND s.router_ip = :ip" if target_router_ip else ""
+        order_clause = "ORDER BY c.id DESC NULLS LAST LIMIT 1" if not target_router_ip else ""
 
-        # --- PASO 2: Buscar TODOS los Secrets (Técnico) ---
-        # Traemos todas las sesiones activas en los routers
-        all_secrets = self.db.query(models.PPPSecret).filter(models.PPPSecret.name == pppoe_user).all()
-        
-        selected_secret = None
+        # Query Maestra
+        sql_query = text(f"""
+            SELECT 
+                -- 1. IDENTIDAD
+                COALESCE(cl.name, NULLIF(s.comment, ''), 'No Vinculado') as cliente_nombre,
+                s.name as pppoe_username,
+                
+                -- 2. UBICACIÓN (Corregido 'address')
+                COALESCE(NULLIF(c.direccion, ''), NULLIF(cl.address, ''), 'Sin dirección') as direccion,
+                
+                -- 3. PLAN
+                COALESCE(pl.name, s.profile, 'N/A') as plan,
+                
+                -- 4. DATOS TÉCNICOS
+                n.name as nodo_nombre,
+                s.router_ip as nodo_ip,
+                n.puerto as puerto,
+                s.last_caller_id as mac,
+                s.last_logged_out,  -- Agregado para el Frontend
+                
+                -- 5. DATOS ONT (SmartOLT)
+                sub.sn as onu_sn,
+                sub.olt_name as OLT,
+                sub.mode as Modo,
+                sub.unique_external_id
+                
+                -- 6. STATUS (Intentamos pegar status si existe tabla ppp_active o similar, sino N/A)
+                -- (Aquí asumimos que la validación de 'Online' la hace el servicio o viene de otro lado,
+                --  pero traemos lo básico del secret).
+                --s.disabled as is_disabled
 
-        # --- Lógica de Selección del Secreto ---
-        
-        # ESCENARIO A: Búsqueda Quirúrgica (IP Específica)
-        if target_router_ip:
-            for sec in all_secrets:
-                if sec.router_ip == target_router_ip:
-                    selected_secret = sec
-                    break
-            
-            # [NUEVO] VALIDACIÓN DE INTEGRIDAD (Anti-Colisión) 🛡️
-            # Si pedimos diagnosticara al 'lmora' del Router B, pero el sistema administrativo
-            # dice que 'lmora' pertenece al Router A, entonces NO son la misma "persona/servicio".
-            # Ignoramos el dato administrativo para no mostrar info cruzada.
-            if row_admin:
-                _, _, _, node, _ = row_admin
-                # Si el nodo administrativo tiene IP y es distinta a la que pedimos...
-                if node and node.ip_address and node.ip_address != target_router_ip:
-                    row_admin = None  # <--- Forzamos modo "No Vinculado"
-        
-        # ESCENARIO B: Búsqueda General (Sin IP) - Comportamiento Clásico
-        elif row_admin:
-            _, _, _, node, _ = row_admin
-            if node and node.ip_address:
-                # Buscamos el secreto que coincida con el nodo administrativo
-                for sec in all_secrets:
-                    if sec.router_ip == node.ip_address:
-                        selected_secret = sec
-                        break
-        
-        # ESCENARIO C: Fallback
-        if not selected_secret and all_secrets:
-            # Si a pesar de todo no elegimos uno (ej: la IP pedida no tenía secret, o no hay admin),
-            # agarramos el primero que venga.
-            selected_secret = all_secrets[0]
+            FROM ppp_secrets s
 
+            -- A. Nodo
+            LEFT JOIN nodes n ON s.router_ip = n.ip_address
 
-        # --- PASO 3: Construir Respuesta (Vinculado / Oficial) ---
-        if row_admin:
-            conn, cliente, sub, node, plan = row_admin
+            -- B. Conexión Administrativa (Match Estricto: User + Nodo)
+            LEFT JOIN connections c ON s.name = c.pppoe_username AND n.node_id = c.node_id
+
+            -- C. Cliente y Plan
+            LEFT JOIN clientes cl ON c.customer_id = cl.id
+            LEFT JOIN plans pl ON c.plan_id = pl.plan_id
+
+            -- D. SmartOLT
+            LEFT JOIN subscribers sub ON s.name = sub.pppoe_username
+
+            WHERE s.name = :pppoe_user
+            {ip_clause}
+            {order_clause}
+        """)
+
+        try:
+            params = {"pppoe_user": pppoe_user}
+            if target_router_ip:
+                params["ip"] = target_router_ip
+
+            result = self.db.execute(sql_query, params).fetchone()
+
+            if not result:
+                return {"error": f"Cliente {pppoe_user} no encontrado."}
+
+            # Convertimos el resultado (Row) a Diccionario
+            row = dict(result._mapping)
+
+            # --- MAPEO PARA FRONTEND ---
+            # El OutputBox espera objetos anidados, así que reconstruimos esa estructura aquí.
             
             diagnosis = {
-                "unique_external_id": sub.unique_external_id if sub else None,
-                "pppoe_username": conn.pppoe_username,
-                "onu_sn": sub.sn if sub else None,
-                "Modo": sub.mode if sub else None,
-                "OLT": sub.olt_name if sub else None,
-                "nodo_nombre": node.name if node else "Desconocido",
-                "nodo_ip": node.ip_address if node else None,
-                "puerto": node.puerto if node else None,
-                "plan": plan.name if plan else "N/A",
-                "direccion": conn.direccion,
-                "cliente_nombre": cliente.name,
-                "mac": None
+                "cliente_nombre": row["cliente_nombre"],
+                "direccion": row["direccion"],
+                "plan": row["plan"],
+                "pppoe_username": row["pppoe_username"],
+                "nodo_nombre": row["nodo_nombre"] if row["nodo_nombre"] else f"Router {row['nodo_ip']}",
+                "nodo_ip": row["nodo_ip"],
+                "puerto": row["puerto"],
+                
+                # Datos de OLT planos en la raíz (OutputBox los busca ahí)
+                "OLT": row["olt"],
+                "onu_sn": row["onu_sn"],
+                "unique_external_id": row["unique_external_id"],
+                "Modo": row["modo"],
+
+                # Objeto Mikrotik (Necesario para que no se rompa OutputBox)
+                "mikrotik": {
+                    "active": "Online" if not row.get("is_disabled") else "Disabled", # Simplificación, idealmente cruzar con ppp_active
+                    "uptime": "N/A", # La query de secrets no tiene uptime, eso está en ppp_active
+                    "secret": {
+                        "last-logged-out": row["last_logged_out"],
+                        "remote-address": row["nodo_ip"]
+                    }
+                },
+
+                # Objetos ONU (Placeholders para que no rompa si el servicio no los llena después)
+                "onu_status_smrt": {
+                    "onu_status": "N/A",
+                    "last_status_change": "N/A"
+                },
+                "onu_signal_smrt": {
+                    "onu_signal": "N/A",
+                    "onu_signal_value": "N/A"
+                }
             }
             
-            # Enriquecemos con datos técnicos si matcheó el secreto
-            if selected_secret:
-                diagnosis['mac'] = selected_secret.last_caller_id
-                # Acá NO sobreescribimos nodo_ip si difiere, porque en teoría
-                # ya validamos arriba que coincidan o decidimos usar row_admin.
-                # Salvo el caso de "Movimiento no registrado" (Escenario B).
-                
-                real_ip = selected_secret.router_ip
-                if real_ip and (not node or real_ip != node.ip_address):
-                     # Solo entra acá si NO pasamos target_ip (Escenario B - Cliente se mudó)
-                    real_node = self.db.query(models.Node).filter(models.Node.ip_address == real_ip).first()
-                    if real_node:
-                        diagnosis.update({"nodo_nombre": real_node.name, "nodo_ip": real_node.ip_address, "puerto": real_node.puerto})
-                    else:
-                        diagnosis.update({"nodo_nombre": f"Router {real_ip}", "nodo_ip": real_ip})
-
             return diagnosis
 
-        # --- PASO 4: Construir Respuesta (No Vinculado / Fallback Puro) ---
-        
-        # Si llegamos acá es porque:
-        # A) No existe en Admin.
-        # B) Existe en Admin pero pedimos UNA IP DISTINTA (conflicto).
-        
-        if not selected_secret:
-             return {"error": f"Cliente {pppoe_user} no encontrado en router {target_router_ip or 'cualquiera'}."}
-
-        diagnosis = {
-            "cliente_nombre": "No Vinculado",
-            "direccion": "N/A",
-            "plan": "N/A",
-            "pppoe_username": pppoe_user,
-            "onu_sn": "N/A", "Modo": "N/A", "OLT": "N/A", 
-            "nodo_nombre": f"Router {selected_secret.router_ip}",
-            "nodo_ip": selected_secret.router_ip,
-            "puerto": None,
-            "unique_external_id": None,
-            "mac": selected_secret.last_caller_id
-        }
-        
-        if selected_secret.comment:
-            diagnosis['cliente_nombre'] += f" ({selected_secret.comment})"
-
-        # Intentamos ponerle nombre lindo al nodo
-        if selected_secret.router_ip:
-            real_node = self.db.query(models.Node).filter(models.Node.ip_address == selected_secret.router_ip).first()
-            if real_node:
-                 diagnosis.update({
-                     "nodo_nombre": real_node.name, 
-                     "puerto": real_node.puerto
-                 })
-
-        # Buscamos si hay una ONT suelta con ese usuario (SmartOLT)
-        sub_row = self.db.query(models.Subscriber).filter(models.Subscriber.pppoe_username == pppoe_user).first()
-        if sub_row:
-             diagnosis.update({
-                 "unique_external_id": sub_row.unique_external_id,
-                 "onu_sn": sub_row.sn,
-                 "OLT": sub_row.olt_name,
-                 "Modo": sub_row.mode
-             })
-
-        return diagnosis
+        except Exception as e:
+            print(f"❌ Error en SQL Power Query: {e}")
+            return {"error": str(e)}
 
     def get_router_for_pppoe(self, pppoe_user: str):
         # Reemplaza a [cite: 96]
