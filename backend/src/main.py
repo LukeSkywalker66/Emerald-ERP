@@ -18,7 +18,7 @@ from src.database import engine, Base, get_db
 from src import models
 from src import config
 from src.services.api_key_service import APIKeyService
-from src.routers.v1 import auth
+from src.routers.v1 import auth, tickets
 
 # 👇 IMPORTAMOS EL NUEVO SERVICIO (Tu lógica adaptada)
 from src.services import diagnosis as diagnosis_service 
@@ -49,6 +49,12 @@ app.include_router(
     auth.router,
     prefix="/api/v1",
     tags=["Authentication"]
+)
+
+app.include_router(
+    tickets.router,
+    prefix="/api/v1",
+    tags=["Tickets"]
 )
 
 @app.on_event("startup")
