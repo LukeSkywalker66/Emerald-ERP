@@ -86,8 +86,9 @@ def _validate_mikrotik_config():
         raise ValueError(f"Configuración Mikrotik incompleta: {', '.join(errors)}")
 
 # --- ISPCube CONFIGURATION ---
-ISPCUBE_API_URL = os.getenv("ISPCUBE_API_URL")
-ISPCUBE_API_KEY = os.getenv("ISPCUBE_API_KEY")
+# Soportar nombres legacy: ISPCUBE_BASEURL / ISPCUBE_APIKEY
+ISPCUBE_API_URL = os.getenv("ISPCUBE_API_URL") or os.getenv("ISPCUBE_BASEURL")
+ISPCUBE_API_KEY = os.getenv("ISPCUBE_API_KEY") or os.getenv("ISPCUBE_APIKEY")
 ISPCUBE_SYNC_ENABLED = os.getenv("ISPCUBE_SYNC_ENABLED", "true").lower() == "true"
 
 # --- SmartOLT CONFIGURATION ---

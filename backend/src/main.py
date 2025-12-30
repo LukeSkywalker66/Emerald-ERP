@@ -94,13 +94,13 @@ async def security_middleware(request: Request, call_next):
         "/openapi.json", 
         "/tickets",           # Demo pública
         "/services_options",  # Demo pública
-        "/api/search",        # Beholder - búsqueda pública
-        "/api/diagnosis",     # Beholder - diagnóstico público
-        "/api/live",          # Beholder - tráfico vivo
-        "/api/health",        # Health check
-        "/health",            # Health check (sin /api)
-        "/api/v1/auth/login", # Auth - login
-        "/api/v1/auth/register", # Auth - registro
+        # Beholder (legacy paths y prefijos /api)
+        "/search", "/diagnosis", "/live", 
+        "/api/search", "/api/diagnosis", "/api/live",
+        # Health
+        "/api/health", "/health",
+        # Auth
+        "/api/v1/auth/login", "/api/v1/auth/register",
         "/"                   # Root
     ]
     
@@ -249,10 +249,18 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
 def health():
     return {"status": "ok", "system": "Emerald Core + Beholder"}
 
+@app.get("/api/health")
+def health_api():
+    return health()
+
 @app.get("/search")
 def search_endpoint(q: str):
     # Ahora llamamos al servicio limpio
     return diagnosis_service.search_clients(q)
+
+@app.get("/api/search")
+def search_endpoint_api(q: str):
+    return search_endpoint(q)
 
 # @app.get("/diagnosis/{pppoe_user}")
 # def diagnosis_endpoint(pppoe_user: str):
@@ -296,6 +304,10 @@ def diagnosis_endpoint(pppoe_user: str, ip: Optional[str] = None):
         raise HTTPException(status_code=500, detail=f"Error interno debuggeando: {str(e)}")
 
 
+@app.get("/api/diagnosis/{pppoe_user}")
+def diagnosis_endpoint_api(pppoe_user: str, ip: Optional[str] = None):
+    return diagnosis_endpoint(pppoe_user, ip)
+
 
 @app.get("/live/{pppoe_user}")
 def live_traffic_endpoint(pppoe_user: str):
@@ -303,6 +315,11 @@ def live_traffic_endpoint(pppoe_user: str):
     if result.get("status") == "error":
         raise HTTPException(status_code=500, detail=result.get("detail"))
     return result
+
+
+@app.get("/api/live/{pppoe_user}")
+def live_traffic_endpoint_api(pppoe_user: str):
+    return live_traffic_endpoint(pppoe_user)
 
 
 # ════════════════════════════════════════════════════════════════════════════
