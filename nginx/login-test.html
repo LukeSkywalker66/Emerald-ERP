@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔐 Test Login - Emerald ERP</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+        }
+        h1 { color: #667eea; margin-bottom: 10px; font-size: 28px; text-align: center; }
+        .subtitle { color: #666; text-align: center; margin-bottom: 30px; font-size: 14px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; color: #333; font-weight: 600; margin-bottom: 8px; font-size: 14px; }
+        input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+        button:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3); }
+        button:active { transform: translateY(0); }
+        button:disabled { background: #ccc; cursor: not-allowed; transform: none; }
+        .result { margin-top: 30px; padding: 20px; border-radius: 10px; display: none; }
+        .result.success { background: #d4edda; border: 2px solid #28a745; display: block; }
+        .result.error { background: #f8d7da; border: 2px solid #dc3545; display: block; }
+        .result h3 { margin-bottom: 10px; color: #333; }
+        .token-display {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 8px;
+            word-break: break-all;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            margin: 10px 0;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        .user-info { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-top: 10px; }
+        .user-info p { margin: 5px 0; font-size: 14px; }
+        .user-info strong { color: #667eea; }
+        .credentials {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .credentials h4 { color: #856404; margin-bottom: 10px; }
+        .credentials p { margin: 5px 0; font-size: 13px; color: #856404; }
+        .credentials code { background: #fff; padding: 2px 6px; border-radius: 4px; font-family: 'Courier New', monospace; }
+        .action-buttons { display: flex; gap: 10px; margin-top: 15px; }
+        .action-buttons button { flex: 1; padding: 10px; font-size: 14px; }
+        .secondary-btn { background: linear-gradient(135deg, #6c757d 0%, #495057 100%); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Test Login</h1>
+        <p class="subtitle">Sistema de Autenticación - Emerald ERP</p>
+        <div class="credentials">
+            <h4>📋 Credenciales de Prueba</h4>
+            <p><strong>Username:</strong> <code>admin</code></p>
+            <p><strong>Password:</strong> <code>Admin123</code></p>
+        </div>
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="username">👤 Usuario o Email</label>
+                <input type="text" id="username" value="admin" required>
+            </div>
+            <div class="form-group">
+                <label for="password">🔒 Contraseña</label>
+                <input type="password" id="password" value="Admin123" required>
+            </div>
+            <button type="submit" id="loginBtn">Iniciar Sesión</button>
+        </form>
+        <div id="result" class="result">
+            <h3 id="resultTitle"></h3>
+            <div id="resultContent"></div>
+        </div>
+    </div>
+    <script>
+        let currentToken = null;
+        const API_URL = '/api/v1';
+        
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            console.log('🔐 Iniciando login...');
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const loginBtn = document.getElementById('loginBtn');
+            const result = document.getElementById('result');
+            
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = '⏳ Autenticando...';
+            result.style.display = 'none';
+            
+            try {
+                const formData = new URLSearchParams();
+                formData.append('username', username);
+                formData.append('password', password);
+                
+                console.log('📡 Llamando a:', `${API_URL}/auth/login`);
+                console.log('📦 Datos:', formData.toString());
+                
+                const response = await fetch(`${API_URL}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: formData
+                });
+                
+                console.log('📥 Respuesta:', response.status, response.statusText);
+                
+                const data = await response.json();
+                console.log('📄 Data:', data);
+                
+                if (response.ok) {
+                    currentToken = data.access_token;
+                    console.log('✅ Login exitoso!');
+                    showSuccess(data);
+                } else {
+                    console.error('❌ Error:', data.detail);
+                    showError(data.detail || 'Error desconocido');
+                }
+            } catch (error) {
+                console.error('💥 Exception:', error);
+                showError('Error de conexión: ' + error.message);
+            } finally {
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = 'Iniciar Sesión';
+            }
+        });
+
+        function showSuccess(data) {
+                        console.log('🎉 showSuccess called with:', data);
+            const result = document.getElementById('result');
+            const resultTitle = document.getElementById('resultTitle');
+            const resultContent = document.getElementById('resultContent');
+                        console.log('📦 Elements:', {result, resultTitle, resultContent});
+            
+            result.className = 'result success';
+                        result.style.display = 'block';
+            resultTitle.innerHTML = '✅ Login Exitoso';
+                        console.log('✅ UI actualizada');
+            
+            resultContent.innerHTML = `
+                <p><strong>🎫 Token JWT generado correctamente</strong></p>
+                <p style="font-size: 13px; color: #666; margin: 5px 0;">Expira en: ${Math.floor(data.expires_in / 60)} minutos</p>
+                <div class="token-display">${data.access_token}</div>
+                <div class="action-buttons">
+                    <button onclick="getUserInfo()" class="secondary-btn">👤 Ver Mi Perfil</button>
+                    <button onclick="copyToken()" class="secondary-btn">📋 Copiar Token</button>
+                </div>
+            `;
+        }
+
+        function showError(message) {
+            const result = document.getElementById('result');
+            const resultTitle = document.getElementById('resultTitle');
+            const resultContent = document.getElementById('resultContent');
+            
+            result.className = 'result error';
+            resultTitle.innerHTML = '❌ Error de Autenticación';
+            resultContent.innerHTML = `<p><strong>${message}</strong></p>`;
+        }
+
+        async function getUserInfo() {
+            if (!currentToken) return alert('No hay token disponible');
+            
+            const resultContent = document.getElementById('resultContent');
+            const originalContent = resultContent.innerHTML;
+            
+            try {
+                const response = await fetch(`${API_URL}/auth/me`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultContent.innerHTML = originalContent + `
+                        <div class="user-info">
+                            <h4 style="margin-bottom: 10px; color: #667eea;">👤 Información del Usuario</h4>
+                            <p><strong>ID:</strong> ${data.id}</p>
+                            <p><strong>Email:</strong> ${data.email}</p>
+                            <p><strong>Username:</strong> ${data.username}</p>
+                            <p><strong>Nombre:</strong> ${data.full_name}</p>
+                            <p><strong>Activo:</strong> ${data.is_active ? '✅' : '❌'}</p>
+                            <p><strong>Superusuario:</strong> ${data.is_superuser ? '✅' : '❌'}</p>
+                            ${data.role ? `<p><strong>Rol:</strong> ${data.role.name}</p>` : ''}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        function copyToken() {
+            navigator.clipboard.writeText(currentToken).then(() => {
+                alert('✅ Token copiado al portapapeles');
+            });
+        }
+    </script>
+</body>
+</html>

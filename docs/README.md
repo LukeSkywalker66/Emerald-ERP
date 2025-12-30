@@ -74,6 +74,11 @@
 2. Sigue [Desarrollo Local](DESARROLLO_LOCAL.md) - Sección "Setup Inicial"
 3. Verifica que `docker-compose ps` muestre todos los servicios verdes
 
+### 🔐 "Necesito probar el login rápido"
+1. Abre https://emerald.2finternet.ar/login-test
+2. Credenciales pre-cargadas: admin / Admin123
+3. Verifica el token y prueba "Ver Mi Perfil"
+
 ### 🔄 "Debo agregar un nuevo endpoint"
 1. Lee [Desarrollo Local](DESARROLLO_LOCAL.md) - Sección "Estructura de un Endpoint"
 2. Consuta [BASE_DATOS.md](BASE_DATOS.md) - Para entender el modelo

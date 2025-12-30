@@ -67,6 +67,7 @@ services:
       - "443:443"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx/login-test.html:/etc/nginx/login-test.html
       - ./data/certbot/conf:/etc/letsencrypt  # <--- Donde se guardan los certs
       - ./data/certbot/www:/var/www/certbot   # <--- Donde se valida el desafío
     depends_on:

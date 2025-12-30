@@ -47,6 +47,14 @@ docker-compose exec backend alembic upgrade head
 docker-compose exec db psql -U admin -d emerald -c "\dt"
 ```
 
+### 4. Probar Login (navegador)
+
+- URL producción: https://emerald.2finternet.ar/login-test
+- Credenciales pre-cargadas: `admin` / `Admin123` (correo: `admin@emerald.com`)
+- Botones disponibles: "Ver Mi Perfil" (usa `/api/v1/auth/me`) y "Copiar Token".
+- Ruta servida por Nginx con alias al archivo `nginx/login-test.html` montado vía `docker-compose.yml`.
+- Si actualizas el HTML, reinicia nginx: `docker compose restart nginx`.
+
 ---
 
 ## Desarrollo del Backend (FastAPI)
