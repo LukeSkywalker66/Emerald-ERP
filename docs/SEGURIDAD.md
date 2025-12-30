@@ -72,6 +72,17 @@ WHITELIST = [
 - `tickets:write` → puede crear, comentar y cambiar estado de tickets.
 
 Si el usuario es `is_superuser=True` se omiten los chequeos. Los permisos se leen desde `role.permissions` (lista de strings o dict con clave `permissions`).
+
+#### Roles por defecto
+
+- `admin`: `[*]` (todos los permisos).
+- `tecnico`: `tickets:read`, `tickets:write`, `services:read`, `clients:read`, `diagnosis:read`.
+- `viewer`: `tickets:read`, `services:read`, `clients:read`.
+
+Para reprovisionar los roles por defecto:
+```bash
+docker compose exec -T backend python -m scripts.create_superuser
+```
 ```
 
 ### Endpoints Protegidos (Requieren autenticación)
