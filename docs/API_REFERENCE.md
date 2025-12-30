@@ -8,18 +8,53 @@ Documentación completa de todos los endpoints disponibles en la API de Emerald 
 
 ## 🔐 Autenticación
 
+### Sistema de API Keys (NUEVO - 30/12/2025)
+
+La API usa un sistema profesional de API Keys con rotación automática.
+
+**Documentación completa:** [SEGURIDAD.md](SEGURIDAD.md) | [API_KEYS.md](API_KEYS.md)
+
+### Usar API Key
+
 Todos los endpoints **excepto los públicos** requieren un header de API Key:
 
 ```bash
 curl -X GET "http://localhost/api/clientes" \
-  -H "x-api-key: tu_api_key_aqui"
+  -H "x-api-key: iso_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789"
 ```
+
+### Crear una API Key
+
+```bash
+# Requiere autenticación admin
+curl -X POST "http://localhost/admin/api-keys" \
+  -H "x-api-key: ${EXISTING_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Mi Integración",
+    "scopes": ["read", "write"],
+    "expires_in_days": 90
+  }'
+```
+
+**Importante:** La key se devuelve UNA SOLA VEZ. Guardarla inmediatamente.
 
 ### Endpoints Públicos (Sin API Key)
 - `GET /health`
 - `GET /search`
 - `GET /diagnosis/{pppoe_user}`
 - `GET /live/{pppoe_user}`
+
+### Endpoints Admin de Gestión (Requieren autenticación)
+
+| Método | Path | Descripción |
+|--------|------|------------|
+| POST | `/admin/api-keys` | Crear nueva key |
+| GET | `/admin/api-keys` | Listar todas |
+| POST | `/admin/api-keys/{id}/rotate` | Rotar manualmente |
+| DELETE | `/admin/api-keys/{id}` | Revocar |
+| GET | `/admin/api-keys/{id}/audit` | Auditoría de key |
+| GET | `/admin/api-keys/audit/all` | Auditoría de todas |
 
 ---
 

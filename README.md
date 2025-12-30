@@ -125,7 +125,26 @@ docker-compose ps
 docker-compose exec backend alembic upgrade head
 ```
 
-## 4. Acceso al Sistema
+---
+
+## 🌍 Entornos: Desarrollo, Preproducción y Producción
+
+Emerald ERP corre en **3 entornos diferentes** con configuraciones distintas:
+
+| Entorno | Estado | Documentación |
+|---------|--------|--------------|
+| **DESARROLLO** (Tu servidor local 138.59.172.26) | ✅ Activo | [ENTORNOS.md](./docs/ENTORNOS.md) |
+| **PREPRODUCCIÓN** (Futuro, server 8GB) | 🔄 Planeado | [ENTORNOS.md](./docs/ENTORNOS.md) |
+| **PRODUCCIÓN** (Futuro, servidor en vivo) | ⏳ Futuro | [ENTORNOS.md](./docs/ENTORNOS.md) |
+
+**Lee [ENTORNOS.md](./docs/ENTORNOS.md)** para entender:
+- Cómo funcionan los diferentes `.env` por entorno
+- Cómo cambiar variables de configuración
+- API Keys y su ciclo de vida por entorno
+- Flujo de cambios: dev → preprod → prod
+- Timezones y logs (ahora sincronizados con hora local)
+
+---
 
 | Servicio | URL | Credenciales |
 |----------|-----|--------------|

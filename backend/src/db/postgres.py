@@ -214,9 +214,9 @@ class Database:
         """
         
         # Preparamos la cláusula de IP. 
-        # Si viene IP, filtramos estricto. Si no, ordenamos para priorizar al administrativo.
+        # Si viene IP, filtramos estricto. Si no, simplemente traemos el primero disponible.
         ip_clause = "AND s.router_ip = :ip" if target_router_ip else ""
-        order_clause = "ORDER BY c.id DESC NULLS LAST LIMIT 1" if not target_router_ip else ""
+        order_clause = "ORDER BY (CASE WHEN c.connection_id IS NOT NULL THEN 0 ELSE 1 END), s.router_ip LIMIT 1" if not target_router_ip else ""
 
         # Query Maestra
         sql_query = text(f"""
@@ -295,10 +295,10 @@ class Database:
                 "puerto": row["puerto"],
                 
                 # Datos de OLT planos en la raíz (OutputBox los busca ahí)
-                "OLT": row["olt"],
-                "onu_sn": row["onu_sn"],
-                "unique_external_id": row["unique_external_id"],
-                "Modo": row["modo"],
+                "OLT": row.get("olt"),  # PostgreSQL convierte alias a minúsculas
+                "onu_sn": row.get("onu_sn"),
+                "unique_external_id": row.get("unique_external_id"),
+                "Modo": row.get("modo"),  # PostgreSQL convierte alias a minúsculas
 
                 # Objeto Mikrotik (Necesario para que no se rompa OutputBox)
                 "mikrotik": {

@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session, joinedload
 from typing import List
 from datetime import datetime
 from typing import Optional
+from jose import JWTError, jwt
+from pydantic import BaseModel
 
 # Path setup para que Python encuentre 'src'
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -15,6 +17,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from src.database import engine, Base, get_db
 from src import models
 from src import config
+from src.services.api_key_service import APIKeyService
 
 # 👇 IMPORTAMOS EL NUEVO SERVICIO (Tu lógica adaptada)
 from src.services import diagnosis as diagnosis_service 
@@ -22,6 +25,10 @@ from src.services import diagnosis as diagnosis_service
 # Ejecutar migraciones Alembic en startup en lugar de create_all
 from alembic import command as alembic_command
 from alembic.config import Config as AlembicConfig
+
+# --- Configuración JWT (para el futuro: frontend con login) ---
+SECRET_KEY = os.getenv("SECRET_KEY", "cambiar-en-produccion")
+ALGORITHM = "HS256"
 
 def run_db_migrations():
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # carpeta backend
@@ -56,27 +63,96 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- MIDDLEWARE DE SEGURIDAD ---
+# --- MIDDLEWARE DE SEGURIDAD MEJORADO ---
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
-    # Dejamos pasar libre al Frontend y a la Demo
+    """
+    Middleware mejorado con soporte para:
+    1. API Keys con validación en BD
+    2. JWT Tokens (futuro frontend)
+    3. Whitelist de endpoints públicos
+    """
+    
+    # Endpoints públicos (no requieren autenticación)
     whitelist = [
-        "/docs", "/redoc", "/openapi.json", 
-        "/tickets", "/services_options", # Emerald CRM
-        "/search", "/diagnosis", "/live", "/health", "/" # Beholder UI
+        "/docs", 
+        "/redoc", 
+        "/openapi.json", 
+        "/tickets",           # Demo pública
+        "/services_options",  # Demo pública
+        "/api/search",        # Beholder - búsqueda pública
+        "/api/diagnosis",     # Beholder - diagnóstico público
+        "/api/live",          # Beholder - tráfico vivo
+        "/api/health",        # Health check
+        "/health",            # Health check (sin /api)
+        "/"                   # Root
     ]
     
+    # Pasar libremente si es whitelist u OPTIONS
     if request.method == "OPTIONS" or any(request.url.path.startswith(p) for p in whitelist):
         return await call_next(request)
     
-    # Para bots o scripts externos, pedimos API KEY
-    key = request.headers.get("x-api-key")
-    if getattr(config, 'API_KEY', None) and key != config.API_KEY:
-        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    # Endpoints que requieren autenticación
+    protected_endpoints = ["/admin", "/api/clientes", "/api/servicios"]
+    is_protected = any(request.url.path.startswith(p) for p in protected_endpoints)
+    
+    if is_protected:
+        # Intentar autenticación por API Key (para bots)
+        api_key = request.headers.get("x-api-key")
+        if api_key:
+            db = SessionLocal()
+            try:
+                key_data = await APIKeyService.validate_api_key(
+                    db, 
+                    api_key,
+                    ip_address=request.client.host if request.client else None
+                )
+                if key_data:
+                    request.state.api_key_id = key_data["id"]
+                    request.state.api_key_name = key_data["name"]
+                    request.state.auth_type = "api_key"
+                    db.close()
+                    return await call_next(request)
+                else:
+                    db.close()
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "API Key inválida o expirada"}
+                    )
+            except Exception as e:
+                db.close()
+                import logging
+                logging.error(f"Error validando API Key: {e}")
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Error validando credenciales"}
+                )
+        else:
+            # Intentar autenticación por JWT Token (para frontend futuro)
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header.split(" ")[1]
+                try:
+                    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+                    request.state.user_id = payload.get("sub")
+                    request.state.auth_type = "jwt"
+                    return await call_next(request)
+                except JWTError:
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "Token inválido o expirado"}
+                    )
+            
+            # Sin autenticación
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Se requiere API Key o JWT Token"}
+            )
     
     return await call_next(request)
 
-from pydantic import BaseModel
+# Importar SessionLocal después del middleware
+from src.database import SessionLocal
 # --- ESQUEMAS DE LECTURA (Lo que sale hacia afuera) ---
 class PlanSchema(BaseModel):
     name: str
@@ -211,3 +287,191 @@ def live_traffic_endpoint(pppoe_user: str):
     if result.get("status") == "error":
         raise HTTPException(status_code=500, detail=result.get("detail"))
     return result
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 🔐 ENDPOINTS DE ADMINISTRACIÓN DE API KEYS
+# ════════════════════════════════════════════════════════════════════════════
+
+class APIKeyCreateRequest(BaseModel):
+    """Request para crear una nueva API Key"""
+    name: str
+    scopes: List[str] = ["read"]
+    expires_in_days: int = 90
+
+class APIKeyResponse(BaseModel):
+    """Response con datos de API Key (sin la key raw excepto en creación)"""
+    id: int
+    name: str
+    prefix: str
+    active: bool
+    created_at: datetime
+    expires_at: Optional[datetime]
+    last_used: Optional[datetime]
+    scopes: List[str]
+    rotation_count: int
+
+class APIKeyCreateResponse(BaseModel):
+    """Response cuando se crea una key (incluye la key sin hash)"""
+    id: int
+    name: str
+    key: str
+    prefix: str
+    expires_at: datetime
+    scopes: List[str]
+    warning: str
+
+
+# Dependencia para verificar que es admin (placeholder simple)
+async def verify_admin(request: Request):
+    """Verificar que la solicitud es del admin (futura implementación)"""
+    # Por ahora: si tiene API Key válida, es admin
+    # En futuro: verificar JWT con claims de admin
+    if not hasattr(request.state, "api_key_id"):
+        raise HTTPException(status_code=401, detail="Admin authentication required")
+    return request.state.api_key_id
+
+
+@app.post("/admin/api-keys", response_model=APIKeyCreateResponse)
+async def create_api_key_endpoint(
+    request: APIKeyCreateRequest,
+    db: Session = Depends(get_db),
+    _admin = Depends(verify_admin)
+):
+    """
+    Crear una nueva API Key.
+    
+    ⚠️ Requiere autenticación admin (API Key o JWT)
+    
+    **IMPORTANTE**: La key se devuelve SIN HASH solo en esta respuesta.
+    El usuario debe copiarla inmediatamente, no se mostrará de nuevo.
+    """
+    new_key = await APIKeyService.create_api_key(
+        db=db,
+        name=request.name,
+        scopes=request.scopes,
+        expires_in_days=request.expires_in_days,
+        created_by="admin"
+    )
+    
+    return APIKeyCreateResponse(
+        id=new_key["id"],
+        name=new_key["name"],
+        key=new_key["key"],
+        prefix=new_key["prefix"],
+        expires_at=datetime.fromisoformat(new_key["expires_at"]),
+        scopes=new_key["scopes"],
+        warning=new_key["warning"]
+    )
+
+
+@app.get("/admin/api-keys", response_model=List[APIKeyResponse])
+async def list_api_keys(
+    db: Session = Depends(get_db),
+    _admin = Depends(verify_admin)
+):
+    """
+    Listar todas las API Keys (sin las keys raw).
+    
+    Requiere autenticación admin.
+    """
+    keys = db.query(models.APIKey).order_by(models.APIKey.created_at.desc()).all()
+    
+    return [
+        APIKeyResponse(
+            id=k.id,
+            name=k.name,
+            prefix=k.key_prefix,
+            active=bool(k.active),
+            created_at=k.created_at,
+            expires_at=k.expires_at,
+            last_used=k.last_used,
+            scopes=k.scopes or [],
+            rotation_count=k.rotation_count
+        )
+        for k in keys
+    ]
+
+
+@app.post("/admin/api-keys/{key_id}/rotate", response_model=APIKeyCreateResponse)
+async def rotate_api_key_endpoint(
+    key_id: int,
+    db: Session = Depends(get_db),
+    _admin = Depends(verify_admin)
+):
+    """
+    Rotar una API Key manualmente.
+    
+    Crea una nueva key y desactiva la antigua.
+    Requiere autenticación admin.
+    """
+    try:
+        new_key = await APIKeyService.rotate_api_key(db, key_id)
+        return APIKeyCreateResponse(
+            id=new_key["id"],
+            name=new_key["name"],
+            key=new_key["key"],
+            prefix=new_key["prefix"],
+            expires_at=datetime.fromisoformat(new_key["expires_at"]),
+            scopes=new_key["scopes"],
+            warning=new_key["warning"]
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.delete("/admin/api-keys/{key_id}")
+async def revoke_api_key_endpoint(
+    key_id: int,
+    db: Session = Depends(get_db),
+    _admin = Depends(verify_admin)
+):
+    """
+    Revocar una API Key (desactivarla permanentemente).
+    
+    Requiere autenticación admin.
+    """
+    success = await APIKeyService.revoke_api_key(db, key_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="API Key not found")
+    
+    return {"message": "API Key revoked successfully"}
+
+
+@app.get("/admin/api-keys/{key_id}/audit")
+async def get_api_key_audit(
+    key_id: int,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _admin = Depends(verify_admin)
+):
+    """
+    Obtener log de auditoría de una API Key específica.
+    
+    Requiere autenticación admin.
+    """
+    audit_log = APIKeyService.get_audit_log(db, key_id=key_id, limit=limit)
+    
+    if not audit_log:
+        raise HTTPException(status_code=404, detail="API Key not found or no audit records")
+    
+    return {"audit_log": audit_log}
+
+
+@app.get("/admin/api-keys/audit/all")
+async def get_all_api_keys_audit(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    _admin = Depends(verify_admin)
+):
+    """
+    Obtener log de auditoría de TODAS las API Keys.
+    
+    Requiere autenticación admin.
+    """
+    audit_log = APIKeyService.get_audit_log(db, key_id=None, limit=limit)
+    
+    return {
+        "total_records": len(audit_log),
+        "audit_log": audit_log
+    }

@@ -13,3 +13,4 @@ python-dotenv==1.0.1
 loguru==0.7.2
 celery
 redis
+python-jose[cryptography]

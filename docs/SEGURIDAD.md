@@ -40,10 +40,19 @@ Emerald ERP utiliza un modelo de seguridad por capas:
 
 ## 1. Autenticación de API
 
-### Endpoints Públicos (Whitelist)
+### Sistema de API Keys (NUEVO - 30/12/2025)
+
+Emerald ERP ahora usa un sistema profesional de API Keys con:
+- ✅ Hash bcrypt (nunca en texto plano)
+- ✅ Rotación automática cada 7 días
+- ✅ Auditoría completa de accesos
+- ✅ Gestión dinámica en BD
+
+**Ver documentación completa:** [docs/API_KEYS.md](API_KEYS.md)
+
+### Endpoints Públicos (Sin autenticación)
 
 ```python
-# En main.py:
 WHITELIST = [
     "/docs",                    # Swagger UI
     "/redoc",                   # ReDoc
@@ -58,28 +67,91 @@ WHITELIST = [
 ]
 ```
 
-### Endpoints Protegidos (API Key Required)
+### Endpoints Protegidos (Requieren autenticación)
 
-Todos los demás endpoints requieren:
+#### Opción 1: API Key (para bots/scripts)
 
 ```bash
 curl -X GET "http://localhost/api/clientes" \
-  -H "x-api-key: tu_api_key_aqui"
+  -H "x-api-key: iso_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789"
 ```
 
-### Configurar API Key
+**Crear una API Key:**
+```bash
+curl -X POST "http://localhost/admin/api-keys" \
+  -H "x-api-key: ${EXISTING_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "ISPCube Sync",
+    "scopes": ["read", "write"],
+    "expires_in_days": 90
+  }'
+```
+
+**Response (solo una vez):**
+```json
+{
+  "id": 1,
+  "name": "ISPCube Sync",
+  "key": "iso_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789",
+  "prefix": "iso_aBcDeFg",
+  "expires_at": "2026-03-30T10:30:00",
+  "scopes": ["read", "write"],
+  "warning": "⚠️ Copia esta key ahora. No se mostrará de nuevo."
+}
+```
+
+#### Opción 2: JWT Token (para futuro frontend)
 
 ```bash
-# En .env
+curl -X POST "http://localhost/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "user", "password": "pass"}'
+
+# Response: {"access_token": "eyJhbG...", "token_type": "bearer"}
+
+# Usar:
+curl -X GET "http://localhost/api/clientes" \
+  -H "Authorization: Bearer eyJhbG..."
+```
+
+### Configuración en .env
+
+```bash
+# API Key legacy (compatible con sistema anterior)
 API_KEY=tu_api_key_super_secreta_aqui_12345
 
-# En backend:
-from src import config
-
-if config.API_KEY:
-    # API Key está activada
-    ...
+# JWT (para futuro frontend)
+SECRET_KEY=tu_secret_key_para_jwt_aqui_cambiar
+JWT_ALGORITHM=HS256
+JWT_EXPIRATION_MINUTES=30
 ```
+
+### Endpoints Admin de Gestión
+
+| Método | Endpoint | Descripción |
+|--------|----------|------------|
+| POST | `/admin/api-keys` | Crear nueva key |
+| GET | `/admin/api-keys` | Listar todas |
+| POST | `/admin/api-keys/{id}/rotate` | Rotar manualmente |
+| DELETE | `/admin/api-keys/{id}` | Revocar |
+| GET | `/admin/api-keys/{id}/audit` | Ver auditoría de key |
+| GET | `/admin/api-keys/audit/all` | Ver auditoría de todas |
+
+**Ver:** [docs/API_KEYS.md#endpoints-admin](API_KEYS.md#endpoints-admin)
+
+### Rotación Automática (Celery Beat)
+
+Las API Keys se rotan automáticamente en estas horas (zona Argentina):
+
+| Hora | Tarea | Descripción |
+|------|-------|------------|
+| 2:00 AM | rotate_expiring | Rota keys próximas a expirar (7 días) |
+| 3:30 AM | cleanup_expired | Limpia keys expiradas |
+| 1:00 AM | alert_expiring | Alerta sobre vencimientos (cada 3 días) |
+| 4:00 AM | generate_audit_report | Reporte semanal (domingo) |
+
+**Implementación:** [backend/src/jobs/api_key_rotation.py](../backend/src/jobs/api_key_rotation.py)
 
 ---
 
