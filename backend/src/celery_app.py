@@ -21,5 +21,10 @@ celery_app.conf.beat_schedule = {
     "sync-nocturno-diario": {
         "task": "src.jobs.sync.nightly_sync_task",  # Nombre exacto de la función decorada
         "schedule": crontab(hour=3, minute=0), # A las 3:00 AM
+        
+        # # ANTES: Solo a las 3 AM
+        # # "schedule": crontab(hour=3, minute=0),
+        # # AHORA: A las 3 AM y a las 12 (Mediodía)
+        # "schedule": crontab(hour='3,12', minute=0),
     },
 }

@@ -38,7 +38,14 @@ app = FastAPI(title="Emerald ERP + Beholder")
 
 @app.on_event("startup")
 def on_startup():
-    # Corre migraciones Alembic para asegurar esquema actualizado
+    # 1. Validar configuración
+    from src.config import validate_configuration, log_configuration_summary
+    if not validate_configuration():
+        raise RuntimeError("Configuración inválida. Revisa los logs.")
+    
+    log_configuration_summary()
+    
+    # 2. Corre migraciones Alembic para asegurar esquema actualizado
     run_db_migrations()
 
 app.add_middleware(

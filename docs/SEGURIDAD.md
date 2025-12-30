@@ -1,0 +1,354 @@
+# 🔐 Seguridad y Autenticación
+
+## Modelo de Acceso
+
+Emerald ERP utiliza un modelo de seguridad por capas:
+
+```
+┌─────────────────────────────────────────────┐
+│         Cliente (Navegador)                 │
+└────────────────┬──────────────────────────┘
+                 │
+        ┌────────▼─────────┐
+        │ Nginx            │
+        │ - Rate limiting  │
+        │ - HTTPS/TLS      │
+        │ - CORS           │
+        └────────┬─────────┘
+                 │
+     ┌───────────┼───────────┐
+     │           │           │
+┌────▼────┐ ┌────▼────┐ ┌────▼────┐
+│ Frontend │ │ API     │ │Beholder │
+│          │ │ /api    │ │ /api    │
+└──────────┘ └────┬────┘ └─────────┘
+                  │
+        ┌─────────▼─────────┐
+        │ FastAPI           │
+        │ - API Key Check   │
+        │ - Whitelist       │
+        │ - CORS Middleware │
+        └─────────┬─────────┘
+                  │
+        ┌─────────▼─────────┐
+        │ PostgreSQL        │
+        │ (Datos sensibles) │
+        └───────────────────┘
+```
+
+---
+
+## 1. Autenticación de API
+
+### Endpoints Públicos (Whitelist)
+
+```python
+# En main.py:
+WHITELIST = [
+    "/docs",                    # Swagger UI
+    "/redoc",                   # ReDoc
+    "/openapi.json",           # OpenAPI schema
+    "/tickets",                # Endpoint demo
+    "/services_options",       # Endpoint demo
+    "/search",                 # Búsqueda pública
+    "/diagnosis",              # Diagnóstico público
+    "/live",                   # Status vivo
+    "/health",                 # Health check
+    "/"                        # Root
+]
+```
+
+### Endpoints Protegidos (API Key Required)
+
+Todos los demás endpoints requieren:
+
+```bash
+curl -X GET "http://localhost/api/clientes" \
+  -H "x-api-key: tu_api_key_aqui"
+```
+
+### Configurar API Key
+
+```bash
+# En .env
+API_KEY=tu_api_key_super_secreta_aqui_12345
+
+# En backend:
+from src import config
+
+if config.API_KEY:
+    # API Key está activada
+    ...
+```
+
+---
+
+## 2. CORS (Cross-Origin Resource Sharing)
+
+### Configuración Actual
+
+```python
+# En main.py:
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],           # ⚠️ Permitir todos los orígenes
+    allow_credentials=True,
+    allow_methods=["*"],           # GET, POST, PUT, DELETE, OPTIONS
+    allow_headers=["*"],           # Todos los headers
+)
+```
+
+### ⚠️ Para Producción
+
+```python
+# Usar lista explícita:
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://emerald.2finternet.ar",
+        "https://beholder.2finternet.ar",
+    ],
+    allow_credentials=False,       # No enviar cookies
+    allow_methods=["GET", "POST", "PUT"],
+    allow_headers=["Content-Type", "x-api-key"],
+)
+```
+
+---
+
+## 3. HTTPS/TLS (SSL)
+
+### Let's Encrypt con Certbot
+
+El sistema usa Certbot para renovar certificados automáticamente:
+
+```yaml
+# En docker-compose.yml:
+certbot:
+  image: certbot/certbot
+  command: >
+    /bin/sh -c
+    'trap exit TERM; while :; do
+      certbot renew --webroot -w /var/www/certbot;
+      sleep 12h & wait $${!};
+    done;'
+```
+
+### Certificados ubicados en
+
+```
+data/certbot/conf/
+├── live/
+│   └── emerald.2finternet.ar/
+│       ├── cert.pem
+│       ├── chain.pem
+│       ├── fullchain.pem
+│       └── privkey.pem
+└── renewal/
+    └── emerald.2finternet.ar.conf
+```
+
+### Verificar certificado
+
+```bash
+# Expiración
+openssl x509 -in data/certbot/conf/live/emerald.2finternet.ar/cert.pem \
+  -noout -dates
+
+# Información completa
+openssl x509 -in data/certbot/conf/live/emerald.2finternet.ar/cert.pem \
+  -noout -text | head -30
+```
+
+---
+
+## 4. Gestión de Secretos
+
+### Variables de Entorno Sensibles
+
+```bash
+# Archivo .env (NUNCA commitear)
+POSTGRES_PASSWORD=tu_contraseña_super_fuerte
+POSTGRES_USER=admin
+API_KEY=muy_secreta
+
+MK_USER=admin_mikrotik
+MK_PASS=contraseña_router
+
+ISPCUBE_API_KEY=token_ispcube
+SMARTOLT_API_KEY=token_smartolt
+```
+
+### Mejores Prácticas
+
+✅ **Hacer:**
+- Usar variables de entorno
+- Rotación periódica de contraseñas
+- Diferentes credenciales por ambiente
+- Auditoría de accesos
+
+❌ **Evitar:**
+- Hardcodear secretos en el código
+- Usar contraseñas por defecto
+- Compartir .env por email/Slack
+- Loguear credenciales
+
+---
+
+## 5. Base de Datos
+
+### Conexión PostgreSQL
+
+```python
+# En config.py:
+SQLALCHEMY_DATABASE_URL = (
+    f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@db:5432/{POSTGRES_DB}"
+)
+
+# Solo accesible internamente (Docker)
+# En docker-compose.yml:
+ports:
+  - "127.0.0.1:5432:5432"  # ← Bind solo a localhost
+```
+
+### Permisos de Usuario PostgreSQL
+
+```sql
+-- Crear usuario con permisos limitados (opcional)
+CREATE USER app_user WITH PASSWORD 'app_pass';
+GRANT CONNECT ON DATABASE emerald TO app_user;
+GRANT USAGE ON SCHEMA public TO app_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
+
+-- O usar el usuario admin
+ALTER ROLE admin WITH SUPERUSER;
+```
+
+---
+
+## 6. Seguridad en Integraciones Externas
+
+### Mikrotik
+
+```python
+# Nunca conectar sin SSL en producción
+MK_ENABLE_SSL=true           # Usar puerto 8729
+MK_PORT=8729                 # Puerto seguro
+
+# Credenciales con permisos limitados
+[admin@MikroTik] > /user/add name=emerald-sync group=read
+[admin@MikroTik] > /user/set emerald-sync password=strong_password
+```
+
+### ISPCube / SmartOLT
+
+```bash
+# Usar API Keys en lugar de user/password
+ISPCUBE_API_KEY=sk_live_abc123def456ghi789
+SMARTOLT_API_KEY=sk_prod_xyz789abc456def
+
+# Regenerar keys periódicamente (cada 6 meses recomendado)
+```
+
+---
+
+## 7. Logging y Auditoría
+
+### Eventos Auditados
+
+```python
+# En src/config.py:
+logger.info("Autenticación exitosa desde 192.168.1.100")
+logger.warning("Intento de acceso sin API Key")
+logger.error("Fallo en conexión a Mikrotik")
+```
+
+### Ubicación de Logs
+
+```
+backend/data/logs/
+├── app.log          # Logs de la aplicación
+└── celery.log       # Logs de Celery
+```
+
+### Ver logs en tiempo real
+
+```bash
+docker-compose logs -f backend
+docker-compose logs -f celery_worker
+```
+
+---
+
+## 8. Rate Limiting
+
+### Configuración Nginx
+
+```nginx
+# En nginx/default.conf:
+limit_req_zone $binary_remote_addr zone=general:10m rate=10r/s;
+limit_req_zone $binary_remote_addr zone=auth:10m rate=5r/m;
+
+server {
+    location /api/ {
+        limit_req zone=general burst=20;
+        proxy_pass http://backend:5000;
+    }
+    
+    location /api/login {
+        limit_req zone=auth burst=3;
+        proxy_pass http://backend:5000;
+    }
+}
+```
+
+---
+
+## 9. Headers de Seguridad
+
+### Nginx Security Headers
+
+```nginx
+# En nginx/default.conf:
+add_header X-Frame-Options "SAMEORIGIN" always;
+add_header X-XSS-Protection "1; mode=block" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header Referrer-Policy "no-referrer-when-downgrade" always;
+add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
+```
+
+---
+
+## 10. Checklist de Seguridad
+
+### Antes de Ir a Producción
+
+- [ ] API Key configurada y fuerte
+- [ ] HTTPS/TLS activo
+- [ ] Certificado SSL válido
+- [ ] CORS restringido a dominios conocidos
+- [ ] Contraseñas BD fuertes (>16 caracteres)
+- [ ] Credenciales Mikrotik con permisos limitados
+- [ ] Logs activados y monitoreados
+- [ ] Rate limiting activado
+- [ ] Backups automáticos configurados
+- [ ] Monitoreo y alertas en place
+- [ ] Documentación de políticas de seguridad
+
+### Respuesta a Incidentes
+
+1. **Credencial comprometida:**
+   - Cambiar inmediatamente
+   - Auditar accesos recientes
+   - Notificar al equipo
+
+2. **Ataque DDoS:**
+   - Activar rate limiting agresivo
+   - Contactar al proveedor de hosting
+   - Revisar logs
+
+3. **Brecha de datos:**
+   - Aislar el sistema
+   - Cambiar todas las credenciales
+   - Notificar a los usuarios afectados
+
