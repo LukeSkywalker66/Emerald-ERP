@@ -114,3 +114,12 @@ def get_current_active_superuser(
             detail="No tienes permisos suficientes"
         )
     return current_user
+
+
+def decode_token(token: str) -> dict:
+    """Decodifica un JWT token sin validar la expiración (útil para auditoría)."""
+    try:
+        payload = jwt.decode(token, config.SECRET_KEY, algorithms=[config.ALGORITHM])
+        return payload
+    except JWTError:
+        return {}
