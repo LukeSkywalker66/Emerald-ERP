@@ -18,6 +18,9 @@ from src.services.ticket_service import TicketService
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
 
+PERM_TICKETS_READ = "tickets:read"
+PERM_TICKETS_WRITE = "tickets:write"
+
 
 def get_ticket_service(db: Session = Depends(get_db)) -> TicketService:
     repo = TicketRepository(db)
@@ -25,13 +28,25 @@ def get_ticket_service(db: Session = Depends(get_db)) -> TicketService:
 
 
 def _ensure_can_read(user):
-    # Placeholder de permisos: en futuro validar role/permissions
-    return True
+    if user.is_superuser:
+        return True
+    perms = (user.role.permissions if user.role and user.role.permissions else [])
+    if isinstance(perms, dict):
+        perms = perms.get("permissions", []) or []
+    if PERM_TICKETS_READ in perms or "*" in perms:
+        return True
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
 
 
 def _ensure_can_write(user):
-    # Placeholder de permisos: en futuro validar role/permissions
-    return True
+    if user.is_superuser:
+        return True
+    perms = (user.role.permissions if user.role and user.role.permissions else [])
+    if isinstance(perms, dict):
+        perms = perms.get("permissions", []) or []
+    if PERM_TICKETS_WRITE in perms or "*" in perms:
+        return True
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
 
 
 @router.post("/", response_model=TicketOut, status_code=status.HTTP_201_CREATED)

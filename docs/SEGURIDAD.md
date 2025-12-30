@@ -65,6 +65,13 @@ WHITELIST = [
     "/health",                 # Health check
     "/"                        # Root
 ]
+
+### Permisos por rol (Tickets)
+
+- `tickets:read` → puede leer tickets y ver timeline.
+- `tickets:write` → puede crear, comentar y cambiar estado de tickets.
+
+Si el usuario es `is_superuser=True` se omiten los chequeos. Los permisos se leen desde `role.permissions` (lista de strings o dict con clave `permissions`).
 ```
 
 ### Endpoints Protegidos (Requieren autenticación)
