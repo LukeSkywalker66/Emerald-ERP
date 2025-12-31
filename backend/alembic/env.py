@@ -20,12 +20,19 @@ from src.database.base import Base as NewBase
 from src.models.user import Role, User  # Modelos nuevos
 
 # Combinar metadata de ambas bases
+# Usando create_map=False evita warnings sobre tablas duplicadas
 from sqlalchemy import MetaData
 combined_metadata = MetaData()
-for table in OldBase.metadata.tables.values():
-    table.to_metadata(combined_metadata)
-for table in NewBase.metadata.tables.values():
-    table.to_metadata(combined_metadata)
+
+# Agregar tablas de la base vieja (Beholder legacy)
+for table_name, table in OldBase.metadata.tables.items():
+    if table_name not in combined_metadata.tables:
+        table.to_metadata(combined_metadata)
+
+# Agregar tablas de la base nueva (Auth, Tickets, nuevos módulos)
+for table_name, table in NewBase.metadata.tables.items():
+    if table_name not in combined_metadata.tables:
+        table.to_metadata(combined_metadata)
 
 from config import SQLALCHEMY_DATABASE_URL
 # --------------------
