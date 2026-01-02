@@ -748,3 +748,230 @@ def change_status(
     ticket = service.change_status(ticket_id, data.status, current_user.id)
     return ticket
 ```
+
+---
+
+## Sistema de Tickets v2.0 (NUEVO - 02/01/2026)
+
+### Modelos SQLAlchemy 2.0
+
+**Archivo:** `backend/src/models/tickets.py` (519 líneas)
+
+#### Estructura de Modelos
+
+```
+Ticket (tickets_v2)
+├── ticket_code: STRING UNIQUE
+├── title, description: TEXT
+├── status, priority: ENUM
+├── creator_id → User.id (FK NOT NULL)
+├── assigned_to_id → User.id (FK NULLABLE)
+├── Relationships:
+│   ├── creator: User
+│   ├── assigned_to: User
+│   ├── timeline: List[TicketTimeline]
+│   └── work_orders: List[WorkOrder]
+│
+├─→ TicketTimeline (ticket_timeline)
+│   ├── ticket_id → Ticket.id (CASCADE)
+│   ├── author_id → User.id (SET NULL)
+│   ├── event_type: ENUM (note, status_change, ot_created, etc)
+│   ├── content: TEXT
+│   ├── meta_data: JSONB (flexible event-specific data)
+│   └── Relationships:
+│       ├── ticket: Ticket
+│       └── author: User
+│
+└─→ WorkOrder (work_orders)
+    ├── ticket_id → Ticket.id (CASCADE)
+    ├── technician_id → User.id (SET NULL)
+    ├── ot_type: ENUM (diagnosis, repair, install, upgrade, maintenance)
+    ├── status: ENUM (pending_planning, scheduled, in_progress, completed, cancelled)
+    ├── scheduled_date, completed_at: DATETIME
+    ├── total_duration: INT (segundos)
+    └── Relationships:
+        ├── ticket: Ticket
+        ├── technician: User
+        └── items: List[WorkOrderItem]
+             │
+             └─→ WorkOrderItem (work_order_items)
+                 ├── work_order_id → WorkOrder.id (CASCADE)
+                 ├── product_id: UUID (SOFT FK, sin constraint)
+                 ├── serial_number: STRING (índice para trazabilidad)
+                 ├── quantity: INT
+                 └── consumed_at: DATETIME
+```
+
+#### Enums del Sistema
+
+| Enum | Valores | Uso |
+|------|---------|-----|
+| **TicketStatus** | open, in_progress, waiting, closed | Estado del ticket |
+| **TicketPriority** | low, medium, high, critical | Prioridad |
+| **TicketTimelineEventType** | note, status_change, assignment, ot_created, ot_completed, telemetry, contact, closed | Tipo de evento en bitácora |
+| **WorkOrderStatus** | pending_planning, scheduled, in_progress, completed, cancelled | Estado de OT |
+| **WorkOrderType** | diagnosis, repair, install, upgrade, maintenance | Tipo de trabajo |
+
+#### Características clave
+
+| Aspecto | Detalles |
+|--------|---------|
+| **Type Safety** | Todos los campos con `Mapped[]` (SQLAlchemy 2.0 strict mode) |
+| **Enums** | 5 StrEnum definidos, almacenados como ENUM en PostgreSQL 15 |
+| **Timestamps** | Automáticos via `TimestampMixin` (created_at, updated_at) |
+| **Relaciones** | Bidireccionales con `back_populates`, cascades controlados |
+| **JSONB** | Campo `meta_data` en `ticket_timeline` para datos flexibles |
+| **Soft FKs** | `product_id` sin constraint FK para flexibilidad futura |
+| **Indexes** | 15+ índices para queries comunes |
+| **Cascades** | DELETE CASCADE en timeline/items, SET NULL para usuarios |
+
+### Migración Alembic (08bc58d283e34)
+
+**Archivo:** `backend/alembic/versions/8bc58d283e34_crear_tablas_tickets_work_orders.py`  
+**Creada:** 02/01/2026  
+**Status:** ✅ Ejecutada exitosamente
+
+**Cambios aplicados:**
+
+```sql
+-- 1. CREATE ENUMS
+CREATE TYPE ticketstatus AS ENUM ('open', 'in_progress', 'waiting', 'closed');
+CREATE TYPE ticketpriority AS ENUM ('low', 'medium', 'high', 'critical');
+-- ... más enums
+
+-- 2. CREATE TABLE tickets_v2
+CREATE TABLE tickets_v2 (
+    id UUID PRIMARY KEY,
+    ticket_code VARCHAR UNIQUE NOT NULL,
+    title VARCHAR NOT NULL,
+    description TEXT NOT NULL,
+    status ticketstatus DEFAULT 'open' NOT NULL,
+    priority ticketpriority DEFAULT 'medium' NOT NULL,
+    creator_id UUID NOT NULL REFERENCES users(id),
+    assigned_to_id UUID REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+CREATE INDEX idx_tickets_v2_code ON tickets_v2(ticket_code);
+CREATE INDEX idx_tickets_v2_status ON tickets_v2(status);
+-- ... más índices
+
+-- 3. CREATE TABLE ticket_timeline
+CREATE TABLE ticket_timeline (
+    id UUID PRIMARY KEY,
+    ticket_id UUID NOT NULL REFERENCES tickets_v2(id) ON DELETE CASCADE,
+    author_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    event_type tickettimelineeventtype NOT NULL,
+    content TEXT NOT NULL,
+    meta_data JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+-- ... índices
+
+-- 4. CREATE TABLE work_orders
+CREATE TABLE work_orders (
+    id UUID PRIMARY KEY,
+    ticket_id UUID NOT NULL REFERENCES tickets_v2(id) ON DELETE CASCADE,
+    technician_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    ot_type workordertype NOT NULL,
+    status workorderstatus DEFAULT 'pending_planning' NOT NULL,
+    scheduled_date TIMESTAMP WITH TIME ZONE,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    total_duration INTEGER,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+-- ... índices
+
+-- 5. CREATE TABLE work_order_items
+CREATE TABLE work_order_items (
+    id UUID PRIMARY KEY,
+    work_order_id UUID NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
+    product_id UUID,
+    serial_number VARCHAR,
+    quantity INTEGER DEFAULT 1 NOT NULL,
+    consumed_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+-- ... índices
+```
+
+**Reversión:** `alembic downgrade 324f44f48d0a`
+
+### Patrones Utilizados
+
+#### 1. Repository Pattern (Pendiente)
+```python
+class TicketRepository:
+    def get_by_id(self, ticket_id: UUID) -> Ticket:
+        """Obtener ticket con timeline y work_orders"""
+    
+    def list_by_status(self, status: TicketStatus) -> List[Ticket]:
+        """Listar tickets filtrados por estado"""
+    
+    def create(self, data: TicketCreate, creator_id: UUID) -> Ticket:
+        """Crear nuevo ticket con ticket_code autogenerado"""
+```
+
+#### 2. Service Layer (Pendiente)
+```python
+class TicketService:
+    def __init__(self, repo: TicketRepository):
+        self.repo = repo
+    
+    def request_visit(self, ticket_id: UUID, ot_type: WorkOrderType, 
+                     scheduled_date: datetime) -> WorkOrder:
+        """Crear OT, registrar en timeline, actualizar ticket status"""
+        # - Crear WorkOrder en pending_planning
+        # - Crear TicketTimeline event OT_CREATED con snapshot
+        # - Retornar OT
+    
+    def close_ticket(self, ticket_id: UUID, resolution: str) -> Ticket:
+        """Cerrar ticket con resumen de resolución"""
+        # - Actualizar status → closed
+        # - Completar todas las OT pendientes
+        # - Registrar en timeline con resolution en meta_data
+```
+
+### Próximos Pasos (Roadmap v2.1)
+
+1. ✅ **Modelos ORM** (completado 02/01/2026)
+2. ✅ **Migración Alembic** (completado 02/01/2026)
+3. ⏳ **Repositories** (TicketRepository, WorkOrderRepository)
+4. ⏳ **Services** (TicketService, WorkOrderService)
+5. ⏳ **API Endpoints** (FastAPI routers para CRUD)
+6. ⏳ **WebSockets** (telemetry real-time updates)
+7. ⏳ **Frontend Connection** (TicketDetailPage → API real)
+8. ⏳ **Reportes** (generación automática de reportes de OT)
+
+### Verificación Post-Migración
+
+```bash
+# Listar todas las tablas de tickets
+docker-compose exec -T backend python -c "
+from src.database.session import engine
+from sqlalchemy import inspect
+inspector = inspect(engine)
+tables = [t for t in sorted(inspector.get_table_names()) 
+          if 'ticket' in t.lower() or 'work_order' in t.lower()]
+for t in tables:
+    print(f'✓ {t}')
+"
+
+# Resultado esperado:
+# ✓ ticket_categories
+# ✓ ticket_events
+# ✓ ticket_timeline
+# ✓ tickets
+# ✓ tickets_v2
+# ✓ work_order_items
+# ✓ work_orders
+```
+
+---
+
+**Última actualización:** 02 de enero de 2026  
+**Rama activa:** feature/new-navigation
+

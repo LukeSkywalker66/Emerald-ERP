@@ -296,3 +296,249 @@ docker-compose exec db psql -U postgres -d emerald -c \
    ORDER BY tablename, indexname;"
 ```
 
+---
+
+## 🎫 Sistema de Tickets v2.0 (NUEVO - 02/01/2026)
+
+### Diagrama de Entidades
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    TICKETS_V2                              │
+├─────────────────────────────────────────────────────────────┤
+│ PK: id (UUID)                                               │
+│ - ticket_code (STRING, UNIQUE)  # CNX-XXXX                │
+│ - title (STRING)                # Título del ticket        │
+│ - description (TEXT)            # Descripción               │
+│ - status (ENUM)                 # OPEN/IN_PROGRESS/CLOSED │
+│ - priority (ENUM)               # LOW/MEDIUM/HIGH/CRITICAL │
+│ - assigned_to_id (UUID, FK)     # Técnico asignado        │
+│ - creator_id (UUID, FK)         # Operador que creó       │
+│ - created_at (TIMESTAMP)        │
+│ - updated_at (TIMESTAMP)        │
+└─────────────────────────────────────────────────────────────┘
+                         1 │ *
+                           │
+            ┌──────────────┴──────────────┐
+            │                             │
+    ┌───────▼──────────────┐   ┌────────▼──────────────┐
+    │  TICKET_TIMELINE     │   │   WORK_ORDERS        │
+    │ (Bitácora de Eventos)│   │ (Órdenes de Trabajo) │
+    ├──────────────────────┤   ├─────────────────────┤
+    │ PK: id               │   │ PK: id              │
+    │ FK: ticket_id ◄──────┤   │ FK: ticket_id ◄─────┤
+    │ FK: author_id        │   │ FK: technician_id   │
+    │ - event_type (ENUM)  │   │ - ot_type (ENUM)    │
+    │ - content (TEXT)     │   │ - status (ENUM)     │
+    │ - meta_data (JSONB)  │   │ - scheduled_date    │
+    │ - created_at         │   │ - completed_at      │
+    │                      │   │ - total_duration    │
+    │                      │   │ - created_at        │
+    │                      │   └─────────────────────┘
+    │                      │           │
+    │                      │           │ *
+    │                      │    ┌──────▼─────────────┐
+    │                      │    │  WORK_ORDER_ITEMS  │
+    │                      │    │ (Materiales usados)│
+    │                      │    ├────────────────────┤
+    │                      │    │ PK: id             │
+    │                      │    │ FK: work_order_id  │
+    │                      │    │ - product_id (SOFT)│
+    │                      │    │ - serial_number    │
+    │                      │    │ - quantity         │
+    │                      │    │ - consumed_at      │
+    │                      │    └────────────────────┘
+    │                      │
+    └──────────────────────┘
+
+FK: creator_id, assigned_to_id → users.id
+FK: ticket_id → tickets_v2.id (CASCADE)
+FK: technician_id → users.id (SET NULL)
+FK: work_order_id → work_orders.id (CASCADE)
+```
+
+### Enums del Sistema de Tickets
+
+**TicketStatus:**
+```python
+class TicketStatus(str, Enum):
+    OPEN = "open"                    # Recién creado
+    IN_PROGRESS = "in_progress"      # Técnico asignado
+    WAITING_CUSTOMER = "waiting"     # Esperando cliente
+    CLOSED = "closed"                # Resuelto
+```
+
+**TicketPriority:**
+```python
+class TicketPriority(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+```
+
+**TicketTimelineEventType:**
+```python
+class TicketTimelineEventType(str, Enum):
+    NOTE = "note"                    # Nota manual del operador
+    STATUS_CHANGE = "status_change"  # Cambio de estado
+    ASSIGNMENT = "assignment"        # Asignación a técnico
+    OT_CREATED = "ot_created"       # Orden de trabajo creada
+    OT_COMPLETED = "ot_completed"   # Orden completada
+    TELEMETRY_ALERT = "telemetry"  # Alerta de telemetría
+    CUSTOMER_CONTACTED = "contact"  # Contacto con cliente
+    CLOSED = "closed"                # Ticket cerrado
+```
+
+**WorkOrderStatus:**
+```python
+class WorkOrderStatus(str, Enum):
+    PENDING_PLANNING = "pending_planning"  # Pendiente de planificar
+    SCHEDULED = "scheduled"                # Programada
+    IN_PROGRESS = "in_progress"           # En ejecución
+    COMPLETED = "completed"                # Completada
+    CANCELLED = "cancelled"                # Cancelada
+```
+
+**WorkOrderType:**
+```python
+class WorkOrderType(str, Enum):
+    DIAGNOSIS = "diagnosis"          # Diagnóstico
+    REPAIR = "repair"                # Reparación
+    INSTALL = "install"              # Instalación
+    UPGRADE = "upgrade"              # Upgrade de equipos
+    MAINTENANCE = "maintenance"      # Mantenimiento preventivo
+```
+
+### Índices y Performance
+
+```sql
+-- Búsqueda rápida por código de ticket
+CREATE INDEX idx_tickets_v2_code ON tickets_v2(ticket_code);
+
+-- Búsqueda por estado
+CREATE INDEX idx_tickets_v2_status ON tickets_v2(status);
+
+-- Búsqueda por prioridad
+CREATE INDEX idx_tickets_v2_priority ON tickets_v2(priority);
+
+-- Búsqueda por técnico asignado
+CREATE INDEX idx_tickets_v2_assigned ON tickets_v2(assigned_to_id);
+
+-- Búsqueda en timeline por ticket
+CREATE INDEX idx_timeline_ticket ON ticket_timeline(ticket_id);
+
+-- Búsqueda en timeline por tipo de evento
+CREATE INDEX idx_timeline_event_type ON ticket_timeline(event_type);
+
+-- Búsqueda de OT por ticket
+CREATE INDEX idx_work_orders_ticket ON work_orders(ticket_id);
+
+-- Búsqueda de OT por técnico
+CREATE INDEX idx_work_orders_technician ON work_orders(technician_id);
+
+-- Búsqueda de items por OT
+CREATE INDEX idx_work_order_items_ot ON work_order_items(work_order_id);
+
+-- Búsqueda de items por serial (trazabilidad)
+CREATE INDEX idx_work_order_items_serial ON work_order_items(serial_number);
+```
+
+### Relaciones y Constraints
+
+| Relación | Tipo | Comportamiento |
+|----------|------|----------------|
+| ticket → creator (users.id) | FK | Requerido (NOT NULL) |
+| ticket → assigned_to (users.id) | FK | Opcional (asignación dinámica) |
+| ticket_timeline → ticket | FK | Requerido + **CASCADE DELETE** |
+| ticket_timeline → author (users.id) | FK | Optional + **SET NULL** (autor puede borrarse) |
+| work_order → ticket | FK | Requerido + **CASCADE DELETE** |
+| work_order → technician (users.id) | FK | Optional + **SET NULL** |
+| work_order_item → work_order | FK | Requerido + **CASCADE DELETE** |
+| work_order_item → product_id | SOFT FK | Sin constraint (flexible para futuros cambios) |
+
+### Campos JSONB (meta_data en ticket_timeline)
+
+**Propósito:** Almacenar datos variables según event_type sin cambios de schema.
+
+**Ejemplos por tipo de evento:**
+
+```python
+# NOTE: Simple
+{
+  "message": "Cliente confirma disponibilidad el viernes"
+}
+
+# STATUS_CHANGE: Con contexto
+{
+  "from_status": "open",
+  "to_status": "in_progress",
+  "reason": "Asignado a Técnico"
+}
+
+# OT_CREATED: Snapshot de OT
+{
+  "work_order_id": "550e8400-e29b-41d4-a716-446655440000",
+  "ot_type": "diagnosis",
+  "scheduled_date": "2026-01-04T10:00:00Z",
+  "technician": "Juan Técnico"
+}
+
+# TELEMETRY_ALERT: Datos de ONU
+{
+  "onu_sn": "GPON12AB34CD56",
+  "signal_dbm": -25,
+  "onu_status": "online",
+  "infraestructura": "PON-ZONA-3",
+  "threshold_exceeded": "signal_critical"
+}
+
+# CUSTOMER_CONTACTED: Log de contacto
+{
+  "contact_method": "phone",
+  "contact_date": "2026-01-03T15:30:00Z",
+  "response": "Cliente disponible el 04/01"
+}
+```
+
+### Migración SQL (Alembic)
+
+**Archivo:** `backend/alembic/versions/8bc58d283e34_crear_tablas_tickets_work_orders.py`  
+**Creada:** 02/01/2026  
+**Status:** ✅ Ejecutada exitosamente
+
+**Cambios aplicados:**
+```
+1. CREATE TABLE tickets_v2 (10 columnas, 5 índices, 2 FKs)
+2. CREATE TABLE ticket_timeline (8 columnas, 3 índices, 2 FKs, JSONB meta_data)
+3. CREATE TABLE work_orders (10 columnas, 4 índices, 2 FKs)
+4. CREATE TABLE work_order_items (8 columnas, 3 índices, 1 FK)
+5. CREATE ENUMS: TicketStatus, TicketPriority, TicketTimelineEventType, WorkOrderStatus, WorkOrderType
+```
+
+**Reversi:** `alembic downgrade 324f44f48d0a` (vuelve a migración anterior)
+
+### Verificación Post-Migración
+
+```bash
+# Listar todas las tablas de tickets
+docker-compose exec -T backend python -c "
+from src.database.session import engine
+from sqlalchemy import inspect
+inspector = inspect(engine)
+tables = [t for t in sorted(inspector.get_table_names()) 
+          if 'ticket' in t.lower() or 'work_order' in t.lower()]
+for t in tables:
+    print(f'✓ {t}')
+"
+
+# Resultado esperado:
+# ✓ ticket_categories
+# ✓ ticket_events
+# ✓ ticket_timeline
+# ✓ tickets
+# ✓ tickets_v2
+# ✓ work_order_items
+# ✓ work_orders
+```
+
