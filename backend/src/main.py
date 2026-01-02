@@ -3,7 +3,7 @@ import os
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
 from typing import Optional
@@ -19,6 +19,7 @@ from src import models
 from src import config
 from src.services.api_key_service import APIKeyService
 from src.routers.v1 import auth, tickets
+from src.routers import tickets_v2
 
 # 👇 IMPORTAMOS EL NUEVO SERVICIO (Tu lógica adaptada)
 from src.services import diagnosis as diagnosis_service 
@@ -55,6 +56,11 @@ app.include_router(
     tickets.router,
     prefix="/api/v1",
     tags=["Tickets"]
+)
+app.include_router(
+    tickets_v2.router,
+    prefix="/api/v2/tickets",
+    tags=["Tickets V2"]
 )
 
 @app.on_event("startup")
@@ -169,77 +175,6 @@ async def security_middleware(request: Request, call_next):
 
 # Importar SessionLocal después del middleware
 from src.database import SessionLocal
-# --- ESQUEMAS DE LECTURA (Lo que sale hacia afuera) ---
-class PlanSchema(BaseModel):
-    name: str
-    bandwidth_down: int
-    bandwidth_up: int
-    class Config: from_attributes = True
-
-class ClientSchema(BaseModel):
-    name: str
-    phone: str | None = None
-    billing_address: str | None = None
-    class Config: from_attributes = True
-
-class ServiceSchema(BaseModel):
-    id: int # Necesitamos el ID para seleccionarlo
-    ip_address: str | None = None
-    installation_address: str | None = None
-    client: ClientSchema | None = None
-    plan: PlanSchema | None = None
-    class Config: from_attributes = True
-
-class TicketResponse(BaseModel):
-    id: int
-    title: str
-    priority: str
-    status: str
-    category: str | None = None
-    description: str | None = None
-    created_at: datetime | None = None
-    service: ServiceSchema | None = None 
-    class Config: from_attributes = True
-
-# --- ESQUEMAS DE CREACIÓN (Lo que entra desde el formulario) ---
-class TicketCreate(BaseModel):
-    title: str
-    description: str
-    priority: str
-    service_id: int
-    # No pedimos status (siempre nace open) ni usuario (hardcodeamos admin por ahora)
-
-# --- ENDPOINTS ---
-
-@app.get("/tickets", response_model=List[TicketResponse])
-def get_tickets(db: Session = Depends(get_db)):
-    tickets = db.query(models.Ticket).options(
-        joinedload(models.Ticket.service).joinedload(models.ClientService.client),
-        joinedload(models.Ticket.service).joinedload(models.ClientService.plan)
-    ).order_by(models.Ticket.id.desc()).all()
-    return tickets
-
-@app.get("/services_options", response_model=List[ServiceSchema])
-def get_services_options(db: Session = Depends(get_db)):
-    services = db.query(models.ClientService).options(
-        joinedload(models.ClientService.client),
-        joinedload(models.ClientService.plan)
-    ).all()
-    return services
-
-@app.post("/tickets", response_model=TicketResponse)
-def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
-    db_ticket = models.Ticket(
-        title=ticket.title, description=ticket.description, priority=ticket.priority,
-        service_id=ticket.service_id, status="open", creator_id=1, created_at=datetime.now()
-    )
-    db.add(db_ticket)
-    db.commit()
-    db.refresh(db_ticket)
-    return db.query(models.Ticket).options(
-        joinedload(models.Ticket.service).joinedload(models.ClientService.client),
-        joinedload(models.Ticket.service).joinedload(models.ClientService.plan)
-    ).filter(models.Ticket.id == db_ticket.id).first()
 
 # ==========================
 # 🔵 SECCIÓN BEHOLDER (Monitor)
