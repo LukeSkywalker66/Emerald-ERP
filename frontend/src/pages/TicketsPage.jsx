@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, RefreshCw, Search, MoreHorizontal, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -131,6 +132,7 @@ const priorityConfig = {
 };
 
 export default function TicketsPage() {
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -233,6 +235,7 @@ export default function TicketsPage() {
                 <TableRow
                   key={ticket.id}
                   className="border-b border-zinc-800/50 hover:bg-zinc-800/40 transition-colors cursor-pointer"
+                  onClick={() => navigate(`/app/tickets/${ticket.id}`)}
                 >
                   <TableCell className="font-mono text-sm text-emerald-400 font-medium">
                     {ticket.id}

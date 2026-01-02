@@ -5,6 +5,7 @@ import DashboardLayout from './layouts/DashboardLayout';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import TicketsPage from './pages/TicketsPage';
+import TicketDetailPage from './pages/TicketDetailPage';
 import ClientesPage from './pages/ClientesPage';
 import InventarioPage from './pages/InventarioPage';
 import SettingsPage from './pages/SettingsPage';
@@ -31,6 +32,7 @@ const AppRoutes = () => (
       >
         <Route index element={<DashboardPage />} />
         <Route path="tickets" element={<TicketsPage />} />
+        <Route path="tickets/:id" element={<TicketDetailPage />} />
         <Route path="clientes" element={<ClientesPage />} />
         <Route path="inventario" element={<InventarioPage />} />
         <Route path="settings" element={<SettingsPage />} />
