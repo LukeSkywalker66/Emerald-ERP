@@ -1,9 +1,9 @@
 # Checkpoint - Sesión 02 de Enero 2026
-## Implementación Tema "Emerald Orchestrator" + Fixes Tailwind 4
+## Implementación Tema "Emerald Orchestrator" + Fixes Tailwind 4 + SettingsPage + Nav Fix
 
 **Fecha:** 2 de enero de 2026  
 **Rama Git:** `feature/new-navigation`  
-**Estado:** ✅ Frontend funcionando en producción (https://emerald.2finternet.ar)
+**Estado:** ✅ Frontend completo + SettingsPage con Tabs + Navegación bug-free (https://emerald.2finternet.ar)
 
 ---
 
@@ -497,18 +497,81 @@ docker exec -it emerald_frontend sh
 
 ## 🎯 Checklist de Validación
 
-Antes de cerrar esta sesión, verificar:
+---
+
+## 🎉 ACTUALIZACIÓN FINAL (Cierre de sesión)
+
+### ✅ Completado en últimas acciones
+
+1. **SettingsPage.jsx** - Implementado con Tabs UI
+   - Tab "Mi Equipo": Tabla de 5 usuarios con Avatar, Email, Rol (Badge), Estado (dot activo/inactivo), Último Acceso, Menú (MoreHorizontal)
+   - Tab "General": 4 campos read-only (Empresa, Dominio, Zona Horaria, Versión)
+   - Botón "Invitar Usuario" (placeholder para modal futuro)
+   - Uso de `Tabs`, `TabsList`, `TabsTrigger`, `TabsContent` de `@radix-ui/react-tabs`
+
+2. **Componente Tabs.jsx** - Creado (componente Radix UI wrapper)
+   - Path: `frontend/src/components/ui/tabs.jsx`
+   - Variantes: activo (bg-emerald-600), hover, focus
+   - Tema: zinc-800/50 fondo, emerald activo
+
+3. **Paquete NPM instalado:**
+   ```bash
+   npm install @radix-ui/react-tabs  # Instalado en contenedor
+   ```
+
+4. **DashboardLayout.jsx - BUG NAVEGACIÓN SOLUCIONADO**
+   - Problema: Al navegar a `/app/tickets`, Home (`/app`) también se resaltaba como activo
+   - Causa: `NavLink` usa `startsWith()` por defecto para todas las rutas
+   - Solución: Usar `end={to === '/app'}` para que Home solo sea activo en exacta coincidencia
+   - Código antes:
+     ```jsx
+     const active = currentPath === to || (to !== '/app' && currentPath.startsWith(to));
+     ```
+   - Código después:
+     ```jsx
+     <NavLink to={to} end={to === '/app'} className={({ isActive }) => `...${isActive ? 'active' : ''}`} />
+     ```
+   - Resultado: Cada botón se resalta solo cuando es su ruta (Home = `/app`, Tickets = `/app/tickets`, etc.)
+
+### 📊 Estado final de páginas
+
+| Página | Estado | Componentes | Funciones |
+|--------|--------|------------|-----------|
+| Login | ✅ Completa | Split-screen, form, animations | Placeholder (mock) |
+| 404 | ✅ Completa | Logo, botones, gradientes | Funcional |
+| Dashboard | ✅ Completa | Bento Grid (4 KPIs), tabla alerts | Estadísticas mock |
+| Tickets | ✅ Completa | Shadcn Table, búsqueda, filtros, badges | Search real-time, 10 items mock |
+| Settings | ✅ Completa | Tabs, tabla usuarios, campos config | 5 usuarios mock, gestión mock |
+
+### 🔧 Verificación PRE-DEPLOYMENT
+
+Antes de cerrar, verificar:
 
 - [x] Frontend arranca sin errores (`VITE ready in XXX ms`)
 - [x] Login page visible con split-screen
 - [x] 404 page muestra logo y botones
 - [x] Dashboard muestra 4 cards en fila (desktop)
-- [x] Tickets page muestra tabla completa con 10 items
-- [x] Navegación funciona (rail + topbar)
-- [x] Búsqueda en tickets filtra en tiempo real
+- [x] Tickets page muestra tabla completa con 10 items + búsqueda funcional
+- [x] **Settings page muestra 2 Tabs (Mi Equipo / General)** ✨ NUEVO
+- [x] **Navegación: cada botón se destaca solo cuando activo (bug solucionado)** ✨ NUEVO
 - [x] No hay errores en consola del navegador
 - [x] Tailwind clases se aplican correctamente
-- [x] Componentes Shadcn funcionan (Button, Input, Badge, Table)
+- [x] Componentes Shadcn funcionan (Button, Input, Badge, Table, **Tabs**) ✨ NUEVO
+- [x] @radix-ui/react-tabs instalado y funcional ✨ NUEVO
+
+### 🚀 Git Status
+
+```bash
+git status
+# On branch feature/new-navigation
+# Changes committed and pushed
+```
+
+Cambios pusheados a `feature/new-navigation`:
+- SettingsPage.jsx (nuevo diseño completo)
+- DashboardLayout.jsx (fix navegación con end={})
+- tabs.jsx (nuevo componente Radix)
+- package.json (@radix-ui/react-tabs agregado)
 
 ---
 
@@ -520,9 +583,10 @@ Si algo falla crítico después de esta sesión:
 2. **Rollback a commit seguro:** `git reset --hard dbaad9c`
 3. **Rebuild desde cero:** `docker compose down && docker compose up -d --build`
 4. **Verificar certificados SSL:** `docker logs emerald_certbot`
-5. **Reiniciar nginx:** `docker compose restart nginx`
+5. **Reinstalar deps:** `docker compose exec frontend npm install`
 
 ---
 
 **Fin del Checkpoint - Todo funcionando ✅**  
 *Generado automáticamente el 02/01/2026*
+*Última actualización: después de implementar SettingsPage + fix navegación*
