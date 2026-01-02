@@ -1,3 +1,13 @@
+"""Servicio de Tickets - Lógica de Negocio
+
+Maneja todas las operaciones sobre tickets:
+- Creación de tickets (con evento CREATED automático)
+- Comentarios (eventos COMMENT)
+- Cambio de estado (eventos STATUS_CHANGE con tracking old→new)
+- Actualización de atributos (prioridad, asignado)
+
+Todos los cambios se registran como eventos en ticket_events table para auditoría.
+"""
 from __future__ import annotations
 
 from typing import Optional

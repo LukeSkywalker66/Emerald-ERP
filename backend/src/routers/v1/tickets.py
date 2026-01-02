@@ -1,3 +1,23 @@
+"""Router de Tickets - API v1
+
+Maneja todas las operaciones CRUD de tickets y eventos asociados.
+Todos los endpoints requieren autenticación JWT y validan permisos.
+
+Endpoints:
+    POST   /api/v1/tickets/           - Crear nuevo ticket
+    GET    /api/v1/tickets/{id}       - Obtener ticket con historial de eventos
+    POST   /api/v1/tickets/{id}/comment - Agregar comentario al ticket
+    PATCH  /api/v1/tickets/{id}/status  - Cambiar estado del ticket
+
+Permisos Requeridos:
+    - 'tickets:read'  - Ver tickets
+    - 'tickets:write' - Crear, comentar, cambiar estado
+
+Eventos Registrados (Auditoría):
+    - CREATED: Cuando se crea un ticket
+    - COMMENT: Cuando se agrega un comentario
+    - STATUS_CHANGE: Cuando cambia el estado (registra old/new)
+"""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -28,6 +48,14 @@ def get_ticket_service(db: Session = Depends(get_db)) -> TicketService:
 
 
 def _ensure_can_read(user):
+    """Verifica que el usuario tenga permiso 'tickets:read'
+    
+    Args:
+        user: Usuario actual (obtenido de JWT)
+        
+    Raises:
+        HTTPException(403): Si no tiene permisos
+    """
     if user.is_superuser:
         return True
     perms = (user.role.permissions if user.role and user.role.permissions else [])
@@ -39,6 +67,14 @@ def _ensure_can_read(user):
 
 
 def _ensure_can_write(user):
+    """Verifica que el usuario tenga permiso 'tickets:write'
+    
+    Args:
+        user: Usuario actual (obtenido de JWT)
+        
+    Raises:
+        HTTPException(403): Si no tiene permisos
+    """
     if user.is_superuser:
         return True
     perms = (user.role.permissions if user.role and user.role.permissions else [])

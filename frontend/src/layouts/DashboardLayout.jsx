@@ -1,14 +1,78 @@
 import React from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Ticket, Users, LogOut, Shield } from 'lucide-react';
+import { Home, Ticket, Users, Box, Settings, LogOut, Shield, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { cn } from '../lib/utils';
+import { EmeraldLogo } from '../components/ui/EmeraldLogo';
 
 const navItems = [
-  { to: '/app', label: 'Overview', icon: <LayoutDashboard size={18} /> },
-  { to: '/app/tickets', label: 'Tickets', icon: <Ticket size={18} /> },
-  { to: '/app/clientes', label: 'Clientes', icon: <Users size={18} /> },
+  { to: '/app', label: 'Inicio', icon: Home },
+  { to: '/app/tickets', label: 'Tickets', icon: Ticket },
+  { to: '/app/clientes', label: 'Clientes', icon: Users },
+  { to: '/app/inventario', label: 'Inventario', icon: Box },
+  { to: '/app/settings', label: 'Ajustes', icon: Settings },
 ];
+
+function Tooltip({ label, children }) {
+  return (
+    <div className="rail-tooltip">
+      {children}
+      <span className="rail-tooltip-text">{label}</span>
+    </div>
+  );
+}
+
+function NavRail({ items, currentPath }) {
+  return (
+    <aside className="nav-rail">
+      {/* Logo en la parte superior */}
+      <div className="px-3 py-6 border-b border-zinc-800/50">
+        <EmeraldLogo className="scale-75" withText={false} />
+      </div>
+
+      {/* Navegación */}
+      <nav className="flex-1 py-4">
+        {items.map(({ to, label, icon }) => (
+          <Tooltip key={to} label={label}>
+            <NavLink
+              to={to}
+              end={to === '/app'}
+              className={({ isActive }) => `nav-rail-btn ${isActive ? 'active' : ''}`}
+            >
+              {React.createElement(icon, { 
+                size: 20,
+                className: ''
+              })}
+            </NavLink>
+          </Tooltip>
+        ))}
+      </nav>
+    </aside>
+  );
+}
+
+function MobileBottomNav({ items, currentPath }) {
+  const visible = items.slice(0, 4);
+  return (
+    <nav className="mobile-bottom-nav">
+      <div className="mobile-bottom-nav__inner">
+        {visible.map(({ to, label, icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={to === '/app'}
+            className={({ isActive }) => `mobile-bottom-nav__item ${isActive ? 'active' : ''}`}
+          >
+            {React.createElement(icon, { 
+              size: 20,
+              className: ''
+            })}
+            <span>{label}</span>
+          </NavLink>
+        ))}
+      </div>
+    </nav>
+  );
+}
 
 export default function DashboardLayout() {
   const { user, logout } = useAuth();
@@ -21,61 +85,47 @@ export default function DashboardLayout() {
   };
 
   return (
-    <div className="layout-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="badge-dot" /> Emerald Ops
-        </div>
+    <div className="app-shell">
+      <NavRail items={navItems} currentPath={location.pathname} />
 
-        <div className="nav-group">
-          <span className="nav-label">Panel</span>
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.to;
-            return (
-              <NavLink key={item.to} to={item.to} className={cn('nav-item', { active: isActive })}>
-                <span className="nav-icon">{item.icon}</span>
-                <span>{item.label}</span>
-                {isActive && <span className="tag info">live</span>}
-              </NavLink>
-            );
-          })}
-        </div>
+      <div className="content-column">
+        <header className="topbar">
+          <div className="topbar-brand">
+            <Shield size={16} className="text-emerald-500" />
+            <span>Emerald ERP</span>
+            <span className="separator">|</span>
+            <span className="accent text-emerald-400">Operaciones</span>
+          </div>
 
-        <div className="nav-group">
-          <span className="nav-label">Seguridad</span>
-          <div className="nav-item" style={{ cursor: 'default' }}>
-            <span className="nav-icon">
-              <Shield size={18} />
-            </span>
-            <div>
-              <div style={{ fontWeight: 600 }}>Rol</div>
-              <div style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{user?.role || 'Viewer'}</div>
+          <div className="topbar-actions">
+            <button type="button" className="command-placeholder">
+              <Search size={16} />
+              <span>Buscar... (Ctrl+K)</span>
+            </button>
+
+            <div className="user-chip">
+              <span className="avatar-circle bg-emerald-950 text-emerald-400 border-emerald-500/30">
+                {user?.email?.[0]?.toUpperCase() || 'U'}
+              </span>
+              <div className="user-meta">
+                <div className="user-email">{user?.email || 'Usuario'}</div>
+                <div className="user-role text-emerald-500/80">{user?.role || 'Viewer'}</div>
+              </div>
             </div>
-          </div>
-          <button type="button" className="nav-item" onClick={handleLogout}>
-            <span className="nav-icon">
-              <LogOut size={18} />
-            </span>
-            Salir
-          </button>
-        </div>
-      </aside>
 
-      <main className="main-area">
-        <div className="topbar">
-          <div>
-            <div className="hero-badge">
-              <span className="badge-dot" /> Backend · FastAPI · Beholder
-            </div>
-            <h1>Emerald ERP</h1>
+            <button type="button" onClick={handleLogout} className="btn-logout">
+              <LogOut size={16} />
+              Salir
+            </button>
           </div>
-          <div className="pill">
-            <span className="badge-dot" /> Sesión: {user?.email || 'sin usuario'}
-          </div>
-        </div>
+        </header>
 
-        <Outlet />
-      </main>
+        <main className="main-content">
+          <Outlet />
+        </main>
+      </div>
+
+      <MobileBottomNav items={navItems} currentPath={location.pathname} />
     </div>
   );
 }

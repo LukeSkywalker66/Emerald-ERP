@@ -217,28 +217,123 @@ def mapear_cliente(json_cliente: dict) -> dict:
         "temporary": json_cliente.get("temporary"),
     }
 
-@celery_app.task(name="src.jobs.sync.nightly_sync_task")
-def nightly_sync_task():
+@celery_app.task(name="src.jobs.sync.nightly_sync_task", bind=True)
+def nightly_sync_task(self):
+    """
+    Tarea de sincronización nocturna (Celery Beat).
+    
+    Ejecuta automáticamente cada día a las 3:00 AM (Argentina).
+    Sincroniza datos desde:
+    - ISPCube (nodos, planes, conexiones, clientes)
+    - Mikrotik (PPP secrets)
+    - SmartOLT (ONUs)
+    
+    El resultado se registra en logs para auditoría.
+    """
+    import logging
+    from datetime import datetime
+    
+    logger = logging.getLogger("Emerald.SyncJob")
+    start_time = datetime.utcnow()
+    
+    logger.info("=" * 80)
+    logger.info("🚀 [SYNC] INICIANDO SINCRONIZACIÓN NOCTURNA")
+    logger.info(f"   Timestamp: {start_time.isoformat()}")
+    logger.info("=" * 80)
+    
     init_db()
     db = Database()
-    print("\n[SYNC] 🚀 Iniciando Sincronización...\n")
+    
+    sync_stats = {
+        "success": False,
+        "nodes": 0,
+        "secrets": 0,
+        "onus": 0,
+        "plans": 0,
+        "connections": 0,
+        "clientes": 0,
+        "error": None,
+        "duration_seconds": 0
+    }
+    
     try:
+        logger.info("📦 [1/6] Sincronizando nodos ISPCube...")
         sync_nodes(db)
-        sync_secrets(db)
-        sync_onus(db)
-        sync_plans(db)
-        sync_connections(db) # Vuelve a usar el método "todo de una vez"
-        sync_clientes(db)
+        sync_stats["nodes"] = db.get_count(models.Node)
+        logger.info(f"   ✅ {sync_stats['nodes']} nodos en BD")
         
-        print("\n   ↳ Cruzando datos (Match Connections)...", end=" ", flush=True)
+        logger.info("📦 [2/6] Sincronizando secrets Mikrotik...")
+        sync_secrets(db)
+        sync_stats["secrets"] = db.get_count(models.PPPSecret)
+        logger.info(f"   ✅ {sync_stats['secrets']} secrets en BD")
+        
+        logger.info("📦 [3/6] Sincronizando ONUs SmartOLT...")
+        sync_onus(db)
+        sync_stats["onus"] = db.get_count(models.Subscriber)
+        logger.info(f"   ✅ {sync_stats['onus']} ONUs en BD")
+        
+        logger.info("📦 [4/6] Sincronizando planes ISPCube...")
+        sync_plans(db)
+        sync_stats["plans"] = db.get_count(models.Plan)
+        logger.info(f"   ✅ {sync_stats['plans']} planes en BD")
+        
+        logger.info("📦 [5/6] Sincronizando conexiones ISPCube...")
+        sync_connections(db)
+        sync_stats["connections"] = db.get_count(models.Connection)
+        logger.info(f"   ✅ {sync_stats['connections']} conexiones en BD")
+        
+        logger.info("📦 [6/6] Sincronizando clientes ISPCube...")
+        sync_clientes(db)
+        sync_stats["clientes"] = db.get_count(models.Cliente)
+        logger.info(f"   ✅ {sync_stats['clientes']} clientes en BD")
+        
+        logger.info("🔗 Cruzando datos (Match Connections)...")
         db.match_connections()
         db.commit()
-        print("✅ OK")
+        logger.info("   ✅ Match completado")
         
-        config.logger.info("[SYNC] Sincronización completa finalizada.")
+        sync_stats["success"] = True
+        logger.info("=" * 80)
+        logger.info("✨ [SYNC] SINCRONIZACIÓN COMPLETADA CON ÉXITO")
+        logger.info("=" * 80)
+        logger.info(f"📊 RESUMEN FINAL:")
+        logger.info(f"   • Nodos:       {sync_stats['nodes']}")
+        logger.info(f"   • Secrets:     {sync_stats['secrets']}")
+        logger.info(f"   • ONUs:        {sync_stats['onus']}")
+        logger.info(f"   • Planes:      {sync_stats['plans']}")
+        logger.info(f"   • Conexiones:  {sync_stats['connections']}")
+        logger.info(f"   • Clientes:    {sync_stats['clientes']}")
+        logger.info("=" * 80)
+        
+        return sync_stats
+        
+    except Exception as e:
+        sync_stats["success"] = False
+        sync_stats["error"] = str(e)
+        
+        logger.error("=" * 80)
+        logger.error("❌ [SYNC] ERROR DURANTE SINCRONIZACIÓN")
+        logger.error("=" * 80)
+        logger.error(f"   Tipo de error: {type(e).__name__}")
+        logger.error(f"   Mensaje: {str(e)}")
+        logger.error("=" * 80)
+        
+        # Log de traceback completo para debugging
+        import traceback
+        logger.error("Traceback completo:")
+        logger.error(traceback.format_exc())
+        logger.error("=" * 80)
+        
+        return sync_stats
+        
     finally:
         db.close()
-        print("\n[SYNC] ✨ Finalizado.\n")
+        end_time = datetime.utcnow()
+        duration = (end_time - start_time).total_seconds()
+        sync_stats["duration_seconds"] = duration
+        
+        logger.info(f"⏱️  Duración total: {duration:.2f} segundos")
+        logger.info(f"📅 Fin: {end_time.isoformat()}")
 
 if __name__ == "__main__":
     nightly_sync_task()

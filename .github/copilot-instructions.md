@@ -18,3 +18,10 @@ Eres el asistente técnico senior para "Emerald ERP", un sistema de gestión par
 - **Auth:** JWT + Refresh Tokens. Tablas `users`, `roles`.
 - **Tickets:** Basado en Eventos (`ticket_events`). NO uses tablas de comentarios simples.
 - **Beholder (Legacy):** Módulo de diagnóstico que convive en `src/db/postgres.py`. NO LO ELIMINES ni refactorices sin permiso explícito.
+## Identidad Visual y Lore ("The Emerald Orchestrator")
+- **Concepto:** "Art Deco Cyberpunk" / "Mago de Oz Tecnológico".
+- **Rol del Sistema:** Es "La Máquina detrás de la Cortina".
+- **Paleta:**
+  - Fondos: Zinc muy oscuro (la sala de máquinas).
+  - Acentos: Emerald Glow (la magia/señal), Ruby (errores/peligro), Gold (advertencias/camino).
+- **Tono de Voz en UI:** Misterioso pero profesional. "Consultando al Orquestador...", "Acceso concedido".
