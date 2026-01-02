@@ -8,12 +8,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from src.database import get_db
-from src.models.tickets import (
-    Ticket as TicketV2,
+from src.models import (
+    Ticket,
     TicketTimeline,
     TicketTimelineEventType,
     WorkOrder,
     WorkOrderStatus,
+    TicketPriority,
+    TicketStatus,
 )
 from src.schemas.tickets import (
     TicketCreate,
@@ -23,7 +25,6 @@ from src.schemas.tickets import (
     WorkOrderCreate,
     WorkOrderResponse,
 )
-from src.models import TicketPriority, TicketStatus
 
 router = APIRouter()
 
@@ -38,7 +39,7 @@ def _safe_name(user) -> Optional[str]:
     return user.full_name or user.username
 
 
-def _ticket_to_response(ticket: TicketV2) -> TicketResponse:
+def _ticket_to_response(ticket: Ticket) -> TicketResponse:
     return TicketResponse(
         id=ticket.id,
         subject=ticket.subject,
@@ -79,14 +80,14 @@ def list_tickets(
     db: Session = Depends(get_db),
 ):
     stmt = (
-        select(TicketV2)
-        .options(joinedload(TicketV2.creator), joinedload(TicketV2.assigned_to))
-        .order_by(TicketV2.created_at.desc())
+        select(Ticket)
+        .options(joinedload(Ticket.creator), joinedload(Ticket.assigned_to))
+        .order_by(Ticket.created_at.desc())
     )
     if status:
-        stmt = stmt.where(TicketV2.status == status)
+        stmt = stmt.where(Ticket.status == status)
     if priority:
-        stmt = stmt.where(TicketV2.priority == priority)
+        stmt = stmt.where(Ticket.priority == priority)
 
     tickets = db.execute(stmt.limit(limit).offset(offset)).scalars().all()
     return [_ticket_to_response(t) for t in tickets]
@@ -98,7 +99,7 @@ def create_ticket(
     db: Session = Depends(get_db),
     user_id: int = Depends(get_user_id),
 ):
-    ticket = TicketV2(
+    ticket = Ticket(
         subject=payload.subject,
         description=payload.description,
         priority=payload.priority,
@@ -126,13 +127,13 @@ def create_ticket(
 @router.get("/{ticket_id}", response_model=TicketDetailResponse)
 def get_ticket_detail(ticket_id: int, db: Session = Depends(get_db)):
     stmt = (
-        select(TicketV2)
-        .where(TicketV2.id == ticket_id)
+        select(Ticket)
+        .where(Ticket.id == ticket_id)
         .options(
-            joinedload(TicketV2.creator),
-            joinedload(TicketV2.assigned_to),
-            selectinload(TicketV2.timeline),
-            selectinload(TicketV2.work_orders).joinedload(WorkOrder.technician),
+            joinedload(Ticket.creator),
+            joinedload(Ticket.assigned_to),
+            selectinload(Ticket.timeline),
+            selectinload(Ticket.work_orders).joinedload(WorkOrder.technician),
         )
     )
     ticket = db.execute(stmt).scalars().first()
@@ -157,7 +158,7 @@ def create_work_order(
     db: Session = Depends(get_db),
     user_id: int = Depends(get_user_id),
 ):
-    ticket = db.get(TicketV2, ticket_id)
+    ticket = db.get(Ticket, ticket_id)
     if not ticket:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
 

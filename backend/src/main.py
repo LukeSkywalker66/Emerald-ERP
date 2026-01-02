@@ -18,7 +18,7 @@ from src.database import engine, Base, get_db
 from src import models
 from src import config
 from src.services.api_key_service import APIKeyService
-from src.routers.v1 import auth, tickets
+from src.routers.v1 import auth  # Removed old tickets router import
 from src.routers import tickets_v2
 
 # 👇 IMPORTAMOS EL NUEVO SERVICIO (Tu lógica adaptada)
@@ -52,11 +52,12 @@ app.include_router(
     tags=["Authentication"]
 )
 
-app.include_router(
-    tickets.router,
-    prefix="/api/v1",
-    tags=["Tickets"]
-)
+# NOTE: v1/tickets router is deprecated. Use /api/v2/tickets instead.
+# app.include_router(
+#     tickets.router,
+#     prefix="/api/v1",
+#     tags=["Tickets"]
+# )
 app.include_router(
     tickets_v2.router,
     prefix="/api/v2/tickets",
