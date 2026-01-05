@@ -15,7 +15,7 @@ const BASE_URL = '/v2/tickets';
  */
 export const getAll = async (filters = {}) => {
   try {
-    const { data } = await api.get(BASE_URL, { params: filters });
+    const { data } = await api.get(`${BASE_URL}/`, { params: filters });  // Trailing slash requerido
     return data || [];
   } catch (error) {
     console.error('❌ Error fetching tickets:', error);
@@ -30,7 +30,7 @@ export const getAll = async (filters = {}) => {
  */
 export const getById = async (id) => {
   try {
-    const { data } = await api.get(`${BASE_URL}/${id}`);
+    const { data } = await api.get(`${BASE_URL}/${id}/`);  // Trailing slash requerido
     return data;
   } catch (error) {
     console.error(`❌ Error fetching ticket ${id}:`, error);
@@ -45,7 +45,7 @@ export const getById = async (id) => {
  */
 export const create = async (payload) => {
   try {
-    const { data } = await api.post(BASE_URL, payload);
+    const { data } = await api.post(`${BASE_URL}/`, payload);  // Trailing slash requerido
     return data;
   } catch (error) {
     console.error('❌ Error creating ticket:', error);
@@ -62,7 +62,7 @@ export const create = async (payload) => {
 export const createWorkOrder = async (ticketId, payload) => {
   try {
     const { data } = await api.post(
-      `${BASE_URL}/${ticketId}/work-orders`,
+      `${BASE_URL}/${ticketId}/work-orders/`,  // Trailing slash requerido
       payload
     );
     return data;

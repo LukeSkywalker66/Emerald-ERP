@@ -30,7 +30,7 @@ router = APIRouter()
 
 
 def get_user_id(request: Request) -> int:
-    return getattr(request.state, "user_id", 1)
+    return getattr(request.state, "user_id", 2)  # User admin@emerald.com
 
 
 def _safe_name(user) -> Optional[str]:
