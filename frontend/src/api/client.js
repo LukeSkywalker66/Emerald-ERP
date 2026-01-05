@@ -3,6 +3,7 @@ import axios from 'axios';
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
   timeout: 15000,
+  maxRedirects: 5,  // Axios sigue automáticamente los redirects 3xx
 });
 
 api.interceptors.request.use((config) => {

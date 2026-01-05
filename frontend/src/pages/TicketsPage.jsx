@@ -19,6 +19,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import AsyncCombobox from '@/components/ui/AsyncCombobox';
 import ticketsService from '@/services/tickets.service';
 
 const statusConfig = {
@@ -75,11 +76,12 @@ export default function TicketsPage() {
   const [error, setError] = useState(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedConnection, setSelectedConnection] = useState(null);
   const [formData, setFormData] = useState({
     subject: '',
     description: '',
     priority: 'medium',
-    connection_id: '',
+    connection_id: null,
   });
 
   const loadTickets = async () => {
@@ -105,13 +107,36 @@ export default function TicketsPage() {
     await loadTickets();
   };
 
+  const handleSearchConnections = async (query) => {
+    try {
+      const results = await ticketsService.searchConnections(query);
+      return results.map(conn => ({
+        id: conn.connection_id,
+        name: conn.client_name,
+        description: `${conn.installation_address || ''} • ${conn.pppoe_username || ''} • DNI: ${conn.client_dni || 'N/A'}`,
+        connection_id: conn.connection_id,
+      }));
+    } catch (err) {
+      console.error('Search error:', err);
+      return [];
+    }
+  };
+
+  const handleConnectionSelect = (connectionId, connectionData) => {
+    setSelectedConnection(connectionData);
+    setFormData(prev => ({
+      ...prev,
+      connection_id: connectionId,
+    }));
+  };
+
   const handleCreateSubmit = async () => {
     if (!formData.subject.trim()) {
       setError('El asunto es requerido');
       return;
     }
     if (!formData.connection_id) {
-      setError('El ID de conexión es requerido (temporal)');
+      setError('Debes seleccionar un cliente/conexión');
       return;
     }
     
@@ -122,10 +147,11 @@ export default function TicketsPage() {
         subject: formData.subject,
         description: formData.description || undefined,
         priority: formData.priority,
-        connection_id: parseInt(formData.connection_id),
+        connection_id: formData.connection_id,
       });
       setShowCreateDialog(false);
-      setFormData({ subject: '', description: '', priority: 'medium', connection_id: '' });
+      setFormData({ subject: '', description: '', priority: 'medium', connection_id: null });
+      setSelectedConnection(null);
       await loadTickets();
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Error al crear el ticket');
@@ -317,12 +343,27 @@ export default function TicketsPage() {
             <DialogTitle className="text-white">Crear nuevo ticket</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            {/* Cliente/Conexión Búsqueda Asincrónica */}
+            <div>
+              <label className="text-sm font-medium text-zinc-300 block mb-2">
+                Cliente/Conexión *
+              </label>
+              <AsyncCombobox
+                onSearch={handleSearchConnections}
+                onSelect={handleConnectionSelect}
+                placeholder="Busca por nombre, DNI o PPPoE..."
+                displayField="name"
+                valueField="connection_id"
+              />
+            </div>
+
+            {/* Asunto */}
             <div>
               <label className="text-sm font-medium text-zinc-300 block mb-2">
                 Asunto *
               </label>
               <Input
-                placeholder="Describe el problema o solicitud"
+                placeholder="Ej: Sin internet, cable cortado, latencia alta..."
                 value={formData.subject}
                 onChange={(e) =>
                   setFormData({ ...formData, subject: e.target.value })
@@ -330,20 +371,24 @@ export default function TicketsPage() {
                 className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
               />
             </div>
+
+            {/* Descripción */}
             <div>
               <label className="text-sm font-medium text-zinc-300 block mb-2">
                 Descripción
               </label>
               <textarea
-                placeholder="Detalles adicionales (opcional)"
+                placeholder="Detalles adicionales del problema (opcional)"
                 value={formData.description}
                 onChange={(e) =>
                   setFormData({ ...formData, description: e.target.value })
                 }
-                rows={4}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
+                rows={3}
+                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 resize-none"
               />
             </div>
+
+            {/* Prioridad */}
             <div>
               <label className="text-sm font-medium text-zinc-300 block mb-2">
                 Prioridad
@@ -353,30 +398,13 @@ export default function TicketsPage() {
                 onChange={(e) =>
                   setFormData({ ...formData, priority: e.target.value })
                 }
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
               >
                 <option value="low">Baja</option>
                 <option value="medium">Media</option>
                 <option value="high">Alta</option>
                 <option value="critical">Crítica</option>
               </select>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-zinc-300 block mb-2">
-                ID de Conexión * (temporal)
-              </label>
-              <Input
-                type="number"
-                placeholder="Ingrese ID de conexión (ej: 1, 2, 3...)"
-                value={formData.connection_id}
-                onChange={(e) =>
-                  setFormData({ ...formData, connection_id: e.target.value })
-                }
-                className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
-              />
-              <p className="text-xs text-zinc-500 mt-1">
-                Este campo es temporal. Pronto se reemplazará por un selector de clientes.
-              </p>
             </div>
           </div>
           <DialogFooter className="gap-2">

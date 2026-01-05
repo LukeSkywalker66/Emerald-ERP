@@ -8,9 +8,12 @@ import {
   CheckCircle,
   Loader,
   FileText,
-  Calendar,
   MessageSquare,
   AlertTriangle,
+  Send,
+  Edit2,
+  Check,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,8 +28,8 @@ import ticketsService from '@/services/tickets.service';
 
 const statusConfig = {
   open: { label: 'Abierto', variant: 'emerald', icon: AlertCircle },
-  in_progress: { label: 'En progreso', variant: 'blue', icon: Clock },
   pending: { label: 'Pendiente', variant: 'gold', icon: AlertTriangle },
+  resolved: { label: 'Resuelto', variant: 'emerald', icon: CheckCircle },
   closed: { label: 'Cerrado', variant: 'default', icon: CheckCircle },
 };
 
@@ -37,42 +40,9 @@ const priorityConfig = {
   low: { label: 'Baja', variant: 'default' },
 };
 
-function StatusBadge({ status }) {
-  const config = statusConfig[status] || statusConfig.open;
-  const Icon = config.icon;
-  const variantClasses = {
-    emerald: 'bg-emerald-950/50 text-emerald-400 border-emerald-500/30',
-    blue: 'bg-blue-950/50 text-blue-400 border-blue-500/30',
-    gold: 'bg-amber-950/50 text-amber-400 border-amber-500/30',
-    default: 'bg-zinc-800 text-zinc-400 border-zinc-700',
-  };
-
-  return (
-    <Badge variant="outline" className={`${variantClasses[config.variant]} inline-flex items-center gap-1.5`}>
-      <Icon size={12} />
-      {config.label}
-    </Badge>
-  );
-}
-
-function PriorityBadge({ priority }) {
-  const config = priorityConfig[priority] || priorityConfig.low;
-  const variantClasses = {
-    ruby: 'bg-ruby-950/50 text-ruby-400 border-ruby-500/30',
-    gold: 'bg-amber-950/50 text-amber-400 border-amber-500/30',
-    default: 'bg-zinc-800 text-zinc-400 border-zinc-700',
-  };
-
-  return (
-    <Badge variant="outline" className={variantClasses[config.variant]}>
-      {config.label}
-    </Badge>
-  );
-}
-
 function WorkOrderCard({ workOrder }) {
   const statusIcons = {
-    pending_planning: { icon: Calendar, color: 'text-amber-400', bg: 'bg-amber-950/30', label: 'En planificación' },
+    pending_planning: { icon: AlertCircle, color: 'text-amber-400', bg: 'bg-amber-950/30', label: 'En planificación' },
     scheduled: { icon: Clock, color: 'text-blue-400', bg: 'bg-blue-950/30', label: 'Programada' },
     in_progress: { icon: Loader, color: 'text-emerald-400', bg: 'bg-emerald-950/30', label: 'En curso' },
     completed: { icon: CheckCircle, color: 'text-emerald-400', bg: 'bg-emerald-950/30', label: 'Completada' },
@@ -103,9 +73,6 @@ function WorkOrderCard({ workOrder }) {
           Programada: {new Date(workOrder.scheduled_at).toLocaleString('es-AR')}
         </p>
       )}
-      {workOrder.notes && (
-        <p className="text-xs text-zinc-400 mt-2 italic">"{workOrder.notes}"</p>
-      )}
     </div>
   );
 }
@@ -129,7 +96,7 @@ function TimelineItem({ event, index }) {
       <div className={`w-6 h-6 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0 z-10 ${eventInfo.color}`}>
         <Icon size={12} />
       </div>
-      <div className="flex-1">
+      <div className="flex-1 pb-4">
         <div className="flex items-start justify-between mb-1">
           <p className="text-sm font-medium text-white">{event.content}</p>
           <time className="text-xs text-zinc-500">
@@ -144,14 +111,85 @@ function TimelineItem({ event, index }) {
   );
 }
 
+// Componente para Editar Fields (Status, Priority, Assigned)
+function EditableField({ label, value, options, onSave, isLoading }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [newValue, setNewValue] = useState(value);
+
+  const handleSave = async () => {
+    if (newValue !== value) {
+      try {
+        await onSave(newValue);
+        setIsEditing(false);
+      } catch (err) {
+        console.error('Save error:', err);
+      }
+    } else {
+      setIsEditing(false);
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <div className="flex items-center gap-2">
+        <select
+          value={newValue}
+          onChange={(e) => setNewValue(e.target.value)}
+          className="flex-1 px-2 py-1 bg-zinc-800 border border-emerald-500 rounded text-sm text-white focus:outline-none"
+        >
+          {options.map(opt => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={handleSave}
+          disabled={isLoading}
+          className="p-1 hover:bg-emerald-600 rounded transition-colors"
+        >
+          <Check size={14} className="text-emerald-400" />
+        </button>
+        <button
+          onClick={() => {
+            setNewValue(value);
+            setIsEditing(false);
+          }}
+          className="p-1 hover:bg-zinc-700 rounded transition-colors"
+        >
+          <X size={14} className="text-zinc-500" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between group">
+      <div className="text-sm text-zinc-300">
+        {options.find(o => o.value === value)?.label || value}
+      </div>
+      <button
+        onClick={() => setIsEditing(true)}
+        className="p-1 opacity-0 group-hover:opacity-100 hover:bg-zinc-800 rounded transition-all"
+      >
+        <Edit2 size={14} className="text-zinc-500" />
+      </button>
+    </div>
+  );
+}
+
 export default function TicketDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [ticket, setTicket] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [showVisitDialog, setShowVisitDialog] = useState(false);
   const [isSubmittingWO, setIsSubmittingWO] = useState(false);
+  const [noteContent, setNoteContent] = useState('');
+  const [isSubmittingNote, setIsSubmittingNote] = useState(false);
+  const [users, setUsers] = useState([]);
 
   const loadTicket = async () => {
     try {
@@ -159,16 +197,61 @@ export default function TicketDetailPage() {
       const data = await ticketsService.getById(id);
       setTicket(data);
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Error al cargar el ticket');
+      setError(err.message || 'Error al cargar el ticket');
       console.error('Error loading ticket:', err);
     } finally {
       setIsLoading(false);
     }
   };
 
+  const loadUsers = async () => {
+    try {
+      const data = await ticketsService.getUsers();
+      setUsers(data || []);
+    } catch (err) {
+      console.error('Error loading users:', err);
+    }
+  };
+
   useEffect(() => {
     loadTicket();
+    loadUsers();
   }, [id]);
+
+  const handleSaveField = async (fieldName, newValue) => {
+    try {
+      setIsSaving(true);
+      await ticketsService.updateTicket(id, { [fieldName]: newValue });
+      setTicket(prev => ({
+        ...prev,
+        [fieldName]: newValue,
+      }));
+      // Recargar para obtener el timeline actualizado
+      await loadTicket();
+    } catch (err) {
+      setError('Error al guardar cambios');
+      console.error('Save error:', err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleAddNote = async () => {
+    if (!noteContent.trim()) return;
+
+    try {
+      setIsSubmittingNote(true);
+      setError(null);
+      await ticketsService.addNote(ticket.id, noteContent);
+      setNoteContent('');
+      await loadTicket();
+    } catch (err) {
+      setError(err.message || 'Error al agregar nota');
+      console.error('Error adding note:', err);
+    } finally {
+      setIsSubmittingNote(false);
+    }
+  };
 
   const handleRequestVisit = async () => {
     try {
@@ -180,7 +263,7 @@ export default function TicketDetailPage() {
       setShowVisitDialog(false);
       await loadTicket();
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Error al solicitar visita');
+      setError(err.message || 'Error al solicitar visita');
       console.error('Error requesting visit:', err);
     } finally {
       setIsSubmittingWO(false);
@@ -269,18 +352,17 @@ export default function TicketDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Content - 2 columns */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Header Card */}
+          {/* Header Card - Editable Fields */}
           <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-6">
             <div className="flex items-start justify-between mb-4">
               <div>
                 <h1 className="text-2xl font-bold text-white mb-2">
                   {ticket.subject}
                 </h1>
-                <p className="text-sm text-emerald-400 font-mono mt-1">
+                <p className="text-sm text-emerald-400 font-mono">
                   Ticket #{ticket.id}
                 </p>
               </div>
-              <StatusBadge status={ticket.status} />
             </div>
 
             <p className="text-zinc-300 mb-4">
@@ -288,60 +370,115 @@ export default function TicketDetailPage() {
             </p>
 
             <div className="grid grid-cols-2 gap-4 pt-4 border-t border-zinc-800">
+              {/* Prioridad - Editable */}
               <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">
+                <p className="text-xs text-zinc-500 uppercase tracking-wide mb-2">
                   Prioridad
                 </p>
-                <PriorityBadge priority={ticket.priority} />
+                <EditableField
+                  value={ticket.priority}
+                  options={[
+                    { value: 'low', label: 'Baja' },
+                    { value: 'medium', label: 'Media' },
+                    { value: 'high', label: 'Alta' },
+                    { value: 'critical', label: 'Crítica' },
+                  ]}
+                  onSave={(val) => handleSaveField('priority', val)}
+                  isLoading={isSaving}
+                />
               </div>
+
+              {/* Estado - Editable */}
+              <div>
+                <p className="text-xs text-zinc-500 uppercase tracking-wide mb-2">
+                  Estado
+                </p>
+                <EditableField
+                  value={ticket.status}
+                  options={[
+                    { value: 'open', label: 'Abierto' },
+                    { value: 'pending', label: 'Pendiente' },
+                    { value: 'resolved', label: 'Resuelto' },
+                    { value: 'closed', label: 'Cerrado' },
+                  ]}
+                  onSave={(val) => handleSaveField('status', val)}
+                  isLoading={isSaving}
+                />
+              </div>
+
+              {/* Creado por */}
               <div>
                 <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">
                   Creado por
                 </p>
                 <p className="text-sm text-zinc-300">{ticket.creator_name || 'Sistema'}</p>
               </div>
+
+              {/* Asignado a - Editable */}
               <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">
+                <p className="text-xs text-zinc-500 uppercase tracking-wide mb-2">
                   Asignado a
                 </p>
-                <p className="text-sm text-zinc-300">
-                  {ticket.assigned_to_name || 'Sin asignar'}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">
-                  Fecha de creación
-                </p>
-                <p className="text-sm text-zinc-300 font-mono">
-                  {new Date(ticket.created_at).toLocaleDateString('es-AR', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  })}
-                </p>
+                <EditableField
+                  value={ticket.assigned_to_id || 0}
+                  options={[
+                    { value: 0, label: 'Sin asignar' },
+                    ...users.map(u => ({ value: u.id, label: u.name })),
+                  ]}
+                  onSave={(val) => handleSaveField('assigned_to_id', val === 0 ? null : val)}
+                  isLoading={isSaving}
+                />
               </div>
             </div>
           </div>
 
-          {/* Ordenes de Trabajo */}
-          <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-6">
-            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-              <FileText size={20} className="text-emerald-400" />
-              Órdenes de Trabajo
-            </h2>
-            {ticket.work_orders && ticket.work_orders.length > 0 ? (
+          {/* Órdenes de Trabajo */}
+          {ticket.work_orders && ticket.work_orders.length > 0 && (
+            <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-6">
+              <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                <FileText size={20} className="text-emerald-400" />
+                Órdenes de Trabajo
+              </h2>
               <div className="space-y-3">
                 {ticket.work_orders.map((wo) => (
                   <WorkOrderCard key={wo.id} workOrder={wo} />
                 ))}
               </div>
-            ) : (
-              <p className="text-sm text-zinc-400">
-                No hay órdenes de trabajo asociadas a este ticket.
-              </p>
-            )}
+            </div>
+          )}
+
+          {/* Agregar Nota */}
+          <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-6">
+            <h2 className="text-sm font-semibold text-white uppercase tracking-wide mb-3 flex items-center gap-2">
+              <MessageSquare size={16} className="text-emerald-400" />
+              Agregar Nota
+            </h2>
+            <div className="space-y-3">
+              <textarea
+                value={noteContent}
+                onChange={(e) => setNoteContent(e.target.value)}
+                placeholder="Escribe una nota sobre el ticket..."
+                rows={3}
+                className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 resize-none"
+              />
+              <Button
+                onClick={handleAddNote}
+                disabled={!noteContent.trim() || isSubmittingNote}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white gap-2"
+              >
+                {isSubmittingNote ? (
+                  <>
+                    <Loader size={16} className="animate-spin" />
+                    Enviando...
+                  </>
+                ) : (
+                  <>
+                    <Send size={16} />
+                    Enviar Nota
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
 
           {/* Timeline */}
@@ -351,7 +488,7 @@ export default function TicketDetailPage() {
               Cronología
             </h2>
             {ticket.timeline && ticket.timeline.length > 0 ? (
-              <div className="space-y-4 relative">
+              <div className="space-y-2 relative">
                 {ticket.timeline
                   .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
                   .map((event, index) => (
@@ -380,17 +517,9 @@ export default function TicketDetailPage() {
               Solicitar Visita Técnica
             </Button>
 
-            <Button
-              variant="outline"
-              className="w-full border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-              disabled
-            >
-              Cerrar Ticket
-            </Button>
-
             <div className="pt-4 border-t border-zinc-800">
               <p className="text-xs text-zinc-500 uppercase tracking-wide mb-3">
-                Información del Sistema
+                Información del Ticket
               </p>
               <div className="space-y-2 text-xs text-zinc-400">
                 <div>
@@ -398,18 +527,60 @@ export default function TicketDetailPage() {
                   <p className="font-mono">#{ticket.connection_id || 'N/A'}</p>
                 </div>
                 <div>
-                  <span className="text-zinc-500">Última actualización:</span>
-                  <p className="font-mono">
-                    {new Date(ticket.updated_at).toLocaleDateString('es-AR', {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
+                  <span className="text-zinc-500">Creado:</span>
+                  <p>
+                    {new Date(ticket.created_at).toLocaleDateString('es-AR')}
                   </p>
                 </div>
               </div>
             </div>
+
+            {/* Connection Details */}
+            {ticket.connection_details && (
+              <div className="pt-4 border-t border-zinc-800">
+                <p className="text-xs text-zinc-500 uppercase tracking-wide mb-3">
+                  Datos de la Conexión
+                </p>
+                <div className="space-y-2 text-xs text-zinc-400">
+                  {ticket.connection_details.client_name && (
+                    <div>
+                      <span className="text-zinc-500">Cliente:</span>
+                      <p>{ticket.connection_details.client_name}</p>
+                    </div>
+                  )}
+                  {ticket.connection_details.client_dni && (
+                    <div>
+                      <span className="text-zinc-500">DNI:</span>
+                      <p className="font-mono">{ticket.connection_details.client_dni}</p>
+                    </div>
+                  )}
+                  {ticket.connection_details.pppoe_username && (
+                    <div>
+                      <span className="text-zinc-500">Usuario PPPoE:</span>
+                      <p className="font-mono">{ticket.connection_details.pppoe_username}</p>
+                    </div>
+                  )}
+                  {ticket.connection_details.address && (
+                    <div>
+                      <span className="text-zinc-500">Dirección:</span>
+                      <p className="text-xs">{ticket.connection_details.address}</p>
+                    </div>
+                  )}
+                  {ticket.connection_details.node_name && (
+                    <div>
+                      <span className="text-zinc-500">Nodo:</span>
+                      <p>{ticket.connection_details.node_name}</p>
+                    </div>
+                  )}
+                  {ticket.connection_details.plan_name && (
+                    <div>
+                      <span className="text-zinc-500">Plan:</span>
+                      <p>{ticket.connection_details.plan_name}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -423,14 +594,14 @@ export default function TicketDetailPage() {
           <div className="space-y-4 py-4">
             <p className="text-sm text-zinc-300">
               Se creará una nueva orden de trabajo para que un técnico atienda
-              este ticket. El cliente será notificado sobre la próxima visita.
+              este ticket. El cliente será notificado.
             </p>
             <div className="p-3 rounded-lg border border-emerald-900/50 bg-emerald-950/30">
               <p className="text-sm text-emerald-300">
-                Ticket: <span className="font-mono text-emerald-400">#{ticket.id}</span>
+                <strong>Ticket:</strong> <span className="font-mono">#{ticket.id}</span>
               </p>
               <p className="text-sm text-emerald-300 mt-1">
-                Asunto: <span className="font-medium">{ticket.subject}</span>
+                <strong>Asunto:</strong> {ticket.subject}
               </p>
             </div>
           </div>
