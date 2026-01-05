@@ -75,7 +75,7 @@ export const createWorkOrder = async (ticketId, payload) => {
 /**
  * Actualizar ticket (PATCH parcial)
  * @param {number} id - ID del ticket
- * @param {Object} payload - { priority?, status?, assigned_to_id? }
+ * @param {Object} payload - { priority?, status?, assigned_to_id?, availability_note? }
  * @returns {Promise<Object>} Ticket actualizado
  */
 export const updateTicket = async (id, payload) => {
@@ -84,6 +84,24 @@ export const updateTicket = async (id, payload) => {
     return data;
   } catch (error) {
     console.error(`❌ Error updating ticket ${id}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Obtener historial de tickets de una conexión
+ * @param {number} connectionId - ID de la conexión
+ * @param {Object} options - { limit?, exclude_ticket_id? }
+ * @returns {Promise<Array>} Array de tickets de la misma conexión
+ */
+export const getConnectionHistory = async (connectionId, options = {}) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/by-connection/${connectionId}`, {
+      params: options
+    });
+    return data || [];
+  } catch (error) {
+    console.error(`❌ Error fetching connection history for ${connectionId}:`, error);
     throw error;
   }
 };

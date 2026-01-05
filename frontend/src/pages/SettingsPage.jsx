@@ -93,7 +93,7 @@ export default function SettingsPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-white">Ajustes</h1>
-            <p className="text-sm text-zinc-400">Gestiona la configuración del Orquestador</p>
+            <p className="text-sm text-zinc-400">Configuración general del sistema</p>
           </div>
         </div>
       </div>
@@ -234,7 +234,7 @@ export default function SettingsPage() {
               {/* Versión */}
               <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-4">
                 <label className="block text-zinc-300 text-sm font-medium mb-2">
-                  Versión del Orquestador
+                  Versión de la plataforma
                 </label>
                 <input
                   type="text"

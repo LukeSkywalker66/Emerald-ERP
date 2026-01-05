@@ -21,7 +21,7 @@ class TicketCreate(BaseModel):
     title: str = Field(..., min_length=3, max_length=255)
     description: Optional[str] = None
     category_id: Optional[int] = None
-    priority: TicketPriority = TicketPriority.MEDIUM
+    priority: TicketPriority = TicketPriority.medium
     customer_id: Optional[int] = None
 
 

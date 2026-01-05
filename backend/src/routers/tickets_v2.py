@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import List, Optional
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select, text
@@ -34,7 +35,9 @@ router = APIRouter()
 # Traducciones para mensajes en español
 STATUS_LABELS = {
     "open": "Abierto",
+    "in_progress": "En progreso",
     "pending": "Pendiente",
+    "pending_infra": "Pendiente Infra",
     "resolved": "Resuelto",
     "closed": "Cerrado",
 }
@@ -64,6 +67,7 @@ def _ticket_to_response(ticket: Ticket) -> TicketResponse:
         status=ticket.status,
         priority=ticket.priority,
         connection_id=ticket.connection_id,
+        availability_note=ticket.availability_note,
         created_at=ticket.created_at,
         creator_name=_safe_name(ticket.creator),
         assigned_to_name=_safe_name(ticket.assigned_to),
@@ -84,6 +88,7 @@ def _workorder_to_response(wo: WorkOrder) -> WorkOrderResponse:
     return WorkOrderResponse(
         id=wo.id,
         status=wo.status,
+        ot_type=wo.ot_type,
         technician_name=_safe_name(wo.technician),
         scheduled_at=wo.scheduled_at,
     )
@@ -124,6 +129,7 @@ def create_ticket(
         description=payload.description,
         priority=payload.priority,
         connection_id=payload.connection_id,
+        availability_note=payload.availability_note,
         creator_id=user_id,
     )
     db.add(ticket)
@@ -132,7 +138,7 @@ def create_ticket(
     first_note = TicketTimeline(
         ticket_id=ticket.id,
         author_id=user_id,
-        event_type=TicketTimelineEventType.NOTE,
+        event_type=TicketTimelineEventType.note,
         content=payload.description or "Ticket creado",
         meta_data=None,
     )
@@ -142,6 +148,38 @@ def create_ticket(
     db.refresh(ticket)
     db.refresh(ticket, attribute_names=["creator", "assigned_to"])
     return _ticket_to_response(ticket)
+
+
+@router.get("/by-connection/{connection_id}", response_model=List[TicketResponse])
+def get_tickets_by_connection(
+    connection_id: int,
+    limit: int = Query(5, ge=1, le=20),
+    exclude_ticket_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Obtener historial de tickets de una conexión específica.
+    
+    Args:
+        connection_id: ID de la conexión
+        limit: Cantidad máxima de tickets a retornar (default 5)
+        exclude_ticket_id: ID de ticket a excluir (generalmente el ticket actual)
+    
+    Returns:
+        Lista de tickets ordenados por fecha descendente (más recientes primero)
+    """
+    stmt = (
+        select(Ticket)
+        .where(Ticket.connection_id == connection_id)
+        .options(joinedload(Ticket.creator), joinedload(Ticket.assigned_to))
+        .order_by(Ticket.created_at.desc())
+    )
+    
+    if exclude_ticket_id:
+        stmt = stmt.where(Ticket.id != exclude_ticket_id)
+    
+    tickets = db.execute(stmt.limit(limit)).scalars().all()
+    return [_ticket_to_response(t) for t in tickets]
 
 
 @router.get("/{ticket_id}/", response_model=TicketDetailResponse)
@@ -228,7 +266,7 @@ def create_work_order(
     work_order = WorkOrder(
         ticket_id=ticket.id,
         ot_type=payload.ot_type,
-        status=WorkOrderStatus.PENDING_PLANNING,
+        status=WorkOrderStatus.pending_planning,
         notes=payload.notes,
     )
     db.add(work_order)
@@ -237,7 +275,7 @@ def create_work_order(
     timeline_event = TicketTimeline(
         ticket_id=ticket.id,
         author_id=user_id,
-        event_type=TicketTimelineEventType.OT_EVENT,
+        event_type=TicketTimelineEventType.ot_event,
         content=f"Orden de trabajo generada ({payload.ot_type.value})",
         meta_data={
             "work_order_id": work_order.id,
@@ -288,12 +326,18 @@ def update_ticket(
         old_name = _safe_name(old_user) if old_user else "Sin asignar"
         changes.append(f"Asignado cambiado de {old_name} a {new_name}")
 
+    if payload.availability_note is not None and payload.availability_note != ticket.availability_note:
+        old_value = ticket.availability_note or "Sin nota"
+        new_value = payload.availability_note or "Sin nota"
+        ticket.availability_note = payload.availability_note
+        changes.append(f"Disponibilidad actualizada: {old_value} -> {new_value}")
+
     # Crear evento en el timeline si hubo cambios
     if changes:
         timeline_event = TicketTimeline(
             ticket_id=ticket.id,
             author_id=user_id,
-            event_type=TicketTimelineEventType.STATUS_CHANGE,
+            event_type=TicketTimelineEventType.status_change,
             content=". ".join(changes),
             meta_data=None,
         )

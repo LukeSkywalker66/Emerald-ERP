@@ -16,7 +16,7 @@ export default function InventarioPage() {
 
       <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-6 shadow-2xl shadow-black/30">
         <p className="text-zinc-400 text-sm">
-          Próximamente: gestión de ONU, CPEs, routers y asignación a clientes. Mientras tanto, navegá con seguridad: el Orquestador está escuchando.
+          Próximamente: gestión de ONU, CPEs, routers y asignación a clientes. Mientras tanto, navegá con seguridad: seguimos monitoreando.
         </p>
       </div>
     </div>

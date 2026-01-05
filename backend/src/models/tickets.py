@@ -43,42 +43,45 @@ from src.models.user import User
 
 class TicketStatus(StrEnum):
     """Estados posibles de un ticket."""
-    OPEN = "open"
-    PENDING = "pending"
-    RESOLVED = "resolved"
-    CLOSED = "closed"
+    open = "open"
+    in_progress = "in_progress"
+    pending = "pending"
+    pending_infra = "pending_infra"
+    resolved = "resolved"
+    closed = "closed"
 
 
 class TicketPriority(StrEnum):
     """Prioridades de tickets."""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+    low = "low"
+    medium = "medium"
+    high = "high"
+    critical = "critical"
 
 
 class TicketTimelineEventType(StrEnum):
     """Tipos de eventos en la bitácora de ticket."""
-    NOTE = "note"  # Nota manual del operador
-    ALERT = "alert"  # Alerta del sistema (Beholder)
-    OT_EVENT = "ot_event"  # Cambio de estado en OT
-    STATUS_CHANGE = "status_change"  # Cambio de estado del ticket
+    note = "note"  # Nota manual del operador
+    alert = "alert"  # Alerta del sistema (Beholder)
+    ot_event = "ot_event"  # Cambio de estado en OT
+    status_change = "status_change"  # Cambio de estado del ticket
 
 
 class WorkOrderStatus(StrEnum):
     """Estados posibles de una Orden de Trabajo."""
-    PENDING_PLANNING = "pending_planning"  # Aguardando asignación del planificador
-    ASSIGNED = "assigned"  # Asignada a un técnico
-    IN_PROGRESS = "in_progress"  # Técnico trabajando en sitio
-    COMPLETED = "completed"  # Trabajo completado
-    FAILED = "failed"  # Fallo en ejecución
+    pending_planning = "pending_planning"  # Aguardando asignación del planificador
+    assigned = "assigned"  # Asignada a un técnico
+    in_progress = "in_progress"  # Técnico trabajando en sitio
+    completed = "completed"  # Trabajo completado
+    failed = "failed"  # Fallo en ejecución
 
 
 class WorkOrderType(StrEnum):
     """Tipos de órdenes de trabajo."""
-    REPAIR = "repair"  # Reparación/Diagnóstico
-    INSTALL = "install"  # Instalación
-    PICKUP = "pickup"  # Retiro de equipo
+    repair = "repair"  # Reparación/Diagnóstico
+    install = "install"  # Instalación
+    pickup = "pickup"  # Retiro de equipo
+    infrastructure = "infrastructure"  # Cuadrilla de infraestructura
 
 
 # ===========================
@@ -101,7 +104,7 @@ class Ticket(Base, TimestampMixin):
     Campos especiales:
       - connection_id: Soft FK a tabla de conexiones (sin constraint estricta)
       - priority: Enum con valores CRITICAL, HIGH, MEDIUM, LOW
-      - status: Enum con valores OPEN, PENDING, RESOLVED, CLOSED
+            - status: Enum con valores OPEN, IN_PROGRESS, PENDING, PENDING_INFRA, RESOLVED, CLOSED
     """
     __tablename__ = "tickets_v2"
 
@@ -133,17 +136,24 @@ class Ticket(Base, TimestampMixin):
         comment="Descripción detallada del problema"
     )
 
+    # Disponibilidad horaria del cliente
+    availability_note: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Nota sobre disponibilidad horaria del cliente (ej: 'Solo mañanas')"
+    )
+
     # Estado y prioridad
     status: Mapped[TicketStatus] = mapped_column(
         Enum(TicketStatus, name="ticket_status_enum", native_enum=False),
-        default=TicketStatus.OPEN,
+        default=TicketStatus.open,
         nullable=False,
         index=True,
-        comment="Estado actual del ticket: open, pending, resolved, closed"
+        comment="Estado actual del ticket: open, in_progress, pending, pending_infra, resolved, closed"
     )
     priority: Mapped[TicketPriority] = mapped_column(
         Enum(TicketPriority, name="ticket_priority_enum", native_enum=False),
-        default=TicketPriority.MEDIUM,
+        default=TicketPriority.medium,
         nullable=False,
         index=True,
         comment="Prioridad del incidente: critical, high, medium, low"
@@ -346,13 +356,13 @@ class WorkOrder(Base, TimestampMixin):
     # Tipo y estado
     ot_type: Mapped[WorkOrderType] = mapped_column(
         Enum(WorkOrderType, name="work_order_type_enum", native_enum=False),
-        default=WorkOrderType.REPAIR,
+        default=WorkOrderType.repair,
         nullable=False,
         comment="Tipo de trabajo: repair, install, pickup"
     )
     status: Mapped[WorkOrderStatus] = mapped_column(
         Enum(WorkOrderStatus, name="work_order_status_enum", native_enum=False),
-        default=WorkOrderStatus.PENDING_PLANNING,
+        default=WorkOrderStatus.pending_planning,
         nullable=False,
         index=True,
         comment="Estado actual: pending_planning, assigned, in_progress, completed, failed"

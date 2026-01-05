@@ -55,7 +55,7 @@ class Ticket(Base, TimestampMixin):
     )
     priority: Mapped[TicketPriority] = mapped_column(
         Enum(TicketPriority, name="ticket_priority_enum"),
-        default=TicketPriority.MEDIUM,
+        default=TicketPriority.medium,
         nullable=False,
         index=True,
     )

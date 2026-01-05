@@ -22,7 +22,6 @@ export function Dialog({ open = false, onOpenChange, children }) {
 
   return (
     <DialogContext.Provider value={{ open: isOpen, onOpenChange: handleOpenChange }}>
-      {children}
       {isOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm">
           <div className="fixed inset-0 z-50 flex items-center justify-center">

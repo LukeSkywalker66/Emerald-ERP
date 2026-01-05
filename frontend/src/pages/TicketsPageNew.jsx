@@ -97,7 +97,7 @@ export default function TicketsPage() {
     try {
       setIsSubmitting(true);
       setError(null);
-      await ticketsService.create({
+      const created = await ticketsService.create({
         subject: formData.subject,
         description: formData.description || undefined,
         priority: formData.priority,
@@ -106,6 +106,7 @@ export default function TicketsPage() {
       setShowCreateDialog(false);
       setFormData({ subject: '', description: '', priority: 'medium' });
       await loadTickets();
+      navigate(`/app/tickets/${created.id}`);
     } catch (err) {
       setError(err.message || 'Error al crear el ticket');
       console.error('Error creating ticket:', err);

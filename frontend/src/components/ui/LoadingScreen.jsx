@@ -15,7 +15,7 @@ export default function LoadingScreen() {
       {/* Texto de estado */}
       <div className="mt-12 text-center space-y-3">
         <p className="text-emerald-500/80 text-sm font-medium tracking-wide animate-pulse">
-          Consultando al Orquestador...
+          Inicializando sistema...
         </p>
         
         {/* Barra de progreso simulada */}

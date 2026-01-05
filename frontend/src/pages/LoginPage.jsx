@@ -137,10 +137,9 @@ export default function LoginPage() {
         <div className="relative z-10 flex flex-col items-center text-center px-10">
           <EmeraldLogo className="scale-[2.4] mb-12 drop-shadow-[0_0_30px_rgba(16,185,129,0.45)]" withText />
           <div className="space-y-4 max-w-xl">
-            <h2 className="text-2xl font-bold text-white/90 tracking-tight">El Orquestador de Oz</h2>
+            <h2 className="text-2xl font-bold text-white/90 tracking-tight">Sistema de gestión 2F Internet</h2>
             <p className="text-zinc-400 text-sm leading-relaxed">
-              Detrás de la cortina, la máquina que sostiene el imperio de Internet. Sistema de gestión integral para
-              operaciones críticas de ISP.
+              Plataforma interna para operar clientes, soporte y red de 2F Internet. Acceso exclusivo para el equipo.
             </p>
             <div className="flex items-center justify-center gap-6 mt-8 pt-6 border-t border-zinc-800/50">
               <StatusDot label="Core Online" delay="" />

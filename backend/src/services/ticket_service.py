@@ -29,8 +29,8 @@ class TicketService:
             title=data.title,
             description=data.description,
             category_id=data.category_id,
-            priority=data.priority or TicketPriority.MEDIUM,
-            status=TicketStatus.OPEN,
+            priority=data.priority or TicketPriority.medium,
+            status=TicketStatus.open,
             customer_id=data.customer_id,
             creator_id=creator_id,
         )

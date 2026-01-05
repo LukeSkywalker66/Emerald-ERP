@@ -39,8 +39,8 @@ export default function NotFoundPage() {
             Glitch en la Matrix
           </h2>
           <p className="text-zinc-400 text-lg leading-relaxed max-w-lg mx-auto">
-            Parece que ya no estamos en Kansas. Esta ruta no existe en el mapa del ISP. 
-            El Orquestador no reconoce esta ubicación.
+            Parece que ya no estamos en Kansas. Esta ruta no existe en el mapa del ISP.
+            El sistema no reconoce esta ubicación.
           </p>
         </div>
 

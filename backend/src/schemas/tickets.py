@@ -25,12 +25,13 @@ class TicketUpdate(BaseModel):
     priority: Optional[TicketPriority] = None
     status: Optional[TicketStatus] = None
     assigned_to_id: Optional[int] = None
+    availability_note: Optional[str] = None
 
 
 class TimelineEventCreate(BaseModel):
     """Schema para crear un evento en la cronología."""
     content: str = Field(..., min_length=1, description="Contenido de la nota")
-    event_type: TicketTimelineEventType = Field(default=TicketTimelineEventType.NOTE)
+    event_type: TicketTimelineEventType = Field(default=TicketTimelineEventType.note)
 
 
 class WorkOrderCreate(BaseModel):
@@ -41,6 +42,7 @@ class WorkOrderCreate(BaseModel):
 class WorkOrderResponse(BaseModel):
     id: int
     status: WorkOrderStatus
+    ot_type: WorkOrderType
     technician_name: Optional[str] = None
     scheduled_at: Optional[datetime] = None
 
@@ -50,8 +52,9 @@ class WorkOrderResponse(BaseModel):
 class TicketCreate(BaseModel):
     subject: str
     description: Optional[str] = None
-    priority: TicketPriority = TicketPriority.MEDIUM
+    priority: TicketPriority = TicketPriority.medium
     connection_id: Optional[int] = None
+    availability_note: Optional[str] = None
 
 
 class TicketResponse(BaseModel):
@@ -60,6 +63,7 @@ class TicketResponse(BaseModel):
     status: TicketStatus
     priority: TicketPriority
     connection_id: Optional[int] = None
+    availability_note: Optional[str] = None
     created_at: datetime
     creator_name: Optional[str] = None
     assigned_to_name: Optional[str] = None
