@@ -38,6 +38,7 @@ import {
 import ticketsService from '@/services/tickets.service';
 import TicketHistoryCard from '@/components/tickets/TicketHistoryCard';
 import RepeatedIssueAlert from '@/components/tickets/RepeatedIssueAlert';
+import TicketTags from '@/components/tickets/TicketTags';
 
 const statusConfig = {
   open: { label: 'Abierto', tone: 'text-emerald-400', chip: 'bg-emerald-500/10 border-emerald-500/50' },
@@ -988,6 +989,16 @@ export default function TicketDetailPage() {
         </div>
 
         <div className="space-y-6">
+          {ticket && (
+            <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 backdrop-blur">
+              <TicketTags
+                ticket={ticket}
+                onTagsChanged={(newTags) => setTicket((prev) => ({ ...prev, tags: newTags }))}
+                disabled={isClosed}
+              />
+            </div>
+          )}
+
           <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4 space-y-3">
             <p className="text-xs text-zinc-500 uppercase tracking-wide">Acciones</p>
 
@@ -1136,10 +1147,6 @@ export default function TicketDetailPage() {
               />
             </div>
           )}
-        </div>
-
-        {/* Sidebar Derecho - Vacío por ahora */}
-        <div className="lg:col-span-1 space-y-4">
         </div>
       </div>
 

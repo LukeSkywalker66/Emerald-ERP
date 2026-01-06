@@ -17,6 +17,8 @@ from .tickets import (
 	WorkOrderStatus,
 	WorkOrderType,
 	WorkOrderItem,
+	Tag,
+	ticket_tags_association,
 )
 from .ticket_attachments import TicketAttachment
 from .beholder import (

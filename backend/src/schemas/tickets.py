@@ -10,6 +10,32 @@ from src.models import TicketPriority, TicketStatus, WorkOrderType
 from src.models.tickets import TicketTimelineEventType, WorkOrderStatus
 
 
+# ===========================
+# SCHEMAS: Tags
+# ===========================
+
+class TagResponse(BaseModel):
+    """Respuesta de información de etiqueta."""
+    id: int
+    name: str
+    color: str
+    is_active: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TagCreate(BaseModel):
+    """Schema para crear una etiqueta."""
+    name: str = Field(..., min_length=1, max_length=100, description="Nombre único de la etiqueta")
+    color: str = Field(default='emerald', max_length=20, description="Color en Hex o nombre Tailwind")
+    is_active: bool = Field(default=True, description="Etiqueta activa (visible en UI)")
+
+
+# ===========================
+# SCHEMAS: Timeline Events
+# ===========================
+
+
 class TimelineEventResponse(BaseModel):
     id: int
     event_type: TicketTimelineEventType
@@ -71,6 +97,7 @@ class TicketResponse(BaseModel):
     assigned_to_name: Optional[str] = None
     client_name: Optional[str] = None
     client_dni: Optional[str] = None
+    tags: List[TagResponse] = Field(default_factory=list, description="Etiquetas asignadas al ticket")
 
     model_config = ConfigDict(from_attributes=True)
 

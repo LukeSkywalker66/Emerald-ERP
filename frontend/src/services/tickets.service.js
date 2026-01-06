@@ -154,6 +154,74 @@ export const getUsers = async () => {
   }
 };
 
+// ============================================
+// TAGS MANAGEMENT
+// ============================================
+
+/**
+ * Obtener lista de etiquetas (tags)
+ * @param {boolean} activeOnly - Solo etiquetas activas (default: true)
+ * @returns {Promise<Array>} Array de tags { id, name, color, is_active }
+ */
+export const getTags = async (activeOnly = true) => {
+  try {
+    const { data } = await api.get('/v2/tags', {
+      params: { active_only: activeOnly },
+    });
+    return data || [];
+  } catch (error) {
+    console.error('❌ Error fetching tags:', error);
+    throw error;
+  }
+};
+
+/**
+ * Crear nueva etiqueta
+ * @param {Object} payload - { name, color?, is_active? }
+ * @returns {Promise<Object>} Tag creado
+ */
+export const createTag = async (payload) => {
+  try {
+    const { data } = await api.post('/v2/tags', payload);
+    return data;
+  } catch (error) {
+    console.error('❌ Error creating tag:', error);
+    throw error;
+  }
+};
+
+/**
+ * Asignar etiqueta a un ticket
+ * @param {number} ticketId - ID del ticket
+ * @param {number} tagId - ID de la etiqueta
+ * @returns {Promise<Object>} { success: true, tags: [...] }
+ */
+export const assignTagToTicket = async (ticketId, tagId) => {
+  try {
+    const { data } = await api.post(`/v2/tickets/${ticketId}/tags/${tagId}`);
+    return data;
+  } catch (error) {
+    console.error(`❌ Error assigning tag ${tagId} to ticket ${ticketId}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Remover etiqueta de un ticket
+ * @param {number} ticketId - ID del ticket
+ * @param {number} tagId - ID de la etiqueta
+ * @returns {Promise<Object>} { success: true, tags: [...] }
+ */
+export const removeTagFromTicket = async (ticketId, tagId) => {
+  try {
+    const { data } = await api.delete(`/v2/tickets/${ticketId}/tags/${tagId}`);
+    return data;
+  } catch (error) {
+    console.error(`❌ Error removing tag ${tagId} from ticket ${ticketId}:`, error);
+    throw error;
+  }
+};
+
 export default {
   getAll,
   getById,
@@ -163,5 +231,10 @@ export default {
   addNote,
   searchConnections,
   getUsers,
+  // Tags
+  getTags,
+  createTag,
+  assignTagToTicket,
+  removeTagFromTicket,
 };
 

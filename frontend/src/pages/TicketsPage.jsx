@@ -4,6 +4,7 @@ import { Plus, RefreshCw, Search, User, AlertCircle, Loader, ArrowUpDown, ArrowU
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Table,
   TableBody,
@@ -20,7 +21,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import AsyncCombobox from '@/components/ui/AsyncCombobox';
-import ticketsService from '@/services/tickets.service';
+import TagsFilterPopover from '@/components/tickets/TagsFilterPopover';
+import ticketsService, { getTags } from '@/services/tickets.service';
 
 const statusConfig = {
   open: { label: 'Abierto', variant: 'emerald' },
@@ -85,6 +87,8 @@ export default function TicketsPage() {
   const [sortDirection, setSortDirection] = useState('desc');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [tagsFilter, setTagsFilter] = useState([]);
+  const [availableTags, setAvailableTags] = useState([]);
   const [formData, setFormData] = useState({
     subject: '',
     description: '',
@@ -104,6 +108,7 @@ export default function TicketsPage() {
         search: searchQuery || undefined,
         status: statusFilter || undefined,
         priority: priorityFilter || undefined,
+        tags: tagsFilter.length ? tagsFilter : undefined,
       });
       setTickets(data.items || data || []);
       setTotalCount(data.total || (data.items ? data.items.length : data.length));
@@ -117,8 +122,20 @@ export default function TicketsPage() {
   };
 
   useEffect(() => {
+    const loadTags = async () => {
+      try {
+        const tags = await getTags(true);
+        setAvailableTags(tags || []);
+      } catch (err) {
+        console.error('Error cargando tags:', err);
+      }
+    };
+    loadTags();
+  }, []);
+
+  useEffect(() => {
     loadTickets();
-  }, [currentPage, pageSize, sortField, sortDirection, searchQuery, statusFilter, priorityFilter]);
+  }, [currentPage, pageSize, sortField, sortDirection, searchQuery, statusFilter, priorityFilter, tagsFilter]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -290,6 +307,15 @@ export default function TicketsPage() {
           <option value="medium">Media</option>
           <option value="low">Baja</option>
         </select>
+
+        <TagsFilterPopover
+          selectedTags={tagsFilter}
+          onTagsChange={(newTags) => {
+            setTagsFilter(newTags);
+            setCurrentPage(1);
+          }}
+          availableTags={availableTags}
+        />
       </div>
 
       {/* Loading State */}
@@ -314,6 +340,7 @@ export default function TicketsPage() {
                   </div>
                 </TableHead>
                 <TableHead className="text-zinc-400 font-semibold">Asunto</TableHead>
+                <TableHead className="w-[180px] text-zinc-400 font-semibold">Etiquetas</TableHead>
                 <TableHead 
                   className="w-[180px] text-zinc-400 font-semibold cursor-pointer hover:text-emerald-400 transition-colors"
                   onClick={() => handleSort('client_name')}
@@ -374,6 +401,38 @@ export default function TicketsPage() {
                       <p className="text-sm font-medium text-white line-clamp-1">
                         {ticket.subject}
                       </p>
+                    </TableCell>
+                    <TableCell className="max-w-[180px]">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {ticket.tags && ticket.tags.length > 0 ? (
+                          <>
+                            {ticket.tags.slice(0, 2).map((tag) => (
+                              <span
+                                key={tag.id}
+                                className="h-5 px-2 inline-flex items-center rounded-full text-[10px] font-semibold border bg-emerald-500/5 border-emerald-500/30 text-emerald-200"
+                                style={
+                                  tag.color?.startsWith('#')
+                                    ? {
+                                        backgroundColor: `${tag.color}14`,
+                                        borderColor: `${tag.color}55`,
+                                        color: tag.color,
+                                      }
+                                    : {}
+                                }
+                              >
+                                {tag.name}
+                              </span>
+                            ))}
+                            {ticket.tags.length > 2 && (
+                              <span className="h-5 px-2 inline-flex items-center rounded-full text-[10px] font-semibold bg-zinc-800 text-zinc-300 border border-zinc-700">
+                                +{ticket.tags.length - 2}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-[10px] text-zinc-500">Sin etiquetas</span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       {ticket.client_name ? (

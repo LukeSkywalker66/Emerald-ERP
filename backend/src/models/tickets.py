@@ -28,6 +28,9 @@ from sqlalchemy import (
     DateTime,
     Float,
     Index,
+    Table,
+    Column,
+    Boolean,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -35,6 +38,31 @@ from sqlalchemy.sql import func
 
 from src.database.base import Base, TimestampMixin
 from src.models.user import User
+
+
+# ===========================
+# TABLA DE ASOCIACIÓN M2M: TICKET <-> TAG
+# ===========================
+
+ticket_tags_association = Table(
+    'ticket_tags',
+    Base.metadata,
+    Column(
+        'ticket_id',
+        Integer,
+        ForeignKey('tickets_v2.id', name='fk_ticket_tags_ticket_id', ondelete='CASCADE'),
+        primary_key=True,
+        comment='FK a ticket'
+    ),
+    Column(
+        'tag_id',
+        Integer,
+        ForeignKey('tags.id', name='fk_ticket_tags_tag_id', ondelete='CASCADE'),
+        primary_key=True,
+        comment='FK a tag'
+    ),
+    comment='Asociación Many-to-Many entre tickets y etiquetas'
+)
 
 
 # ===========================
@@ -83,6 +111,65 @@ class WorkOrderType(StrEnum):
     install = "install"  # Instalación
     pickup = "pickup"  # Retiro de equipo
     infrastructure = "infrastructure"  # Cuadrilla de infraestructura
+
+
+# ===========================
+# MODELO: Tag (Etiqueta)
+# ===========================
+
+class Tag(Base, TimestampMixin):
+    """
+    Modelo de Etiquetas para clasificar tickets.
+    
+    Permite categorizar incidentes de forma flexible:
+    - "WiFi", "Fibra Cortada", "Zona Norte"
+    - "Reiterado", "Urgente", "Cliente VIP"
+    
+    Cada etiqueta tiene un color para destacar visualmente.
+    """
+    __tablename__ = 'tags'
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        index=True,
+        comment='ID único de la etiqueta'
+    )
+
+    name: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        unique=True,
+        index=True,
+        comment='Nombre único de la etiqueta (ej: "Fibra Cortada")'
+    )
+
+    color: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default='emerald',
+        comment='Color Hex o nombre Tailwind (ej: "#ef4444" o "emerald")'
+    )
+
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        index=True,
+        comment='Etiqueta activa (visible en UI)'
+    )
+
+    # Relaciones
+    tickets: Mapped[list['Ticket']] = relationship(
+        'Ticket',
+        secondary=ticket_tags_association,
+        back_populates='tags',
+        lazy='selectin',
+        viewonly=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<Tag(id={self.id}, name={self.name}, color={self.color})>"
 
 
 # ===========================
@@ -203,6 +290,13 @@ class Ticket(Base, TimestampMixin):
         back_populates="ticket",
         lazy="select",
         cascade="all, delete-orphan"
+    )
+    tags: Mapped[list[Tag]] = relationship(
+        "Tag",
+        secondary=ticket_tags_association,
+        back_populates="tickets",
+        lazy="selectin",
+        viewonly=False
     )
 
     # Índices compuestos

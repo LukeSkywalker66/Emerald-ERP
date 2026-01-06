@@ -31,6 +31,7 @@ from src.schemas.tickets import (
     WorkOrderCreate,
     WorkOrderResponse,
     ConnectionDetailsResponse,
+    TagResponse,
 )
 
 router = APIRouter()
@@ -100,6 +101,7 @@ def _ticket_to_response(ticket: Ticket, client_name: Optional[str] = None, clien
         assigned_to_name=_safe_name(ticket.assigned_to),
         client_name=client_name,
         client_dni=client_dni,
+        tags=[TagResponse.model_validate(tag) for tag in ticket.tags] if ticket.tags else [],
     )
 
 
@@ -134,6 +136,7 @@ def list_tickets(
     order_dir: str = Query("desc", description="Dirección de ordenamiento: asc o desc"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    tags: Optional[List[int]] = Query(None, description="IDs de etiquetas (OR)"),
     db: Session = Depends(get_db),
 ):
     # Mapeo de campos para ordenamiento seguro con lógica semántica
@@ -194,6 +197,10 @@ def list_tickets(
     if search:
         query_parts.append("AND (LOWER(t.subject) LIKE :search OR LOWER(cl.name) LIKE :search OR LOWER(cl.doc_number) LIKE :search)")
         params["search"] = f"%{search.lower()}%"
+
+    if tags:
+        query_parts.append("AND t.id IN (SELECT tt.ticket_id FROM ticket_tags tt WHERE tt.tag_id = ANY(:tags_array))")
+        params["tags_array"] = tags
     
     # Query para contar total
     count_query = f"""
@@ -211,7 +218,19 @@ def list_tickets(
     final_query = base_query + " " + " ".join(query_parts) + f" ORDER BY {order_field} {order_direction} LIMIT :limit OFFSET :offset"
     
     results = db.execute(text(final_query), params).fetchall()
-    
+
+    # Cargar tags asociados para los tickets devueltos
+    ticket_ids = [row.id for row in results]
+    tags_by_ticket: dict[int, list[Tag]] = {}
+    if ticket_ids:
+        tickets_with_tags = (
+            db.query(Ticket)
+            .options(selectinload(Ticket.tags))
+            .filter(Ticket.id.in_(ticket_ids))
+            .all()
+        )
+        tags_by_ticket = {t.id: t.tags for t in tickets_with_tags}
+
     # Convertir resultados a TicketResponse
     response_list = []
     for row in results:
@@ -231,6 +250,7 @@ def list_tickets(
             assigned_to_name=assigned_name,
             client_name=row.client_name,
             client_dni=row.client_dni,
+            tags=[TagResponse.model_validate(tag) for tag in tags_by_ticket.get(row.id, [])],
         ))
     
     return {
