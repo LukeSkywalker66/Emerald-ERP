@@ -9,12 +9,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
-  Command,
   CommandInput,
   CommandList,
-  CommandItem,
-  CommandSeparator,
   CommandEmpty,
+  CommandSeparator,
 } from '@/components/ui/command';
 import { cn } from '@/lib/utils';
 
@@ -78,7 +76,7 @@ export default function TagsFilterPopover({
         className="w-[240px] p-0 border-zinc-800 bg-zinc-950 shadow-lg"
         align="start"
       >
-        <Command className="bg-transparent">
+        <div className="flex flex-col bg-zinc-950 rounded-md">
           {/* Input de búsqueda */}
           <CommandInput
             placeholder="Buscar etiquetas..."
@@ -88,71 +86,69 @@ export default function TagsFilterPopover({
           />
 
           {/* Lista de tags */}
-          <CommandList className="bg-zinc-950">
+          <div className="max-h-[300px] overflow-y-auto overflow-x-hidden bg-zinc-950">
             {filteredTags.length === 0 ? (
-              <CommandEmpty className="text-zinc-500 py-3">
+              <div className="py-6 text-center text-sm text-zinc-500">
                 {availableTags.length === 0 ? 'Sin etiquetas disponibles' : 'Sin coincidencias'}
-              </CommandEmpty>
+              </div>
             ) : (
               filteredTags.map((tag) => {
                 const isSelected = selectedTags.includes(tag.id);
                 return (
-                  <CommandItem
+                  <button
                     key={tag.id}
-                    value={tag.id.toString()}
-                    onSelect={() => handleToggleTag(tag.id)}
+                    type="button"
+                    onClick={() => handleToggleTag(tag.id)}
                     className={cn(
-                      'px-2 py-2 cursor-pointer rounded-sm mx-1 my-0.5',
+                      'w-full text-left px-2 py-2 rounded-sm mx-1 my-0.5 flex items-center gap-2 transition-all duration-150',
                       isSelected
                         ? 'bg-emerald-950/50 text-emerald-300'
                         : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
                     )}
                   >
-                    <div className="flex items-center gap-2 w-full">
-                      {/* Checkbox visual */}
-                      <div
-                        className={cn(
-                          'w-4 h-4 rounded border transition-colors',
-                          isSelected
-                            ? 'bg-emerald-600 border-emerald-500 flex items-center justify-center'
-                            : 'border-zinc-600 bg-zinc-900'
-                        )}
-                      >
-                        {isSelected && (
-                          <svg
-                            className="w-3 h-3 text-white"
-                            fill="currentColor"
-                            viewBox="0 0 20 20"
-                          >
-                            <path
-                              fillRule="evenodd"
-                              d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                              clipRule="evenodd"
-                            />
-                          </svg>
-                        )}
-                      </div>
-
-                      {/* Nombre del tag */}
-                      <span className="flex-1 text-sm font-medium truncate">
-                        {tag.name}
-                      </span>
-
-                      {/* Punto de color */}
-                      <div
-                        className="w-2 h-2 rounded-full flex-shrink-0"
-                        style={{
-                          backgroundColor: tag.color?.startsWith('#')
-                            ? tag.color
-                            : '#10b981', // emerald por defecto
-                        }}
-                      />
+                    {/* Checkbox visual */}
+                    <div
+                      className={cn(
+                        'w-4 h-4 rounded border flex-shrink-0 transition-colors',
+                        isSelected
+                          ? 'bg-emerald-600 border-emerald-500 flex items-center justify-center'
+                          : 'border-zinc-600 bg-zinc-900'
+                      )}
+                    >
+                      {isSelected && (
+                        <svg
+                          className="w-3 h-3 text-white"
+                          fill="currentColor"
+                          viewBox="0 0 20 20"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                      )}
                     </div>
-                  </CommandItem>
+
+                    {/* Nombre del tag */}
+                    <span className="flex-1 text-sm font-medium truncate">
+                      {tag.name}
+                    </span>
+
+                    {/* Punto de color */}
+                    <div
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{
+                        backgroundColor: tag.color?.startsWith('#')
+                          ? tag.color
+                          : '#10b981', // emerald por defecto
+                      }}
+                    />
+                  </button>
                 );
               })
             )}
-          </CommandList>
+          </div>
 
           {/* Separador y botón "Limpiar" */}
           {selectedTags.length > 0 && (
@@ -168,7 +164,7 @@ export default function TagsFilterPopover({
               </div>
             </>
           )}
-        </Command>
+        </div>
       </PopoverContent>
     </Popover>
   );
