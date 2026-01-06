@@ -25,6 +25,7 @@ import {
   File,
   Download,
   Image as ImageIcon,
+  Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -36,6 +37,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import ticketsService from '@/services/tickets.service';
+import workOrdersService from '@/services/workOrders.service';
 import TicketHistoryCard from '@/components/tickets/TicketHistoryCard';
 import RepeatedIssueAlert from '@/components/tickets/RepeatedIssueAlert';
 import TicketTags from '@/components/tickets/TicketTags';
@@ -468,6 +470,8 @@ export default function TicketDetailPage() {
   const [returnNote, setReturnNote] = useState('');
   const [closeNote, setCloseNote] = useState('');
   const [infraNote, setInfraNote] = useState('');
+  const [showCreateWODialog, setShowCreateWODialog] = useState(false);
+  const [woForm, setWoForm] = useState({ ot_type: 'repair', priority: 'medium', description: '' });
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [connectionHistory, setConnectionHistory] = useState([]);
@@ -684,12 +688,40 @@ export default function TicketDetailPage() {
     handleQuickUpdate({ assigned_to_id: assignedId });
   };
 
+  const handleCreateWorkOrder = async () => {
+    if (!woForm.description.trim()) {
+      setError('La descripción es obligatoria');
+      return;
+    }
+
+    try {
+      setIsSubmittingWO(true);
+      setError(null);
+      await workOrdersService.createWorkOrder({
+        ticket_id: ticket.id,
+        ot_type: woForm.ot_type,
+        priority: woForm.priority,
+        description: woForm.description,
+      });
+      setShowCreateWODialog(false);
+      setWoForm({ ot_type: 'repair', priority: 'medium', description: '' });
+      await loadTicket();
+    } catch (err) {
+      setError(err.message || 'Error al crear OT');
+      console.error('Error creating work order:', err);
+    } finally {
+      setIsSubmittingWO(false);
+    }
+  };
+
   const handleRequestVisit = async () => {
     try {
       setIsSubmittingWO(true);
-      await ticketsService.createWorkOrder(ticket.id, {
+      await workOrdersService.createWorkOrder({
+        ticket_id: ticket.id,
         ot_type: 'repair',
-        notes: 'Visita técnica solicitada desde soporte',
+        priority: 'medium',
+        description: 'Visita técnica solicitada desde soporte',
       });
       setShowVisitDialog(false);
       await loadTicket();
@@ -704,9 +736,11 @@ export default function TicketDetailPage() {
   const handleInfraWorkOrder = async () => {
     try {
       setIsSubmittingWO(true);
-      await ticketsService.createWorkOrder(ticket.id, {
+      await workOrdersService.createWorkOrder({
+        ticket_id: ticket.id,
         ot_type: 'infrastructure',
-        notes: infraNote || 'OT Infra generada desde soporte',
+        priority: 'medium',
+        description: infraNote || 'OT Infra generada desde soporte',
       });
       setInfraNote('');
       await loadTicket();
@@ -1002,6 +1036,17 @@ export default function TicketDetailPage() {
           <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4 space-y-3">
             <p className="text-xs text-zinc-500 uppercase tracking-wide">Acciones</p>
 
+            <Button 
+              className="w-full bg-emerald-600 hover:bg-emerald-500"
+              onClick={() => {
+                setWoForm({ ...woForm, description: ticket?.subject || '' });
+                setShowCreateWODialog(true);
+              }} 
+              disabled={isSaving || isSubmittingWO}
+            >
+              <Zap size={16} className="mr-2" /> Generar OT
+            </Button>
+
             {isInSupport && !isClosed && (
               <Button className="w-full" onClick={() => setShowVisitDialog(true)} disabled={isSaving || isSubmittingWO}>
                 <Calendar size={16} className="mr-2" /> Solicitar visita
@@ -1209,6 +1254,69 @@ export default function TicketDetailPage() {
             <Button variant="ghost" onClick={() => setShowReturnDialog(false)}>Cancelar</Button>
             <Button onClick={async () => { await performStatusChange('pending', returnNote); setShowReturnDialog(false); setReturnNote(''); }} disabled={isSaving}>
               {isSaving ? 'Actualizando...' : 'Devolver'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCreateWODialog} onOpenChange={setShowCreateWODialog}>
+        <DialogContent className="bg-zinc-900 border-zinc-800 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white">Crear Orden de Trabajo</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-zinc-300 block mb-2">Tipo de OT</label>
+              <select
+                value={woForm.ot_type}
+                onChange={(e) => setWoForm({ ...woForm, ot_type: e.target.value })}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                <option value="repair">Reparación</option>
+                <option value="install">Instalación</option>
+                <option value="pickup">Retiro</option>
+                <option value="infrastructure">Infraestructura</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-sm text-zinc-300 block mb-2">Prioridad</label>
+              <select
+                value={woForm.priority}
+                onChange={(e) => setWoForm({ ...woForm, priority: e.target.value })}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                <option value="low">Baja</option>
+                <option value="medium">Media</option>
+                <option value="high">Alta</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-sm text-zinc-300 block mb-2">Descripción</label>
+              <textarea
+                required
+                value={woForm.description}
+                onChange={(e) => setWoForm({ ...woForm, description: e.target.value })}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                rows={3}
+                placeholder="Describe la orden de trabajo..."
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowCreateWODialog(false)}
+              disabled={isSubmittingWO}
+              className="border-zinc-700 text-zinc-300"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleCreateWorkOrder}
+              disabled={isSubmittingWO || !woForm.description.trim()}
+              className="bg-emerald-600 hover:bg-emerald-500"
+            >
+              {isSubmittingWO ? 'Creando...' : 'Crear OT'}
             </Button>
           </DialogFooter>
         </DialogContent>

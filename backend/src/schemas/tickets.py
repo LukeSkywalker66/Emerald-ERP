@@ -62,7 +62,10 @@ class TimelineEventCreate(BaseModel):
 
 
 class WorkOrderCreate(BaseModel):
+    ticket_id: int = Field(..., description="ID del ticket origen")
     ot_type: WorkOrderType = Field(..., description="Tipo de orden de trabajo")
+    priority: Optional[str] = Field(None, description="Prioridad declarada")
+    description: str = Field(..., min_length=3, description="Descripción obligatoria")
     notes: Optional[str] = Field(None, description="Notas opcionales del operador")
 
 
@@ -72,6 +75,24 @@ class WorkOrderResponse(BaseModel):
     ot_type: WorkOrderType
     technician_name: Optional[str] = None
     scheduled_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WorkOrderListResponse(BaseModel):
+    """Respuesta resumida para listado de OTs."""
+    id: int
+    ticket_id: Optional[int] = None
+    ticket_title: Optional[str] = None
+    ot_type: str
+    status: str
+    client_name: Optional[str] = None
+    address: Optional[str] = None
+    technician_name: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 

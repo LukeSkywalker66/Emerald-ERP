@@ -15,9 +15,11 @@ import {
   Zap,
   Package,
   MoreVertical,
+  MapPin,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/context/AuthContext';
 import {
   Dialog,
   DialogContent,
@@ -201,6 +203,11 @@ export default function WorkOrderExecutionPage() {
   });
   const [submittingResolution, setSubmittingResolution] = useState(false);
 
+  // Edit & Pause
+  const [editMode, setEditMode] = useState(false);
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin" || user?.role === "coordinator";
+  const isInputsDisabled = workOrder?.completed_at && !editMode;
   // ---- Effects ----
   useEffect(() => {
     fetchWorkOrder();
@@ -424,7 +431,35 @@ export default function WorkOrderExecutionPage() {
           </div>
         )}
 
-        {/* ===== Work Info Card ===== */}
+        {/* Banner: Sin Técnico Asignado */}
+        {!workOrder?.technician_name && (
+          <div className="mx-4 mt-3 rounded-lg border border-amber-700/50 bg-amber-900/30 px-4 py-3 text-amber-200 text-sm">
+            Esta orden requiere coordinación (sin técnico asignado).
+          </div>
+        )}
+
+        {/* Cliente y Dirección con Mapa */}
+        {workOrder?.ticket_info?.address && (
+          <div className="p-4 rounded-lg border border-zinc-800 bg-zinc-900/50">
+            <div className="flex items-center gap-2 text-sm text-zinc-300 mb-2">
+              <MapPin size={14} className="text-emerald-400" />
+              <span className="font-medium">{workOrder.ticket_info.address}</span>
+            </div>
+            <button
+              onClick={() =>
+                window.open(
+                  `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(workOrder.ticket_info.address)}`,
+                  '_blank'
+                )
+              }
+              className="text-xs text-emerald-400 hover:text-emerald-300 underline"
+            >
+              Ver en mapa
+            </button>
+          </div>
+        )}
+
+                {/* ===== Work Info Card ===== */}
         <div className="p-4 rounded-lg border border-zinc-800 bg-zinc-900/50 space-y-3">
           {workOrder?.technician_name && (
             <div className="flex items-center gap-2">
