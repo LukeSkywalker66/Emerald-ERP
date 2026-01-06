@@ -28,23 +28,23 @@ nano .env
 
 ```bash
 # Construir imágenes Docker
-docker-compose build
+docker compose build
 
 # Levantar servicios
-docker-compose up -d
+docker compose up -d
 
 # Verificar que todo esté corriendo
-docker-compose ps
+docker compose ps
 ```
 
 ### 3. Ejecutar Migraciones
 
 ```bash
 # Aplicar esquema de BD
-docker-compose exec backend alembic upgrade head
+docker compose exec backend alembic upgrade head
 
 # Verificar
-docker-compose exec db psql -U admin -d emerald -c "\dt"
+docker compose exec db psql -U admin -d emerald -c "\dt"
 ```
 
 ### 4. Probar Login (navegador)
@@ -52,7 +52,7 @@ docker-compose exec db psql -U admin -d emerald -c "\dt"
 - URL producción: https://emerald.2finternet.ar/login-test
 - Credenciales pre-cargadas: `admin` / `Admin123` (correo: `admin@emerald.com`)
 - Botones disponibles: "Ver Mi Perfil" (usa `/api/v1/auth/me`) y "Copiar Token".
-- Ruta servida por Nginx con alias al archivo `nginx/login-test.html` montado vía `docker-compose.yml`.
+- Ruta servida por Nginx con alias al archivo `nginx/login-test.html` montado vía `docker compose.yml`.
 - Si actualizas el HTML, reinicia nginx: `docker compose restart nginx`.
 
 ---
@@ -85,7 +85,7 @@ El backend corre en modo desarrollo con auto-reload:
 
 ```bash
 # Ver logs con cambios en tiempo real
-docker-compose logs -f backend
+docker compose logs -f backend
 
 # Editar un archivo y ver cambios instantáneamente
 nano backend/src/main.py
@@ -145,11 +145,11 @@ class Producto(Base):
     descripcion = Column(String(1000))
 
 # 2. Generar migración
-docker-compose exec backend alembic revision --autogenerate \
+docker compose exec backend alembic revision --autogenerate \
   -m "agregar_tabla_productos"
 
 # 3. Revisar y aplicar
-docker-compose exec backend alembic upgrade head
+docker compose exec backend alembic upgrade head
 
 # 4. Usar en endpoint
 @app.get("/api/productos")
@@ -208,7 +208,7 @@ frontend/
 ### Hot Module Replacement (HMR)
 
 ```bash
-# Ya está configurado en docker-compose.yml:
+# Ya está configurado en docker compose.yml:
 environment:
   - CHOKIDAR_USEPOLLING=true  # Enable HMR en Docker
 
@@ -273,7 +273,7 @@ export default App;
 
 ```bash
 # Agregar paquete
-docker-compose exec frontend npm install nombre-paquete
+docker compose exec frontend npm install nombre-paquete
 
 # Usar en componente
 import { UnComponente } from 'nombre-paquete';
@@ -379,7 +379,7 @@ app.conf.beat_schedule = {
 
 @app.get("/api/debug")
 def debug_endpoint(db: Session = Depends(get_db)):
-    print(f"🛑 DEBUG: Entrando a debug")  # Aparece en docker-compose logs
+    print(f"🛑 DEBUG: Entrando a debug")  # Aparece en docker compose logs
     
     clientes = db.query(models.Cliente).all()
     print(f"🛑 DEBUG: Encontrados {len(clientes)} clientes")
@@ -387,7 +387,7 @@ def debug_endpoint(db: Session = Depends(get_db)):
     return {"count": len(clientes)}
 
 # Ver output:
-docker-compose logs -f backend | grep "🛑"
+docker compose logs -f backend | grep "🛑"
 ```
 
 ### Debugger (pdb)
@@ -405,7 +405,7 @@ def debug_with_pdb(db: Session = Depends(get_db)):
     return clientes
 
 # En la terminal:
-# docker-compose exec backend bash
+# docker compose exec backend bash
 # curl http://localhost:5000/api/debug-pdb
 # → Se abre el debugger interactivo en la terminal
 ```

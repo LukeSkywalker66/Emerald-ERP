@@ -213,7 +213,7 @@ app.add_middleware(
 El sistema usa Certbot para renovar certificados automáticamente:
 
 ```yaml
-# En docker-compose.yml:
+# En docker compose.yml:
 certbot:
   image: certbot/certbot
   command: >
@@ -296,7 +296,7 @@ SQLALCHEMY_DATABASE_URL = (
 )
 
 # Solo accesible internamente (Docker)
-# En docker-compose.yml:
+# En docker compose.yml:
 ports:
   - "127.0.0.1:5432:5432"  # ← Bind solo a localhost
 ```
@@ -364,8 +364,8 @@ backend/data/logs/
 ### Ver logs en tiempo real
 
 ```bash
-docker-compose logs -f backend
-docker-compose logs -f celery_worker
+docker compose logs -f backend
+docker compose logs -f celery_worker
 ```
 
 ---

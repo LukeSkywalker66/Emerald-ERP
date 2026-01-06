@@ -35,7 +35,7 @@ En su lugar, **un único `.env`** que cambias según el entorno donde despliegas
          └─→ En PRODUCCIÓN: Variables de producción
 
 ┌────────────────────────────┐
-│   docker-compose.yml       │ ← Lee del .env
+│   docker compose.yml       │ ← Lee del .env
 │   (igual en todos lados)   │
 └────────────────────────────┘
 ```
@@ -44,7 +44,7 @@ En su lugar, **un único `.env`** que cambias según el entorno donde despliegas
 
 ```
 ❌ NO CAMBIAN (iguales en todos lados):
-   - docker-compose.yml
+   - docker compose.yml
    - Dockerfile (backend + frontend)
    - Código Python/JavaScript
    - Migraciones de BD
@@ -72,7 +72,7 @@ Debian Linux (4GB RAM, 2 cores, 50GB disco)
 138.59.172.26
 
 # Containers activos
-docker-compose ps
+docker compose ps
 → backend, frontend, db, redis, celery_worker, nginx, beholder
 ```
 
@@ -116,17 +116,17 @@ DOMAIN=localhost
 cd /opt/emerald-erp
 
 # Levantar todo
-docker-compose up -d
+docker compose up -d
 
 # Verificar
-docker-compose ps
-docker-compose logs -f backend
+docker compose ps
+docker compose logs -f backend
 
 # Aplicar migraciones
-docker-compose exec backend alembic upgrade head
+docker compose exec backend alembic upgrade head
 
 # Ver logs con timezone local
-docker-compose logs celery_worker | grep "2025-12-30 02:" # Buscar a las 2am
+docker compose logs celery_worker | grep "2025-12-30 02:" # Buscar a las 2am
 ```
 
 ### Características en DESARROLLO
@@ -135,7 +135,7 @@ docker-compose logs celery_worker | grep "2025-12-30 02:" # Buscar a las 2am
 ✅ **Debug mode** - Puedes inspeccionar requests/responses  
 ✅ **Migración automática** - Alembic auto-genera cambios de schema  
 ✅ **Logs detallados** - Sin limpieza, todo queda registrado  
-✅ **Timezone local** - TZ=America/Argentina/Buenos_Aires en docker-compose.yml  
+✅ **Timezone local** - TZ=America/Argentina/Buenos_Aires en docker compose.yml  
 
 ### API Keys en DESARROLLO
 
@@ -170,7 +170,7 @@ curl http://localhost:8000/api/integrations \
 
 ```bash
 # Ver que está ejecutándose
-docker-compose logs -f celery_worker
+docker compose logs -f celery_worker
 
 # Schedules configuradas (con hora local):
 # - 01:00 AM → Alertas de API Keys por expirar
@@ -249,10 +249,10 @@ git pull origin develop  # Rama de desarrollo
 nano .env  # Cambiar variables a valores de preprod
 
 # 4. Levantar servicios
-docker-compose up -d
+docker compose up -d
 
 # 5. Aplicar migraciones
-docker-compose exec backend alembic upgrade head
+docker compose exec backend alembic upgrade head
 
 # 6. Generar primera API Key
 curl -X POST http://localhost:8000/admin/api-keys \
@@ -260,8 +260,8 @@ curl -X POST http://localhost:8000/admin/api-keys \
   -d '{"client_name": "preprod_ispcube", "expires_days": 90}'
 
 # 7. Validar
-docker-compose ps
-docker-compose logs -f backend
+docker compose ps
+docker compose logs -f backend
 ```
 
 ### Diferencias con DESARROLLO
@@ -354,19 +354,19 @@ git pull origin master  # ← Rama de PRODUCCIÓN (NO develop)
 nano .env
 
 # 4. Backup de BD actual
-docker-compose exec db pg_dump -U emerald_prod emerald_prod > backup_prod_$(date +%Y%m%d_%H%M%S).sql
+docker compose exec db pg_dump -U emerald_prod emerald_prod > backup_prod_$(date +%Y%m%d_%H%M%S).sql
 
 # 5. Levantar servicios
-docker-compose up -d
+docker compose up -d
 
 # 6. Aplicar migraciones
-docker-compose exec backend alembic upgrade head
+docker compose exec backend alembic upgrade head
 
 # 7. Verificar certificados SSL
 curl -I https://emerald.2finternet.ar
 
 # 8. Monitorear durante 1 hora
-docker-compose logs -f
+docker compose logs -f
 
 # 9. Alertar a admins que producción está UP
 ```
@@ -531,7 +531,7 @@ git push origin master
 
 # PRODUCCIÓN (deploy)
 git pull origin master
-docker-compose up -d
+docker compose up -d
 ```
 
 ---
@@ -540,22 +540,22 @@ docker-compose up -d
 
 ### En DESARROLLO: "Los logs están en UTC, no en hora local"
 ```bash
-# ✅ SOLUCIONADO en docker-compose.yml
+# ✅ SOLUCIONADO en docker compose.yml
 # Agregamos: TZ=America/Argentina/Buenos_Aires
 
-docker-compose restart backend celery_worker
+docker compose restart backend celery_worker
 ```
 
 ### En PREPRODUCCIÓN: "¿Cómo cambio la BD a datos reales?"
 ```bash
 # 1. Backup de la BD actual
-docker-compose exec db pg_dump -U emerald_preprod emerald_preprod > backup.sql
+docker compose exec db pg_dump -U emerald_preprod emerald_preprod > backup.sql
 
 # 2. Importar datos reales
 psql -U emerald_preprod -d emerald_preprod < datos_reales.sql
 
 # 3. Verificar
-docker-compose exec db psql -U emerald_preprod -d emerald_preprod -c "SELECT COUNT(*) FROM clientes;"
+docker compose exec db psql -U emerald_preprod -d emerald_preprod -c "SELECT COUNT(*) FROM clientes;"
 ```
 
 ### En PRODUCCIÓN: "¿Necesito cambiar el .env?"
@@ -580,7 +580,7 @@ docker-compose exec db psql -U emerald_preprod -d emerald_preprod -c "SELECT COU
 **Sí**, usando directorios diferentes para volumes de PostgreSQL:
 
 ```yaml
-# docker-compose.yml
+# docker compose.yml
 db:
   volumes:
     - postgres_data_${ENVIRONMENT}:/var/lib/postgresql/data  # Varía por .env
@@ -589,7 +589,7 @@ db:
 ### ¿Cómo migro de desarrollo a preproducción?
 ```bash
 # 1. Exportar datos de dev
-docker-compose exec db pg_dump > dev_export.sql
+docker compose exec db pg_dump > dev_export.sql
 
 # 2. En preproducción, importar
 psql -U emerald_preprod < dev_export.sql
@@ -618,7 +618,7 @@ El contenedor **fallará en startup** si faltan variables críticas. Docker te m
 - [ ] `.env` actualizado con credenciales de preprod
 - [ ] Certificados SSL configurados
 - [ ] Backup de BD anterior
-- [ ] docker-compose pull (para actualizar imágenes)
+- [ ] docker compose pull (para actualizar imágenes)
 - [ ] Migraciones aplicadas: `alembic upgrade head`
 - [ ] API Keys configuradas para preprod
 - [ ] Logs monitorizados durante 1 hora
@@ -645,7 +645,7 @@ El contenedor **fallará en startup** si faltan variables críticas. Docker te m
 **Rama (branch)** → `develop` para dev, `master` para prod  
 **API Key** → Token para acceso a endpoints, diferente por entorno  
 **Celery Schedule** → Tareas automáticas (iguales en todos lados, hora local)  
-**Timezone** → TZ=America/Argentina/Buenos_Aires (configurado en docker-compose)  
+**Timezone** → TZ=America/Argentina/Buenos_Aires (configurado en docker compose)  
 
 ---
 

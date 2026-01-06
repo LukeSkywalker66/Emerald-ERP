@@ -167,14 +167,14 @@ Todas las migraciones se encuentran en `backend/alembic/versions/`.
 # Ejemplo: agregar campo 'priority' a Subscriber
 
 # 2. Generar la migración
-docker-compose exec backend alembic revision --autogenerate \
+docker compose exec backend alembic revision --autogenerate \
   -m "agregar_priority_a_subscribers"
 
 # 3. Revisar el archivo generado
 cat backend/alembic/versions/xxxxx_agregar_priority_a_subscribers.py
 
 # 4. Aplicar la migración
-docker-compose exec backend alembic upgrade head
+docker compose exec backend alembic upgrade head
 ```
 
 ---
@@ -218,22 +218,22 @@ def get_full_connection_status(pppoe_username: str):
 ### Hacer backup de PostgreSQL
 ```bash
 # Backup completo
-docker-compose exec db pg_dump \
+docker compose exec db pg_dump \
   -U ${POSTGRES_USER} ${POSTGRES_DB} > backup.sql
 
 # Backup con compresión
-docker-compose exec db pg_dump \
+docker compose exec db pg_dump \
   -U ${POSTGRES_USER} -Fc ${POSTGRES_DB} > backup.dump
 ```
 
 ### Restaurar desde backup
 ```bash
 # Desde archivo SQL
-docker-compose exec -T db psql \
+docker compose exec -T db psql \
   -U ${POSTGRES_USER} ${POSTGRES_DB} < backup.sql
 
 # Desde archivo comprimido
-docker-compose exec -T db pg_restore \
+docker compose exec -T db pg_restore \
   -U ${POSTGRES_USER} -d ${POSTGRES_DB} backup.dump
 ```
 
@@ -278,19 +278,19 @@ def get_cliente_cached(cliente_id):
 
 ### Conexiones activas
 ```bash
-docker-compose exec db psql -U postgres -c \
+docker compose exec db psql -U postgres -c \
   "SELECT datname, count(*) FROM pg_stat_activity GROUP BY datname;"
 ```
 
 ### Tamaño de la BD
 ```bash
-docker-compose exec db psql -U postgres -c \
+docker compose exec db psql -U postgres -c \
   "SELECT pg_size_pretty(pg_database_size('emerald'));"
 ```
 
 ### Índices no utilizados
 ```bash
-docker-compose exec db psql -U postgres -d emerald -c \
+docker compose exec db psql -U postgres -d emerald -c \
   "SELECT schemaname, tablename, indexname FROM pg_indexes 
    WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
    ORDER BY tablename, indexname;"
@@ -522,7 +522,7 @@ CREATE INDEX idx_work_order_items_serial ON work_order_items(serial_number);
 
 ```bash
 # Listar todas las tablas de tickets
-docker-compose exec -T backend python -c "
+docker compose exec -T backend python -c "
 from src.database.session import engine
 from sqlalchemy import inspect
 inspector = inspect(engine)

@@ -242,7 +242,7 @@ curl -H "Authorization: Bearer $ISPCUBE_API_KEY" \
   http://192.168.1.100:8080/api/clientes
 
 # 2. Ver logs de Celery
-docker-compose logs -f celery_worker | grep ispcube
+docker compose logs -f celery_worker | grep ispcube
 ```
 
 ### Mikrotik rechaza conexión

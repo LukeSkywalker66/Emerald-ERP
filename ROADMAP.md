@@ -1,61 +1,106 @@
-# 🗺️ Roadmap de Mejoras - Emerald ERP
+# 🗺️ Roadmap - Emerald ERP
 
-## 🎯 Prioridad Alta
+## ✅ Completado (v2.0.0)
+
+### Sistema de Tickets V2 (Reescrito)
+- ✅ Arquitectura modular (routers, services, repositories)
+- ✅ Enum `pending_infra` para tickets de infraestructura
+- ✅ WorkOrderType `infrastructure`
+- ✅ Campo `availability_note` (horarios de disponibilidad)
+- ✅ Sistema de etiquetas (tags) con filtrado avanzado
+- ✅ Historial de tickets por conexión
+- ✅ Detección de problemas recurrentes (<7 días)
+- ✅ Inline editing (estado, prioridad, asignado) con iconos
+- ✅ Timeline de eventos con auditoría
+- ✅ Detalles de conexión (cliente, plan, nodo)
+- ✅ Búsqueda avanzada (ID, asunto, cliente, DNI)
+- ✅ Componentes UI coherentes (Shadcn/UI + Tailwind)
+
+### Sistema de Autenticación
+- ✅ JWT + Refresh Tokens
+- ✅ Hashing con Argon2
+- ✅ Sistema de roles y permisos
+- ✅ Auditoría de acciones (audit_logs)
+- ✅ Rate limiting por IP
+
+### Infraestructura
+- ✅ Migraciones Alembic (6 migrations aplicadas)
+- ✅ Docker Compose con servicios completos
+- ✅ Nginx reverse proxy
+- ✅ SSL con Let's Encrypt
+
+## 🎯 Prioridad Alta (Q1 2026)
 
 ### Backend/API
-- [ ] Reemplazar `Base.metadata.create_all` por migraciones Alembic en startup
-- [ ] Restringir CORS: eliminar `allow_origins=["*"]` y definir lista por entorno
-- [ ] Implementar autenticación básica (API key/token) en endpoints de tickets
-- [ ] Estandarizar validación Pydantic con enums para `priority`/`status`
-- [ ] Manejo estructurado de errores con `HTTPException` y logging consistente
-- [ ] Añadir paginación a `/tickets` y `/services_options`
+- [ ] Migrar a async/await completo (FastAPI + async_sessionmaker)
+- [ ] Implementar paginación en todos los endpoints de listado
+- [ ] Añadir filtros avanzados en tickets (fecha creación, actualización)
+- [ ] Webhooks para notificaciones (Discord, Telegram)
+- [ ] Export de tickets a PDF/Excel
+- [ ] Dashboard de métricas (tickets por estado, SLA, tiempo promedio)
 
-### Data Sync / Integraciones
-- [ ] Reemplazar "tierra quemada" por upserts incrementales con control de cambios
-- [ ] Implementar retry con backoff exponencial en clientes externos
-- [ ] Añadir timeouts explícitos y rate limiting en APIs externas
-- [ ] Proteger secretos: no loggear tokens, implementar rotación de cache
-- [ ] Persistir estado de sincronización para reintentos parciales
+### Sistema de Notificaciones
+- [ ] Notificaciones en tiempo real (WebSockets)
+- [ ] Alertas por email cuando hay problemas recurrentes
+- [ ] Recordatorios de tickets pendientes
+- [ ] Notificaciones de asignación
 
-### DevEx/Infra
-- [ ] Crear `.env.example` con documentación de variables requeridas
-- [ ] Configurar pipeline CI básico (lint + tests + build)
-- [ ] Añadir healthcheck endpoints en backend
-- [ ] Configurar `depends_on` + `healthcheck` en docker-compose
-- [ ] Implementar pre-commit hooks (black/isort/ruff para Python)
+### UI/UX
+- [ ] Dark/Light mode toggle
+- [ ] Filtros guardados (presets)
+- [ ] Drag & drop para adjuntos en tickets
+- [ ] Kanban board para tickets
+- [ ] Calendar view para OTs programadas
 
-## 🔄 Prioridad Media
+## 🔄 Prioridad Media (Q2 2026)
+
+### Funcionalidades Nuevas
+- [ ] Sistema de plantillas de tickets
+- [ ] SLA tracking automático
+- [ ] Chat interno por ticket
+- [ ] Knowledge base / FAQ
+- [ ] Mobile app (React Native)
 
 ### Backend
-- [ ] Migrar a async/await (FastAPI + `async_sessionmaker`)
-- [ ] Mover operaciones IO bloqueantes a `run_in_threadpool`
-- [ ] Añadir filtros avanzados en endpoints de listado
-- [ ] Implementar soft deletes en tablas críticas
+- [ ] Cache con Redis para queries frecuentes
+- [ ] GraphQL API (además de REST)
+- [ ] Tests automatizados (pytest + coverage >80%)
+
+### Integraciones
+- [ ] Retry con backoff exponencial en APIs externas
+- [ ] Timeouts configurables por integración
+- [ ] Webhooks desde ISPCube para sync en tiempo real
 
 ### Base de Datos
-- [ ] Formalizar Foreign Keys donde corresponda
-- [ ] Añadir índices compuestos para queries frecuentes
-- [ ] Implementar particionado en tablas de alto crecimiento
-- [ ] Reemplazar `clear_table` por transacciones ACID optimizadas
-- [ ] Considerar `TRUNCATE ... CASCADE` según volumen
+- [ ] Índices compuestos para queries frecuentes
+- [ ] Soft deletes en tablas críticas
+- [ ] Particionado en tablas de alto crecimiento
 
-### Frontend Tickets (React/Vite)
-- [ ] Migrar a TypeScript
-- [ ] Implementar React Query para caching y gestión de estado
-- [ ] Centralizar cliente HTTP con manejo de errores
-- [ ] Validar formularios y mostrar errores de red en UI
-- [ ] Separar componentes (tabla, modales, KPIs) en archivos independientes
-- [ ] Añadir protección ante datos null/undefined en modales
+## 📊 Prioridad Baja (Q3 2026)
 
-### Frontend Beholder
-- [ ] Añadir estados de loading/error con skeletons
-- [ ] Tipar `resultData` y props de componentes
-- [ ] Implementar tests de componentes críticos
-- [ ] Unificar tema/diseño con sistema de tokens
+### DevOps
+- [ ] Pipeline CI/CD completo (GitHub Actions)
+- [ ] Tests E2E con Playwright
+- [ ] Monitoring con Prometheus + Grafana
+- [ ] Logging centralizado (ELK Stack)
+- [ ] Pre-commit hooks (black, isort, ruff)
 
-## 📊 Prioridad Baja
+### Frontend
+- [ ] Migrar a TypeScript completo
+- [ ] React Query para state management
+- [ ] Storybook para componentes
+- [ ] PWA support (offline mode)
 
-### Observabilidad
+### Documentación
+- [ ] OpenAPI spec completo
+- [ ] Guía de contribución
+- [ ] Video tutoriales
+- [ ] API playground interactivo
+
+---
+
+**Última actualización:** 2026-01-06  
+**Próxima revisión:** Q1 2026
 - [ ] Implementar métricas por fuente de datos (Prometheus/Grafana)
 - [ ] Añadir distributed tracing (OpenTelemetry)
 - [ ] Configurar alertas automáticas por fallos de sync

@@ -367,13 +367,13 @@ celery_app.conf.beat_schedule = {
 
 ```bash
 # Ver tareas pendientes
-docker-compose exec celery celery -A src.celery_app inspect active
+docker compose exec celery celery -A src.celery_app inspect active
 
 # Ver tareas completadas
-docker-compose exec celery celery -A src.celery_app inspect stats
+docker compose exec celery celery -A src.celery_app inspect stats
 
 # Ver programación
-docker-compose exec celery celery -A src.celery_app inspect scheduled
+docker compose exec celery celery -A src.celery_app inspect scheduled
 ```
 
 ---
@@ -416,17 +416,17 @@ curl -X GET "http://localhost/api/clientes" \
 
 1. **¿Celery Beat está corriendo?**
 ```bash
-docker-compose logs -f celery-beat
+docker compose logs -f celery-beat
 ```
 
 2. **¿Las tareas están registradas?**
 ```bash
-docker-compose exec celery celery -A src.celery_app inspect scheduled
+docker compose exec celery celery -A src.celery_app inspect scheduled
 ```
 
 3. **¿Redis está disponible?**
 ```bash
-docker-compose exec redis redis-cli ping
+docker compose exec redis redis-cli ping
 # Debe responder: PONG
 ```
 
@@ -501,6 +501,6 @@ SMTP_FROM=no-reply@emerald.com
 
 Si tienes problemas con el sistema de API Keys:
 
-1. Revisa los logs: `docker-compose logs backend`
+1. Revisa los logs: `docker compose logs backend`
 2. Verifica la BD: `SELECT * FROM api_key_audit ORDER BY timestamp DESC LIMIT 20;`
 3. Consulta la auditoría: `GET /admin/api-keys/audit/all?limit=100`

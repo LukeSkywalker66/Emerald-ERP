@@ -25,7 +25,7 @@ lsb_release -a
 docker --version
 
 # Docker Compose (v2.0+)
-docker-compose --version
+docker compose --version
 
 # Git
 git --version
@@ -102,7 +102,7 @@ newgrp docker
 
 # Verificar
 docker --version
-docker-compose --version
+docker compose --version
 ```
 
 ### 1.4 Configurar Firewall
@@ -211,13 +211,13 @@ nslookup emerald.2finternet.ar
 
 ```bash
 # Levantar solo Nginx y Certbot
-docker-compose up -d nginx certbot
+docker compose up -d nginx certbot
 
 # Esperar a que estén listos
 sleep 5
 
 # Generar certificado (primera vez)
-docker-compose exec certbot certbot certonly \
+docker compose exec certbot certbot certonly \
   --webroot \
   -w /var/www/certbot \
   -d emerald.2finternet.ar \
@@ -227,7 +227,7 @@ docker-compose exec certbot certbot certonly \
   --email admin@tu_email.com
 
 # Verificar
-docker-compose exec certbot certbot certificates
+docker compose exec certbot certbot certificates
 ```
 
 ---
@@ -236,13 +236,13 @@ docker-compose exec certbot certbot certificates
 
 ```bash
 # Levantar PostgreSQL
-docker-compose up -d db
+docker compose up -d db
 
 # Esperar a que esté listo (healthcheck)
-docker-compose ps db
+docker compose ps db
 
 # Verificar conexión
-docker-compose exec db pg_isready -U emerald_prod
+docker compose exec db pg_isready -U emerald_prod
 ```
 
 ---
@@ -251,13 +251,13 @@ docker-compose exec db pg_isready -U emerald_prod
 
 ```bash
 # Construir imagen de backend
-docker-compose build backend
+docker compose build backend
 
 # Levantar backend
-docker-compose up -d backend
+docker compose up -d backend
 
 # Ver logs
-docker-compose logs -f backend
+docker compose logs -f backend
 
 # Esperar a que aplique migraciones (ver "Application startup complete")
 # Presionar Ctrl+C cuando esté listo
@@ -269,13 +269,13 @@ docker-compose logs -f backend
 
 ```bash
 # Construir frontend
-docker-compose build frontend
+docker compose build frontend
 
 # Levantar frontend
-docker-compose up -d frontend
+docker compose up -d frontend
 
 # Ver logs
-docker-compose logs -f frontend
+docker compose logs -f frontend
 
 # Esperar a compilación (ver "ready in X ms")
 ```
@@ -286,13 +286,13 @@ docker-compose logs -f frontend
 
 ```bash
 # Construir Beholder
-docker-compose build beholder
+docker compose build beholder
 
 # Levantar
-docker-compose up -d beholder
+docker compose up -d beholder
 
 # Ver logs
-docker-compose logs -f beholder
+docker compose logs -f beholder
 ```
 
 ---
@@ -301,14 +301,14 @@ docker-compose logs -f beholder
 
 ```bash
 # Redis
-docker-compose up -d redis
+docker compose up -d redis
 
 # Celery Worker
-docker-compose build celery_worker
-docker-compose up -d celery_worker
+docker compose build celery_worker
+docker compose up -d celery_worker
 
 # Ver logs
-docker-compose logs -f celery_worker | grep -i "ready\|error"
+docker compose logs -f celery_worker | grep -i "ready\|error"
 ```
 
 ---
@@ -331,7 +331,7 @@ curl -s https://emerald.2finternet.ar/beholder | head -20
 ### 10.2 Ver Todos los Servicios
 
 ```bash
-docker-compose ps
+docker compose ps
 
 # Esperado: Todos deben estar "Up"
 ```
@@ -361,7 +361,7 @@ mkdir -p $BACKUP_DIR
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 # Backup PostgreSQL
-docker-compose exec -T db pg_dump \
+docker compose exec -T db pg_dump \
   -U emerald_prod emerald \
   | gzip > $BACKUP_DIR/emerald_$TIMESTAMP.sql.gz
 
@@ -383,10 +383,10 @@ crontab -e
 
 ```bash
 # Ver últimos errores
-docker-compose logs --tail=50 backend | grep ERROR
+docker compose logs --tail=50 backend | grep ERROR
 
 # Monitoreo en tiempo real
-watch -n 5 'docker-compose logs --tail=20 backend'
+watch -n 5 'docker compose logs --tail=20 backend'
 ```
 
 ---
@@ -401,13 +401,13 @@ cd /opt/emerald
 git pull origin develop
 
 # Rebuild servicios modificados
-docker-compose build backend frontend celery_worker
+docker compose build backend frontend celery_worker
 
 # Restart servicios
-docker-compose up -d backend frontend celery_worker
+docker compose up -d backend frontend celery_worker
 
 # Verificar logs
-docker-compose logs -f backend
+docker compose logs -f backend
 ```
 
 ---
@@ -422,23 +422,23 @@ nslookup emerald.2finternet.ar
 # Debe apuntar a tu IP
 
 # Ver logs de Certbot
-docker-compose logs certbot
+docker compose logs certbot
 
 # Reintentar
-docker-compose exec certbot certbot certonly --force-renewal
+docker compose exec certbot certbot certonly --force-renewal
 ```
 
 ### Backend no conecta a PostgreSQL
 
 ```bash
 # Verificar que DB está healthy
-docker-compose exec db pg_isready -U emerald_prod
+docker compose exec db pg_isready -U emerald_prod
 
 # Ver logs de DB
-docker-compose logs db
+docker compose logs db
 
 # Reiniciar
-docker-compose restart db backend
+docker compose restart db backend
 ```
 
 ### API lenta
@@ -448,7 +448,7 @@ docker-compose restart db backend
 docker stats
 
 # Ver consultas SQL lentas
-docker-compose exec db psql -U emerald_prod -d emerald -c \
+docker compose exec db psql -U emerald_prod -d emerald -c \
   "SELECT query, calls, mean_time FROM pg_stat_statements ORDER BY mean_time DESC LIMIT 10;"
 ```
 
@@ -465,7 +465,7 @@ docker image prune -a
 docker volume prune
 
 # Ver tamaño de base de datos
-docker-compose exec db du -sh /var/lib/postgresql/data
+docker compose exec db du -sh /var/lib/postgresql/data
 ```
 
 ---
@@ -475,7 +475,7 @@ docker-compose exec db du -sh /var/lib/postgresql/data
 ### Multi-Worker Celery
 
 ```yaml
-# docker-compose.yml
+# docker compose.yml
 celery_worker_1:
   build: ./backend
   command: celery -A src.celery_app worker -l info --concurrency=4
@@ -525,16 +525,16 @@ def consultar_diagnostico(pppoe_user):
 ## 📞 Soporte y Mantenimiento
 
 ### Diarios
-- Revisar logs: `docker-compose logs | grep ERROR`
+- Revisar logs: `docker compose logs | grep ERROR`
 
 ### Semanales
 - Verificar espacio en disco: `df -h`
-- Ver health de servicios: `docker-compose ps`
+- Ver health de servicios: `docker compose ps`
 
 ### Mensuales
-- Revisar certificado SSL: `docker-compose exec certbot certbot certificates`
+- Revisar certificado SSL: `docker compose exec certbot certbot certificates`
 - Backup manual adicional
-- Update de dependencias: `docker-compose pull`
+- Update de dependencias: `docker compose pull`
 
 ### Anuales
 - Cambiar credenciales (PostgreSQL, API Keys)

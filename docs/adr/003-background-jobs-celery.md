@@ -25,7 +25,7 @@ La estructura elegida separa la aplicación en dos servicios Docker:
 ### Positivas
 * **Desacoplamiento:** La sincronización no afecta el rendimiento de la API.
 * **Resiliencia:** Celery permite reintentos automáticos (retries) si falla una conexión externa.
-* **Portabilidad:** Todo el stack (incluido el cronograma) está definido en `docker-compose.yml`. Funciona en cualquier servidor con Docker.
+* **Portabilidad:** Todo el stack (incluido el cronograma) está definido en `docker compose.yml`. Funciona en cualquier servidor con Docker.
 * **Observabilidad:** Se pueden monitorear las tareas en tiempo real.
 
 ### Negativas

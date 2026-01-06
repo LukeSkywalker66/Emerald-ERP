@@ -73,7 +73,7 @@ PostgreSQL
 ### Archivos Involucrados
 
 ```
-docker-compose.yml
+docker compose.yml
 ├── certbot: Renueva certificados cada 12h
 ├── nginx: Termina TLS, proxy a backend
 └── backend: Escucha solo en localhost:5000
@@ -140,7 +140,7 @@ server {
 
 ```bash
 # 1. Primera vez, obtener certificado
-docker-compose exec certbot certbot certonly \
+docker compose exec certbot certbot certonly \
   --webroot \
   -w /var/www/certbot \
   -d emerald.2finternet.ar \
@@ -207,7 +207,7 @@ certbot renew --webroot -w /var/www/certbot
 
 ```bash
 # Ver certificados activos
-docker-compose exec certbot certbot certificates
+docker compose exec certbot certbot certificates
 
 # Ver expiración
 openssl x509 -in data/certbot/conf/live/emerald.2finternet.ar/cert.pem \
@@ -218,14 +218,14 @@ openssl x509 -in data/certbot/conf/live/emerald.2finternet.ar/cert.pem \
 
 ```bash
 # Por si acaso la renovación automática falla
-docker-compose exec certbot certbot renew --force-renewal
+docker compose exec certbot certbot renew --force-renewal
 ```
 
 ### Agregar subdomain
 
 ```bash
 # Actualizar cert para nuevo dominio
-docker-compose exec certbot certbot certonly \
+docker compose exec certbot certbot certonly \
   --webroot \
   -w /var/www/certbot \
   -d beholder.emerald.2finternet.ar \
@@ -236,10 +236,10 @@ docker-compose exec certbot certbot certonly \
 
 ```bash
 # Ver logs de Certbot
-docker-compose logs certbot
+docker compose logs certbot
 
 # Ver logs de renovación
-docker-compose exec certbot certbot renew --dry-run
+docker compose exec certbot certbot renew --dry-run
 ```
 
 ---
@@ -268,7 +268,7 @@ Si venías de certificado manual/pagado:
 
 ```bash
 # 1. Detener servicios
-docker-compose down
+docker compose down
 
 # 2. Respaldar certificados viejos
 mv data/certbot data/certbot.backup
@@ -277,13 +277,13 @@ mv data/certbot data/certbot.backup
 mkdir -p data/certbot/www data/certbot/conf
 
 # 4. Generar certificado Let's Encrypt
-docker-compose run --rm certbot certonly \
+docker compose run --rm certbot certonly \
   --webroot -w /var/www/certbot \
   -d emerald.2finternet.ar \
   --agree-tos --email admin@emerald.com
 
 # 5. Reiniciar
-docker-compose up -d
+docker compose up -d
 ```
 
 ---

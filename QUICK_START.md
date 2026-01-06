@@ -215,10 +215,10 @@ docker compose logs celery_worker
 
 ### "Logs en hora UTC (no local)"
 ```bash
-# Revisar que docker-compose.yml tiene:
+# Revisar que docker compose.yml tiene:
 # TZ: America/Argentina/Buenos_Aires
 
-# Si no, edita docker-compose.yml y reinicia
+# Si no, edita docker compose.yml y reinicia
 docker compose restart backend celery_worker
 ```
 

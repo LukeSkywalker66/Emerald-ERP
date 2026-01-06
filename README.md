@@ -1,53 +1,149 @@
-💎 Emerald ERP
+# 💎 Emerald ERP
 Sistema de Gestión Integral para ISP (Internet Service Providers)
 
-📖 Descripción
+## 📖 Descripción
 
-Emerald ERP es una plataforma moderna diseñada para administrar la operación técnica y comercial de un ISP. Integra la gestión de clientes, planes de servicio, tickets de soporte técnico y órdenes de trabajo en una sola interfaz unificada.
+Emerald ERP es una plataforma moderna diseñada para administrar la operación técnica y comercial de un ISP (2F Internet). Integra la gestión de clientes, planes de servicio, tickets de soporte técnico, órdenes de trabajo y diagnóstico de red en una sola interfaz unificada.
 
-El sistema está construido con una arquitectura de microservicios contenerizados, utilizando FastAPI para un backend de alto rendimiento y React (Vite) para una experiencia de usuario fluida.
+El sistema está construido con una arquitectura modular contenerizada, utilizando FastAPI para un backend de alto rendimiento y React (Vite) para una experiencia de usuario fluida.
 
-🚀 Stack Tecnológico
+## 🚀 Stack Tecnológico
 
-- Infraestructura: Docker & Docker Compose
-- Base de Datos: PostgreSQL 15 (Persistencia)
-- Backend: Python 3.11 + FastAPI + SQLAlchemy + Alembic
-- Frontend: React 19 + Vite + Tailwind CSS
-- Task Queue: Celery + Redis
-- Reverse Proxy: Nginx + Let's Encrypt
-- ORM: SQLAlchemy + Alembic Migrations
+**Infraestructura:**
+- Docker & Docker Compose
+- Nginx + Let's Encrypt (SSL/TLS)
 
-📂 Estructura del Proyecto
+**Backend:**
+- Python 3.11 + FastAPI + Uvicorn
+- PostgreSQL 15 (Base de datos principal)
+- SQLAlchemy 2.0 (ORM con Mapped types)
+- Alembic (Migraciones)
+- Celery + Redis (Tareas asíncronas y caché)
+
+**Frontend:**
+- React 19 + Vite
+- Tailwind CSS 3 (Design System Emerald Dark Mode)
+- React Router 7
+- Lucide Icons
+
+**Integraciones:**
+- ISPCube API (CRM/Billing)
+- Mikrotik RouterOS API (PPPoE)
+- SmartOLT API (ONUs/Fibra)
+
+## 📂 Estructura del Proyecto
 
 ```
 emerald-erp/
 ├── backend/                          # API Principal (FastAPI + Celery)
 │   ├── src/
-│   │   ├── main.py                   # Entry point de la API FastAPI
-│   │   ├── celery_app.py             # Configuración de Celery
-│   │   ├── models.py                 # Esquema de Base de Datos (ORM SQLAlchemy)
-│   │   ├── database.py               # Configuración de conexión PostgreSQL
-│   │   ├── config.py                 # Variables de configuración
-│   │   ├── clients/                  # Clientes externos (ISPCube, Mikrotik, SmartOLT)
+│   │   ├── main.py                   # Entry point FastAPI
+│   │   ├── celery_app.py             # Configuración Celery
+│   │   ├── database.py               # Sesión PostgreSQL
+│   │   ├── config.py                 # Variables de entorno
+│   │   ├── models/                   # SQLAlchemy Models
+│   │   │   ├── user.py               # Sistema de usuarios y roles
+│   │   │   ├── tickets.py            # Tickets V2 (modular)
+│   │   │   ├── audit.py              # Auditoría y rate limiting
+│   │   │   └── ...
+│   │   ├── schemas/                  # Pydantic Schemas (validación)
+│   │   │   ├── tickets.py
+│   │   │   ├── user_schemas.py
+│   │   │   └── ...
+│   │   ├── routers/                  # Endpoints API
+│   │   │   ├── v1/                   # API V1 (auth)
+│   │   │   │   └── auth.py
+│   │   │   ├── tickets_v2.py         # Tickets V2 (reescrito)
+│   │   │   ├── tags.py               # Sistema de etiquetas
+│   │   │   └── search.py             # Búsqueda de conexiones
+│   │   ├── services/                 # Lógica de negocio
+│   │   │   ├── auth_service.py
+│   │   │   ├── ticket_service.py
+│   │   │   ├── audit_service.py
+│   │   │   └── diagnosis.py          # Diagnóstico de red
+│   │   ├── repositories/             # Acceso a datos
+│   │   │   └── user_repository.py
+│   │   ├── core/                     # Funcionalidades core
+│   │   │   └── security.py           # JWT, hashing (Argon2)
+│   │   ├── clients/                  # Clientes externos
 │   │   │   ├── ispcube.py
 │   │   │   ├── mikrotik.py
 │   │   │   └── smartolt.py
-│   │   ├── db/                       # Utilidades de base de datos
-│   │   │   └── postgres.py
 │   │   ├── jobs/                     # Tareas Celery
-│   │   │   ├── core.py
-│   │   │   ├── sync.py               # Sincronización de datos
-│   │   │   └── synchronizers/        # Lógica de sincronización por fuente
-│   │   │       ├── ispcube_sync.py
-│   │   │       ├── mikrotik_sync.py
-│   │   │       └── smartolt_sync.py
-│   │   ├── services/                 # Servicios de negocio
-│   │   │   └── diagnosis.py
-│   │   └── utils/                    # Utilidades
-│   │       └── safe_call.py
-│   ├── alembic/                      # Migraciones de base de datos
+│   │   │   └── sync.py               # Sincronización periódica
+│   │   └── utils/
+│   ├── alembic/                      # Migraciones
 │   │   └── versions/                 # Historial de migraciones
-│   ├── Dockerfile                    # Definición del contenedor Python
+│   ├── Dockerfile
+│   └── requirements.txt
+│
+├── frontend/                         # Frontend Principal (React)
+│   ├── src/
+│   │   ├── pages/                    # Vistas principales
+│   │   │   ├── LoginPage.jsx
+│   │   │   ├── TicketsPage.jsx       # Lista de tickets
+│   │   │   ├── TicketDetailPage.jsx  # Detalle de ticket (reescrito)
+│   │   │   └── ...
+│   │   ├── components/               # Componentes reutilizables
+│   │   │   ├── ui/                   # Shadcn/UI components
+│   │   │   │   ├── button.jsx
+│   │   │   │   ├── dialog.jsx
+│   │   │   │   ├── card.jsx
+│   │   │   │   ├── command.jsx       # Nuevo
+│   │   │   │   └── ...
+│   │   │   └── tickets/              # Componentes específicos
+│   │   │       ├── TicketHistoryCard.jsx
+│   │   │       ├── RepeatedIssueAlert.jsx
+│   │   │       └── TagsFilterPopover.jsx
+│   │   ├── services/                 # API clients
+│   │   │   └── tickets.service.js
+│   │   ├── lib/
+│   │   │   └── utils.js              # cn() helper
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   ├── Dockerfile
+│   ├── package.json
+│   └── tailwind.config.js
+│
+├── beholder_frontend/                # Frontend de Diagnóstico (React)
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── SearchBox.tsx
+│   │   │   ├── OutputBox.tsx
+│   │   │   └── CopyButton.tsx
+│   │   ├── App.tsx
+│   │   └── main.tsx
+│   ├── Dockerfile
+│   └── package.json
+│
+├── nginx/                            # Reverse Proxy
+│   └── default.conf                  # Configuración de rutas
+│
+├── data/                             # Volúmenes persistentes
+│   └── certbot/                      # Certificados SSL
+│
+├── docs/                             # Documentación técnica
+│   ├── API_REFERENCE.md              # Referencia de API
+│   ├── AUTH_SYSTEM.md                # Sistema de autenticación
+│   ├── ARQUITECTURA_TICKETS_V2.md    # Arquitectura del módulo tickets
+│   ├── BASE_DATOS.md                 # Esquema de base de datos
+│   ├── DEPLOYMENT.md                 # Guía de deployment
+│   ├── DESARROLLO_LOCAL.md           # Desarrollo local
+│   ├── SEGURIDAD.md                  # Políticas de seguridad
+│   ├── INTEGRACIONES.md              # APIs externas
+│   ├── MANUAL_SYNC.md                # Sincronización manual
+│   └── adr/                          # Architecture Decision Records
+│       ├── 001-implementacion-ssl.md
+│       ├── 003-background-jobs-celery.md
+│       └── 004-ticketdetailpage-operador-ui.md
+│
+├── docker-compose.yml                # Orquestación de servicios
+├── init-letsencrypt.sh               # Script SSL
+├── CHECKPOINT_2026-01-05.md          # Último checkpoint de sesión
+├── ARCHITECTURE_DECISIONS.md         # Decisiones arquitectónicas
+├── ROADMAP.md                        # Roadmap del proyecto
+└── README.md                         # Este archivo
+```
 │   ├── requirements.txt              # Dependencias Python
 │   └── config/                       # Configuración local
 │
@@ -88,19 +184,18 @@ emerald-erp/
 ├── preparar_contexto.py              # Script de preparación de contexto
 ├── README.md                         # Este archivo
 ├── ROADMAP.md                        # Plan futuro
-└── TODO_EL_PROYECTO.txt              # Tareas pendientes
+└── README.md                         # Este archivo
 ```
 
+## ⚡ Guía de Inicio Rápido (Local)
 
-⚡ Guía de Inicio Rápido (Local)
-
-## 1. Requisitos
+### 1. Requisitos
 
 - Docker y Docker Compose instalados
 - Git
-- Archivo `.env` con variables de entorno (ver `.env.example`)
+- Archivo `.env` con variables de entorno
 
-## 2. Instalación
+### 2. Instalación
 
 ```bash
 # 1. Clonar el repositorio
@@ -109,79 +204,72 @@ cd emerald-erp
 
 # 2. Copiar el archivo de configuración
 cp .env.example .env
-# Editar .env con tus credenciales si es necesario
+# Editar .env con tus credenciales
 
 # 3. Levantar la infraestructura
-docker-compose up --build -d
+docker compose up --build -d
 
 # 4. Verificar que todos los servicios estén corriendo
-docker-compose ps
+docker compose ps
 ```
 
-## 3. Inicialización de Datos
+### 3. Inicialización de Base de Datos
 
 ```bash
-# Ejecutar migraciones y semillas
-docker-compose exec backend alembic upgrade head
+# Ejecutar migraciones
+docker compose exec backend alembic upgrade head
 ```
 
----
+### 4. Acceso a la Aplicación
 
-## 🌍 Entornos: Desarrollo, Preproducción y Producción
+| Servicio | URL | Descripción |
+|----------|-----|-------------|
+| **Frontend Principal** | http://localhost:80 | Gestión de tickets y operaciones |
+| **Beholder** | http://localhost:80/beholder | Diagnóstico de red |
+| **API Docs** | http://localhost:8500/docs | Documentación interactiva FastAPI |
+| **Backend API** | http://localhost:8500/api | Endpoints REST |
 
-Emerald ERP corre en **3 entornos diferentes** con configuraciones distintas:
+### 5. Servicios Docker
 
-| Entorno | Estado | Documentación |
-|---------|--------|--------------|
-| **DESARROLLO** (Tu servidor local 138.59.172.26) | ✅ Activo | [ENTORNOS.md](./docs/ENTORNOS.md) |
-| **PREPRODUCCIÓN** (Futuro, server 8GB) | 🔄 Planeado | [ENTORNOS.md](./docs/ENTORNOS.md) |
-| **PRODUCCIÓN** (Futuro, servidor en vivo) | ⏳ Futuro | [ENTORNOS.md](./docs/ENTORNOS.md) |
+| Servicio | Imagen | Puerto | Propósito |
+|----------|--------|--------|-----------|
+| `db` | postgres:15-alpine | 5432 | Base de datos PostgreSQL |
+| `backend` | emerald-erp-backend | 8500 | API REST FastAPI |
+| `frontend` | emerald-erp-frontend | 5173 | Interfaz React principal |
+| `beholder` | emerald-erp-beholder | 5173 | Dashboard diagnóstico |
+| `nginx` | nginx:alpine | 80, 443 | Reverse proxy |
+| `certbot` | certbot/certbot | - | Certificados SSL |
+| `redis` | redis:alpine | 6379 | Cache y message broker |
+| `celery_worker` | emerald-erp-backend | - | Tareas asíncronas |
 
-**Lee [ENTORNOS.md](./docs/ENTORNOS.md)** para entender:
-- Cómo funcionan los diferentes `.env` por entorno
-- Cómo cambiar variables de configuración
-- API Keys y su ciclo de vida por entorno
-- Flujo de cambios: dev → preprod → prod
-- Timezones y logs (ahora sincronizados con hora local)
+### 6. Comandos Útiles
 
----
-
-| Servicio | URL | Credenciales |
-|----------|-----|--------------|
-| **Frontend** | http://localhost:80 | N/A |
-| **Beholder (Monitor)** | http://localhost:80/beholder | N/A |
-| **API Backend** | http://localhost:80/api | N/A |
-| **Documentación API** | http://localhost:80/api/docs | N/A |
-| **Redis** | localhost:6379 (interno) | N/A |
-
-## 5. Servicios en Docker Compose
-
-| Servicio | Imagen | Propósito |
-|----------|--------|----------|
-| `db` | postgres:15-alpine | Base de datos PostgreSQL |
-| `backend` | Custom (FastAPI) | API REST principal |
-| `frontend` | Custom (React/Vite) | Interfaz principal |
-| `beholder` | Custom (React/Vite) | Dashboard de monitoreo |
-| `nginx` | nginx:alpine | Reverse proxy y balanceo |
-| `certbot` | certbot/certbot | Renovación automática SSL |
-| `redis` | redis:alpine | Message broker para Celery |
-| `celery_worker` | Custom (Python) | Worker para tareas asincrónicas |
-
-## 6. Comandos Útiles
-
-### Gestión de servicios
-
+**Gestión de servicios:**
 ```bash
-# Ver estado de todos los servicios
-docker-compose ps
+# Ver estado
+docker compose ps
 
-# Ver logs en tiempo real
-docker-compose logs -f backend        # Logs del backend
-docker-compose logs -f celery_worker  # Logs de tareas asincrónicas
-docker-compose logs -f nginx          # Logs del reverse proxy
+# Logs en tiempo real
+docker compose logs -f backend
+docker compose logs -f celery_worker
+docker compose logs -f frontend
 
-# Reiniciar un servicio específico
-docker-compose restart backend
+# Reiniciar servicios
+docker compose restart backend
+docker compose restart frontend
+```
+
+**Base de datos:**
+```bash
+# Acceso a PostgreSQL
+docker compose exec db psql -U emerald_owner -d emerald_stock
+
+# Backup
+docker compose exec db pg_dump -U emerald_owner emerald_stock > backup.sql
+
+# Migraciones
+docker compose exec backend alembic upgrade head
+docker compose exec backend alembic revision --autogenerate -m "descripcion"
 ```
 
 ### Base de datos
@@ -189,84 +277,163 @@ docker-compose restart backend
 ```bash
 # Crear una nueva migración tras cambios en models.py
 docker-compose exec backend alembic revision --autogenerate -m "descripcion_cambio"
+## 📚 Documentación
 
-# Aplicar migraciones
-docker-compose exec backend alembic upgrade head
+- **[Desarrollo Local](docs/DESARROLLO_LOCAL.md)** - Guía completa de desarrollo
+- **[Deployment](docs/DEPLOYMENT.md)** - Despliegue en producción
+- **[API Reference](docs/API_REFERENCE.md)** - Endpoints y contratos
+- **[Base de Datos](docs/BASE_DATOS.md)** - Esquema y tablas
+- **[Sistema de Autenticación](docs/AUTH_SYSTEM.md)** - JWT, roles y permisos
+- **[Arquitectura Tickets V2](docs/ARQUITECTURA_TICKETS_V2.md)** - Módulo de tickets
+- **[Seguridad](docs/SEGURIDAD.md)** - Políticas y mejores prácticas
+- **[Integraciones](docs/INTEGRACIONES.md)** - ISPCube, Mikrotik, SmartOLT
+- **[Manual de Sincronización](docs/MANUAL_SYNC.md)** - Sincronización de datos
 
-# Ver historial de migraciones
-docker-compose exec backend alembic history
+## 🎯 Funcionalidades Principales
+
+### Sistema de Tickets V2 (Reescrito)
+- ✅ CRUD completo de tickets
+- ✅ Estados: open, in_progress, pending, pending_infra, resolved, closed
+- ✅ Prioridades: low, medium, high, critical
+- ✅ Sistema de etiquetas (tags) con filtrado
+- ✅ Órdenes de trabajo (WorkOrders): repair, install, pickup, infrastructure
+- ✅ Timeline de eventos con auditoría completa
+- ✅ Historial de tickets por conexión
+- ✅ Detección de problemas recurrentes (<7 días)
+- ✅ Campo availability_note (horarios de disponibilidad)
+- ✅ Inline editing (estado, prioridad, asignado)
+- ✅ Búsqueda por ID, asunto, cliente, DNI
+- ✅ Detalles de conexión (cliente, plan, nodo, PPPoE)
+
+### Sistema de Autenticación
+- ✅ Login con JWT + Refresh Tokens
+- ✅ Hashing de contraseñas con Argon2
+- ✅ Sistema de roles y permisos
+- ✅ Auditoría de acciones (audit_logs)
+- ✅ Rate limiting por IP
+
+### Diagnóstico de Red (Beholder)
+- ✅ Búsqueda de clientes por username/IP/MAC
+- ✅ Diagnóstico automático de conectividad
+- ✅ Integración con Mikrotik, SmartOLT, ISPCube
+- ✅ Historial de diagnósticos
+
+### Integraciones
+- ✅ ISPCube API (clientes, planes, facturación)
+- ✅ Mikrotik RouterOS API (sesiones PPPoE)
+- ✅ SmartOLT API (ONUs, potencia óptica)
+- ✅ Sincronización periódica con Celery
+
+## 🏗️ Arquitectura
+
+### Backend (FastAPI)
+```
+┌─────────────────────────────────────┐
+│         FastAPI Application         │
+│  ┌─────────────────────────────┐   │
+│  │   Routers (Endpoints)       │   │
+│  │  - /api/v1/auth             │   │
+│  │  - /api/v2/tickets          │   │
+│  │  - /api/v2/tags             │   │
+│  │  - /api/search              │   │
+│  └─────────────────────────────┘   │
+│  ┌─────────────────────────────┐   │
+│  │   Services (Business Logic) │   │
+│  │  - AuthService              │   │
+│  │  - TicketService            │   │
+│  │  - AuditService             │   │
+│  └─────────────────────────────┘   │
+│  ┌─────────────────────────────┐   │
+│  │   Repositories (Data)       │   │
+│  │  - UserRepository           │   │
+│  │  - TicketRepository         │   │
+│  └─────────────────────────────┘   │
+│  ┌─────────────────────────────┐   │
+│  │   Models (SQLAlchemy ORM)   │   │
+│  │  - User, Role, AuditLog     │   │
+│  │  - Ticket, WorkOrder        │   │
+│  │  - Tag, Connection          │   │
+│  └─────────────────────────────┘   │
+└─────────────────────────────────────┘
+           ↓
+    PostgreSQL 15
 ```
 
-### Desarrollo
-
-```bash
-# Ejecutar comandos en el backend
-docker-compose exec backend python -c "import src.models"
-
-# Acceder a la shell de PostgreSQL
-docker-compose exec db psql -U ${POSTGRES_USER} -d ${POSTGRES_DB}
+### Frontend (React)
+```
+┌─────────────────────────────────────┐
+│         React Application           │
+│  ┌─────────────────────────────┐   │
+│  │   Pages (Views)             │   │
+│  │  - LoginPage                │   │
+│  │  - TicketsPage              │   │
+│  │  - TicketDetailPage         │   │
+│  └─────────────────────────────┘   │
+│  ┌─────────────────────────────┐   │
+│  │   Components                │   │
+│  │  - UI (Shadcn)              │   │
+│  │  - Tickets                  │   │
+│  └─────────────────────────────┘   │
+│  ┌─────────────────────────────┐   │
+│  │   Services (API Clients)    │   │
+│  │  - tickets.service.js       │   │
+│  └─────────────────────────────┘   │
+└─────────────────────────────────────┘
 ```
 
-### Limpieza y reset
+## ⚙️ Variables de Entorno
 
-```bash
-# Detener todos los servicios
-docker-compose down
-
-# Eliminar volúmenes (⚠️ Borra BD)
-docker-compose down -v
-
-# Reconstruir y levantar desde cero
-docker-compose up --build -d
-```
-
----
-
-## 7. Variables de Entorno
-
-El proyecto utiliza un archivo `.env` para configurar los servicios. Variables principales:
+Archivo `.env` principal:
 
 ```bash
 # PostgreSQL
-POSTGRES_USER=admin
-POSTGRES_PASSWORD=adminpassword
-POSTGRES_DB=emerald
+POSTGRES_USER=emerald_owner
+POSTGRES_PASSWORD=<tu-password>
+POSTGRES_DB=emerald_stock
 
-# Frontend
-VITE_API_URL=/api           # URL base para la API desde el frontend
-CHOKIDAR_USEPOLLING=true    # Polling para Hot Module Reload en Docker
-
-# Beholder (Monitor)
-BEHOLDER_API_URL=/api       # URL de API para Beholder
-BEHOLDER_API_KEY=optional   # Clave API si es requerida
+# Backend
+SECRET_KEY=<jwt-secret-key>
+DATABASE_URL=postgresql://emerald_owner:<password>@db:5432/emerald_stock
 
 # Celery + Redis
-# Se configura automáticamente en docker-compose.yml
 CELERY_BROKER_URL=redis://redis:6379/0
 CELERY_RESULT_BACKEND=redis://redis:6379/0
+
+# Integraciones
+ISPCUBE_API_URL=https://ispcube.example.com
+ISPCUBE_API_KEY=<api-key>
+MIKROTIK_HOST=192.168.1.1
+MIKROTIK_USERNAME=admin
+MIKROTIK_PASSWORD=<password>
+SMARTOLT_API_URL=http://smartolt.example.com
+SMARTOLT_API_KEY=<api-key>
 ```
+
+## 🤝 Contribución
+
+1. Fork el repositorio
+2. Crear una rama feature (`git checkout -b feature/nueva-funcionalidad`)
+3. Commit de cambios (`git commit -m 'feat: agregar nueva funcionalidad'`)
+4. Push a la rama (`git push origin feature/nueva-funcionalidad`)
+5. Abrir Pull Request
+
+## 📄 Licencia
+
+Este proyecto es privado y propietario de 2F Internet.
+
+## 👥 Equipo
+
+Desarrollado por el equipo técnico de 2F Internet.
+
+## 📞 Soporte
+
+Para consultas técnicas o reporte de bugs, contactar al equipo de desarrollo.
 
 ---
 
-## 8. Arquitectura
-
-### Flujo de Datos
-
-```
-Client (Navegador)
-    ↓
-Nginx (Reverse Proxy - Puerto 80/443)
-    ├─→ /api → Backend FastAPI (5000)
-    ├─→ / → Frontend React (3000)
-    └─→ /beholder → Beholder UI (3001)
-
-Backend API
-    ├─→ PostgreSQL (DB)
-    ├─→ Redis (Task Queue)
-    └─→ External APIs (ISPCube, Mikrotik, SmartOLT)
-
-Celery Workers
-    ├─→ Sincronización de datos (sync.py)
+**Última actualización:** 2026-01-06  
+**Versión:** 2.0.0 (Tickets V2 + Tags + Historial)  
+**Estado:** ✅ Producción
     ├─→ Procesamiento de tareas pesadas
     └─→ Redis (Message Broker)
 ```

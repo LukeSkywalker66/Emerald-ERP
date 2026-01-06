@@ -38,15 +38,21 @@
 
 | Archivo | Descripción | Última actualización |
 |---------|-------------|---------------------|
-| [README.md](../README.md) | Overview, stack, instrucciones básicas | 29/12/2025 |
+| [README.md](../README.md) | Overview, stack, instrucciones básicas | 06/01/2026 |
+| [ROADMAP.md](../ROADMAP.md) | Hoja de ruta y funcionalidades completadas | 06/01/2026 |
+| [QUICK_START.md](../QUICK_START.md) | Comandos rápidos y API Keys | 06/01/2026 |
 | [API_REFERENCE.md](API_REFERENCE.md) | Documentación de todos los endpoints | 30/12/2025 |
-| [MANUAL_SYNC.md](MANUAL_SYNC.md) | Sincronización y background jobs | 15/12/2025 |
-| [INTEGRACIONES.md](INTEGRACIONES.md) | APIs externas detalladas | 29/12/2025 |
-| [BASE_DATOS.md](BASE_DATOS.md) | Diagrama ERD, índices, migraciones | 29/12/2025 |
-| [SEGURIDAD.md](SEGURIDAD.md) | Auth, HTTPS, gestión de secretos | 29/12/2025 |
-| [DESARROLLO_LOCAL.md](DESARROLLO_LOCAL.md) | Setup, endpoints, debugging | 29/12/2025 |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Deploy a servidor de producción | 30/12/2025 |
+| [ARQUITECTURA_TICKETS_V2.md](ARQUITECTURA_TICKETS_V2.md) | Arquitectura del sistema de tickets | 05/01/2026 |
+| [AUTH_SYSTEM.md](AUTH_SYSTEM.md) | Sistema de autenticación JWT | 30/12/2025 |
+| [BASE_DATOS.md](BASE_DATOS.md) | Diagrama ERD, índices, migraciones | 06/01/2026 |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Deploy a servidor de producción | 06/01/2026 |
+| [DESARROLLO_LOCAL.md](DESARROLLO_LOCAL.md) | Setup, endpoints, debugging | 06/01/2026 |
+| [INTEGRACIONES.md](INTEGRACIONES.md) | APIs externas detalladas | 06/01/2026 |
+| [MANUAL_SYNC.md](MANUAL_SYNC.md) | Sincronización y background jobs | 06/01/2026 |
+| [SEGURIDAD.md](SEGURIDAD.md) | Auth, HTTPS, gestión de secretos | 06/01/2026 |
 | [ADR-001](adr/001-implementacion-ssl.md.md) | Decisión: SSL/TLS con Let's Encrypt | 30/12/2025 |
+| [ADR-003](adr/003-background-jobs-celery.md) | Decisión: Celery para jobs asíncronos | 30/12/2025 |
+| [ADR-004](adr/004-ticketdetailpage-operador-ui.md) | Decisión: UI del detalle de tickets | 05/01/2026 |
 
 ### ⏳ Por Hacer (Roadmap de Documentación)
 
@@ -72,7 +78,7 @@
 ### 📝 "Acabo de clonar el repo, ¿qué hago?"
 1. Lee [README.md](../README.md) - Sección "Guía de Inicio Rápido"
 2. Sigue [Desarrollo Local](DESARROLLO_LOCAL.md) - Sección "Setup Inicial"
-3. Verifica que `docker-compose ps` muestre todos los servicios verdes
+3. Verifica que `docker compose ps` muestre todos los servicios verdes
 
 ### 🔐 "Necesito probar el login rápido"
 1. Abre https://emerald.2finternet.ar/login-test
@@ -96,7 +102,7 @@
 
 ### 🐛 "Algo no funciona, ¿cómo debuggeo?"
 1. Revisa [DESARROLLO_LOCAL.md](DESARROLLO_LOCAL.md) - Sección "Debugging"
-2. Consulta logs: `docker-compose logs -f backend`
+2. Consulta logs: `docker compose logs -f backend`
 3. Si es error conocido, revisa [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) *(en progreso)*
 
 ### 🔒 "Necesito agregar autenticación"
@@ -107,7 +113,7 @@
 ### 📊 "¿Cómo monitoreo la salud del sistema?"
 1. Revisa [MONITORING.md](./MONITORING.md) *(en progreso)*
 2. Comandos útiles en [README.md](../README.md) - "Comandos Útiles"
-3. Ver logs: `docker-compose logs -f`
+3. Ver logs: `docker compose logs -f`
 
 ---
 
