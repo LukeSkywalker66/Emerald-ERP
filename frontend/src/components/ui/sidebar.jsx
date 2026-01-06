@@ -12,7 +12,7 @@ export function Sidebar({ className, children, ...props }) {
     <SidebarContext.Provider value={{}}>
       <aside
         className={cn(
-          'flex h-screen w-64 flex-col bg-zinc-950 text-zinc-50',
+          'flex h-screen flex-col bg-zinc-950 text-zinc-50',
           className
         )}
         {...props}
