@@ -348,7 +348,8 @@ export default function WorkOrdersPage() {
             >
               <Zap size={16} />
             </button>
-            </div>
+          </div>
+          <div className="flex items-center gap-2">
             <Button
               variant={showUnassigned ? "default" : "outline"}
               size="sm"
@@ -358,6 +359,7 @@ export default function WorkOrdersPage() {
               Sin asignar
             </Button>
             <div className="text-xs text-zinc-400">{items.length} órdenes</div>
+          </div>
       </div>
 
       {effectiveView === 'table' ? (
@@ -371,6 +373,7 @@ export default function WorkOrdersPage() {
           Haz clic en una orden para ver detalle y ejecutarla.
         </div>
       )}
+    </div>
     </div>
   );
 }
