@@ -113,6 +113,14 @@ class WorkOrderType(StrEnum):
     infrastructure = "infrastructure"  # Cuadrilla de infraestructura
 
 
+class WorkOrderResolutionType(StrEnum):
+    """Tipos de resolución de una OT (resultado final)."""
+    success = "success"  # Completado exitosamente
+    failed = "failed"  # No se pudo realizar
+    rescheduled = "rescheduled"  # Reprogramado para otra fecha
+    partial = "partial"  # Completado parcialmente
+
+
 # ===========================
 # MODELO: Tag (Etiqueta)
 # ===========================
@@ -476,17 +484,49 @@ class WorkOrder(Base, TimestampMixin):
         index=True,
         comment="Fecha/hora programada para la visita"
     )
+    started_at: Mapped[Optional[DateTime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Fecha/hora en que el técnico inició el trabajo en sitio"
+    )
     completed_at: Mapped[Optional[DateTime]] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
-        comment="Fecha/hora de finalización"
+        comment="Fecha/hora de finalización real del trabajo"
     )
 
-    # Notas técnicas
+    # Resolución
+    resolution_type: Mapped[Optional[WorkOrderResolutionType]] = mapped_column(
+        Enum(WorkOrderResolutionType, name="work_order_resolution_type_enum", native_enum=False),
+        nullable=True,
+        comment="Tipo de resolución: success, failed, rescheduled, partial"
+    )
+    resolution_notes: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Notas del técnico sobre la resolución final"
+    )
+
+    # Datos flexibles del diagnóstico (JSONB)
+    custom_data: Mapped[Optional[dict]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="""Datos flexibles del técnico (JSONB): 
+        - optical_signal_dbm: float (nivel de luz)
+        - speedtest_download_mbps: float
+        - speedtest_upload_mbps: float
+        - mac_address_recovered: str (para bajas)
+        - onu_serial_installed: str (para instalaciones)
+        - beholder_check_result: dict (diagnóstico rápido)
+        - photos: list[str] (URLs de fotos)
+        """
+    )
+
+    # Notas técnicas (deprecated, usar resolution_notes)
     notes: Mapped[Optional[str]] = mapped_column(
         Text,
         nullable=True,
-        comment="Notas del técnico sobre el trabajo realizado"
+        comment="Notas del técnico sobre el trabajo realizado (deprecated, usar resolution_notes)"
     )
 
     # Relationships

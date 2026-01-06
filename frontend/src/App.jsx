@@ -6,6 +6,12 @@ import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import TicketsPage from './pages/TicketsPage';
 import TicketDetailPage from './pages/TicketDetailPage';
+import WorkOrderExecutionPage from './pages/WorkOrderExecutionPage';
+import CoordinationPage from './pages/CoordinationPage';
+import WorkOrdersPage from './pages/WorkOrdersPage';
+import ConnectionsPage from './pages/ConnectionsPage';
+import NodesPage from './pages/NodesPage';
+import CustomersPage from './pages/CustomersPage';
 import ClientesPage from './pages/ClientesPage';
 import InventarioPage from './pages/InventarioPage';
 import SettingsPage from './pages/SettingsPage';
@@ -33,6 +39,12 @@ const AppRoutes = () => (
         <Route index element={<DashboardPage />} />
         <Route path="tickets" element={<TicketsPage />} />
         <Route path="tickets/:id" element={<TicketDetailPage />} />
+        <Route path="work-orders/:id/execute" element={<WorkOrderExecutionPage />} />
+        <Route path="coordination" element={<CoordinationPage />} />
+        <Route path="work-orders" element={<WorkOrdersPage />} />
+        <Route path="connections" element={<ConnectionsPage />} />
+        <Route path="nodes" element={<NodesPage />} />
+        <Route path="customers" element={<CustomersPage />} />
         <Route path="clientes" element={<ClientesPage />} />
         <Route path="inventario" element={<InventarioPage />} />
         <Route path="settings" element={<SettingsPage />} />

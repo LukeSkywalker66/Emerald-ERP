@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.models import TicketPriority, TicketStatus, WorkOrderType
-from src.models.tickets import TicketTimelineEventType, WorkOrderStatus
+from src.models.tickets import TicketTimelineEventType, WorkOrderStatus, WorkOrderResolutionType
 
 
 # ===========================
@@ -73,6 +73,61 @@ class WorkOrderResponse(BaseModel):
     technician_name: Optional[str] = None
     scheduled_at: Optional[datetime] = None
 
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WorkOrderUpdate(BaseModel):
+    """Schema para actualización de WorkOrder (usado por técnicos)."""
+    status: Optional[WorkOrderStatus] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    resolution_type: Optional[WorkOrderResolutionType] = None
+    resolution_notes: Optional[str] = None
+    custom_data: Optional[Dict[str, Any]] = None
+
+
+class WorkOrderItemCreate(BaseModel):
+    """Schema para crear un item de material consumido."""
+    product_id: int = Field(..., description="ID del producto en inventario")
+    quantity: float = Field(..., gt=0, description="Cantidad consumida")
+    serial_number: Optional[str] = Field(None, description="Serial si es trazable")
+    notes: Optional[str] = None
+
+
+class WorkOrderItemResponse(BaseModel):
+    """Schema de respuesta para items de material."""
+    id: int
+    product_id: int
+    quantity: float
+    serial_number: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WorkOrderDetailResponse(BaseModel):
+    """Schema detallado de WorkOrder (incluye items y ticket info)."""
+    id: int
+    ticket_id: int
+    ot_type: WorkOrderType
+    status: WorkOrderStatus
+    technician_id: Optional[int] = None
+    technician_name: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    resolution_type: Optional[WorkOrderResolutionType] = None
+    resolution_notes: Optional[str] = None
+    custom_data: Optional[Dict[str, Any]] = None
+    notes: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    
+    # Nested data
+    items: List[WorkOrderItemResponse] = Field(default_factory=list)
+    ticket_info: Optional[Dict[str, Any]] = None  # Subject, connection_id, etc.
+    
     model_config = ConfigDict(from_attributes=True)
 
 

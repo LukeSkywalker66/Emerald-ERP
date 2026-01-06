@@ -21,7 +21,7 @@ from src import models
 from src import config
 from src.services.api_key_service import APIKeyService
 from src.routers.v1 import auth  # Removed old tickets router import
-from src.routers import tickets_v2, search, tags
+from src.routers import tickets_v2, search, tags, work_orders
 
 # 👇 IMPORTAMOS EL NUEVO SERVICIO (Tu lógica adaptada)
 from src.services import diagnosis as diagnosis_service 
@@ -74,6 +74,11 @@ app.include_router(
     tickets_v2.router,
     prefix="/api/v2/tickets",
     tags=["Tickets V2"]
+)
+app.include_router(
+    work_orders.router,
+    prefix="/api",
+    tags=["Work Orders"]
 )
 app.include_router(
     tags.router,

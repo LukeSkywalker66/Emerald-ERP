@@ -20,6 +20,7 @@ from src.models import (
     TicketPriority,
     TicketStatus,
     TicketAttachment,
+    Tag,
 )
 from src.schemas.tickets import (
     TicketCreate,
@@ -132,126 +133,84 @@ def list_tickets(
     status: Optional[TicketStatus] = Query(None),
     priority: Optional[TicketPriority] = Query(None),
     search: Optional[str] = Query(None, description="Buscar por nombre de cliente, DNI o asunto"),
-    order_by: str = Query("created_at", description="Campo para ordenar: id, status, priority, created_at, client_name"),
+    order_by: str = Query("created_at", description="Campo para ordenar: id, status, priority, created_at"),
     order_dir: str = Query("desc", description="Dirección de ordenamiento: asc o desc"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     tags: Optional[List[int]] = Query(None, description="IDs de etiquetas (OR)"),
     db: Session = Depends(get_db),
 ):
-    # Mapeo de campos para ordenamiento seguro con lógica semántica
-    allowed_order_fields = {
-        "id": "t.id",
-        "status": """CASE t.status 
-            WHEN 'open' THEN 1
-            WHEN 'in_progress' THEN 2
-            WHEN 'pending' THEN 3
-            WHEN 'pending_infra' THEN 4
-            WHEN 'resolved' THEN 5
-            WHEN 'closed' THEN 6
-        END""",
-        "priority": """CASE t.priority 
-            WHEN 'low' THEN 1
-            WHEN 'medium' THEN 2
-            WHEN 'high' THEN 3
-            WHEN 'critical' THEN 4
-        END""",
-        "created_at": "t.created_at",
-        "updated_at": "t.updated_at",
-        "client_name": "cl.name",
-    }
+    """Lista tickets con filtros optimizados."""
     
-    # Validar campo de ordenamiento
-    order_field = allowed_order_fields.get(order_by, "t.created_at")
-    order_direction = "ASC" if order_dir.lower() == "asc" else "DESC"
+    # Construir query principal con ORM
+    query = db.query(Ticket).options(
+        selectinload(Ticket.tags),
+        selectinload(Ticket.creator),
+        selectinload(Ticket.assigned_to),
+    )
     
-    # Query con JOIN para obtener datos del cliente
-    query_parts = []
-    params: dict = {"limit": limit, "offset": offset}
-    
-    # Base query
-    base_query = """
-        SELECT 
-            t.id, t.subject, t.status, t.priority, t.connection_id, 
-            t.availability_note, t.created_at, t.updated_at, t.creator_id, t.assigned_to_id,
-            cl.name as client_name, cl.doc_number as client_dni,
-            u1.username as creator_username, u1.full_name as creator_fullname,
-            u2.username as assigned_username, u2.full_name as assigned_fullname
-        FROM tickets_v2 t
-        LEFT JOIN connections c ON t.connection_id = c.connection_id
-        LEFT JOIN clientes cl ON c.customer_id = cl.id
-        LEFT JOIN users u1 ON t.creator_id = u1.id
-        LEFT JOIN users u2 ON t.assigned_to_id = u2.id
-        WHERE 1=1
-    """
-    
-    # Filtros dinámicos
+    # Aplicar filtros
     if status:
-        query_parts.append("AND t.status = :status")
-        params["status"] = status.value
+        query = query.filter(Ticket.status == status)
     
     if priority:
-        query_parts.append("AND t.priority = :priority")
-        params["priority"] = priority.value
+        query = query.filter(Ticket.priority == priority)
     
     if search:
-        query_parts.append("AND (LOWER(t.subject) LIKE :search OR LOWER(cl.name) LIKE :search OR LOWER(cl.doc_number) LIKE :search)")
-        params["search"] = f"%{search.lower()}%"
-
-    if tags:
-        query_parts.append("AND t.id IN (SELECT tt.ticket_id FROM ticket_tags tt WHERE tt.tag_id = ANY(:tags_array))")
-        params["tags_array"] = tags
-    
-    # Query para contar total
-    count_query = f"""
-        SELECT COUNT(*) as total
-        FROM tickets_v2 t
-        LEFT JOIN connections c ON t.connection_id = c.connection_id
-        LEFT JOIN clientes cl ON c.customer_id = cl.id
-        WHERE 1=1 {" ".join(query_parts)}
-    """
-    
-    total_result = db.execute(text(count_query), params).fetchone()
-    total_count = total_result[0] if total_result else 0
-    
-    # Construir query final con ordenamiento
-    final_query = base_query + " " + " ".join(query_parts) + f" ORDER BY {order_field} {order_direction} LIMIT :limit OFFSET :offset"
-    
-    results = db.execute(text(final_query), params).fetchall()
-
-    # Cargar tags asociados para los tickets devueltos
-    ticket_ids = [row.id for row in results]
-    tags_by_ticket: dict[int, list[Tag]] = {}
-    if ticket_ids:
-        tickets_with_tags = (
-            db.query(Ticket)
-            .options(selectinload(Ticket.tags))
-            .filter(Ticket.id.in_(ticket_ids))
-            .all()
+        search_pattern = f"%{search.lower()}%"
+        query = query.filter(
+            (Ticket.subject.ilike(search_pattern))
         )
-        tags_by_ticket = {t.id: t.tags for t in tickets_with_tags}
-
-    # Convertir resultados a TicketResponse
-    response_list = []
-    for row in results:
-        creator_name = row.creator_fullname or row.creator_username if row.creator_username else None
-        assigned_name = row.assigned_fullname or row.assigned_username if row.assigned_username else None
-        
-        response_list.append(TicketResponse(
-            id=row.id,
-            subject=row.subject,
-            status=TicketStatus(row.status),
-            priority=TicketPriority(row.priority),
-            connection_id=row.connection_id,
-            availability_note=row.availability_note,
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-            creator_name=creator_name,
-            assigned_to_name=assigned_name,
-            client_name=row.client_name,
-            client_dni=row.client_dni,
-            tags=[TagResponse.model_validate(tag) for tag in tags_by_ticket.get(row.id, [])],
-        ))
+    
+    # Filtro de tags (OR logic)
+    if tags:
+        query = query.filter(Ticket.tags.any(Tag.id.in_(tags)))
+    
+    # Ordenamiento seguro
+    allowed_order_fields = {
+        "id": Ticket.id,
+        "status": Ticket.status,
+        "priority": Ticket.priority,
+        "created_at": Ticket.created_at,
+        "updated_at": Ticket.updated_at,
+    }
+    
+    order_column = allowed_order_fields.get(order_by, Ticket.created_at)
+    if order_dir.lower() == "asc":
+        query = query.order_by(order_column.asc())
+    else:
+        query = query.order_by(order_column.desc())
+    
+    # Paginar - obtener limit+1 para saber si hay más
+    tickets = query.offset(offset).limit(limit + 1).all()
+    
+    # Determinar si hay más resultados
+    has_more = len(tickets) > limit
+    if has_more:
+        tickets = tickets[:limit]
+    
+    # Convertir a response
+    response_list = [
+        TicketResponse(
+            id=t.id,
+            subject=t.subject,
+            status=t.status,
+            priority=t.priority,
+            connection_id=t.connection_id,
+            availability_note=t.availability_note,
+            created_at=t.created_at,
+            updated_at=t.updated_at,
+            creator_name=_safe_name(t.creator),
+            assigned_to_name=_safe_name(t.assigned_to),
+            client_name=None,
+            client_dni=None,
+            tags=[TagResponse.model_validate(tag) for tag in t.tags] if t.tags else [],
+        )
+        for t in tickets
+    ]
+    
+    # Usar -1 para total desconocido si hay filtros
+    total_count = -1 if (status or priority or search or tags) else len(response_list)
     
     return {
         "items": response_list,
