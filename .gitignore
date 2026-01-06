@@ -13,6 +13,7 @@ env/
 db_data/
 postgres_data/
 logs/
+backend/media/
 
 # --- IDEs y Sistema Operativo ---
 .vscode/

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, RefreshCw, Search, User, AlertCircle, Loader } from 'lucide-react';
+import { Plus, RefreshCw, Search, User, AlertCircle, Loader, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -30,8 +30,8 @@ const statusConfig = {
 };
 
 const priorityConfig = {
-  critical: { label: 'Crítica', variant: 'ruby' },
-  high: { label: 'Alta', variant: 'ruby' },
+  critical: { label: 'Crítica', variant: 'critical' },
+  high: { label: 'Alta', variant: 'high' },
   medium: { label: 'Media', variant: 'gold' },
   low: { label: 'Baja', variant: 'default' },
 };
@@ -55,13 +55,14 @@ function StatusBadge({ status }) {
 function PriorityBadge({ priority }) {
   const config = priorityConfig[priority] || priorityConfig.low;
   const variantClasses = {
-    ruby: 'bg-ruby-950/50 text-ruby-400 border-ruby-500/30',
+    critical: 'bg-red-900/70 text-red-200 border-red-400/60 border-2 font-bold shadow-lg shadow-red-900/50',
+    high: 'bg-red-950/50 text-red-400 border-red-500/30',
     gold: 'bg-amber-950/50 text-amber-400 border-amber-500/30',
     default: 'bg-zinc-800 text-zinc-400 border-zinc-700',
   };
 
   return (
-    <Badge variant="outline" className={`${variantClasses[config.variant]} text-xs font-medium border`}>
+    <Badge variant="outline" className={`${variantClasses[config.variant]} text-xs font-medium`}>
       {config.label}
     </Badge>
   );
@@ -70,13 +71,20 @@ function PriorityBadge({ priority }) {
 export default function TicketsPage() {
   const navigate = useNavigate();
   const [tickets, setTickets] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedConnection, setSelectedConnection] = useState(null);
+  const [sortField, setSortField] = useState('updated_at');
+  const [sortDirection, setSortDirection] = useState('desc');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [formData, setFormData] = useState({
     subject: '',
     description: '',
@@ -87,8 +95,18 @@ export default function TicketsPage() {
   const loadTickets = async () => {
     try {
       setError(null);
-      const data = await ticketsService.getAll();
-      setTickets(data || []);
+      const offset = (currentPage - 1) * pageSize;
+      const data = await ticketsService.getAll({
+        limit: pageSize,
+        offset: offset,
+        order_by: sortField,
+        order_dir: sortDirection,
+        search: searchQuery || undefined,
+        status: statusFilter || undefined,
+        priority: priorityFilter || undefined,
+      });
+      setTickets(data.items || data || []);
+      setTotalCount(data.total || (data.items ? data.items.length : data.length));
     } catch (err) {
       setError(err.message || 'Error al cargar los tickets');
       console.error('Error loading tickets:', err);
@@ -100,11 +118,30 @@ export default function TicketsPage() {
 
   useEffect(() => {
     loadTickets();
-  }, []);
+  }, [currentPage, pageSize, sortField, sortDirection, searchQuery, statusFilter, priorityFilter]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await loadTickets();
+  };
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('desc');
+    }
+    setCurrentPage(1);
+  };
+
+  const SortIcon = ({ field }) => {
+    if (sortField !== field) {
+      return <ArrowUpDown size={14} className="text-zinc-600" />;
+    }
+    return sortDirection === 'asc' ? 
+      <ArrowUp size={14} className="text-emerald-400" /> : 
+      <ArrowDown size={14} className="text-emerald-400" />;
   };
 
   const handleSearchConnections = async (query) => {
@@ -162,14 +199,9 @@ export default function TicketsPage() {
     }
   };
 
-  const filteredTickets = tickets.filter((ticket) =>
-    ticket.subject?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    ticket.creator_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    ticket.id?.toString().includes(searchQuery)
-  );
-
   const urgentCount = tickets.filter(t => t.priority === 'critical' || t.priority === 'high').length;
   const openCount = tickets.filter(t => t.status === 'open').length;
+  const totalPages = Math.ceil(totalCount / pageSize);
 
   return (
     <div className="space-y-6">
@@ -220,22 +252,38 @@ export default function TicketsPage() {
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
           <Input
             type="text"
-            placeholder="Buscar tickets por ID, asunto o creador..."
+            placeholder="Buscar por ID, asunto, cliente, DNI..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10 bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500 focus:ring-emerald-500/50 focus:border-emerald-500"
           />
         </div>
         
-        <select className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/50">
+        <select 
+          value={statusFilter}
+          onChange={(e) => {
+            setStatusFilter(e.target.value);
+            setCurrentPage(1);
+          }}
+          className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+        >
           <option value="">Todos los estados</option>
           <option value="open">Abiertos</option>
           <option value="in_progress">En progreso</option>
           <option value="pending">Pendientes</option>
+          <option value="pending_infra">Pend. Infraestructura</option>
+          <option value="resolved">Resueltos</option>
           <option value="closed">Cerrados</option>
         </select>
 
-        <select className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/50">
+        <select 
+          value={priorityFilter}
+          onChange={(e) => {
+            setPriorityFilter(e.target.value);
+            setCurrentPage(1);
+          }}
+          className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+        >
           <option value="">Todas las prioridades</option>
           <option value="critical">Crítica</option>
           <option value="high">Alta</option>
@@ -256,24 +304,64 @@ export default function TicketsPage() {
           <Table>
             <TableHeader>
               <TableRow className="border-b border-zinc-800/80 hover:bg-transparent">
-                <TableHead className="w-[100px] text-zinc-400 font-semibold">ID</TableHead>
+                <TableHead 
+                  className="w-[100px] text-zinc-400 font-semibold cursor-pointer hover:text-emerald-400 transition-colors"
+                  onClick={() => handleSort('id')}
+                >
+                  <div className="flex items-center gap-1">
+                    ID
+                    <SortIcon field="id" />
+                  </div>
+                </TableHead>
                 <TableHead className="text-zinc-400 font-semibold">Asunto</TableHead>
-                <TableHead className="w-[120px] text-zinc-400 font-semibold">Estado</TableHead>
-                <TableHead className="w-[110px] text-zinc-400 font-semibold">Prioridad</TableHead>
+                <TableHead 
+                  className="w-[180px] text-zinc-400 font-semibold cursor-pointer hover:text-emerald-400 transition-colors"
+                  onClick={() => handleSort('client_name')}
+                >
+                  <div className="flex items-center gap-1">
+                    Cliente
+                    <SortIcon field="client_name" />
+                  </div>
+                </TableHead>
+                <TableHead 
+                  className="w-[120px] text-zinc-400 font-semibold cursor-pointer hover:text-emerald-400 transition-colors"
+                  onClick={() => handleSort('status')}
+                >
+                  <div className="flex items-center gap-1">
+                    Estado
+                    <SortIcon field="status" />
+                  </div>
+                </TableHead>
+                <TableHead 
+                  className="w-[110px] text-zinc-400 font-semibold cursor-pointer hover:text-emerald-400 transition-colors"
+                  onClick={() => handleSort('priority')}
+                >
+                  <div className="flex items-center gap-1">
+                    Prioridad
+                    <SortIcon field="priority" />
+                  </div>
+                </TableHead>
                 <TableHead className="w-[150px] text-zinc-400 font-semibold">Asignado a</TableHead>
-                <TableHead className="w-[140px] text-zinc-400 font-semibold">Creador</TableHead>
-                <TableHead className="w-[140px] text-zinc-400 font-semibold">Creado</TableHead>
+                <TableHead 
+                  className="w-[150px] text-zinc-400 font-semibold cursor-pointer hover:text-emerald-400 transition-colors"
+                  onClick={() => handleSort('updated_at')}
+                >
+                  <div className="flex items-center gap-1">
+                    Última actividad
+                    <SortIcon field="updated_at" />
+                  </div>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredTickets.length === 0 ? (
+              {tickets.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="h-32 text-center text-zinc-500">
                     No se encontraron tickets.
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredTickets.map((ticket) => (
+                tickets.map((ticket) => (
                   <TableRow
                     key={ticket.id}
                     className="border-b border-zinc-800/50 hover:bg-zinc-800/40 transition-colors cursor-pointer"
@@ -286,6 +374,13 @@ export default function TicketsPage() {
                       <p className="text-sm font-medium text-white line-clamp-1">
                         {ticket.subject}
                       </p>
+                    </TableCell>
+                    <TableCell>
+                      {ticket.client_name ? (
+                        <span className="text-sm text-white font-medium">{ticket.client_name}</span>
+                      ) : (
+                        <span className="text-sm text-zinc-500">Sin cliente</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <StatusBadge status={ticket.status} />
@@ -307,11 +402,14 @@ export default function TicketsPage() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-sm text-zinc-400">
-                      {ticket.creator_name || 'Sistema'}
-                    </TableCell>
                     <TableCell className="text-sm text-zinc-500 font-mono">
-                      {new Date(ticket.created_at).toLocaleDateString('es-AR')}
+                      {new Date(ticket.updated_at).toLocaleDateString('es-AR', { 
+                        day: '2-digit', 
+                        month: '2-digit', 
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
                     </TableCell>
                   </TableRow>
                 ))
@@ -319,19 +417,63 @@ export default function TicketsPage() {
             </TableBody>
           </Table>
 
-          {/* Footer Stats */}
-          <div className="border-t border-zinc-800/50 bg-zinc-950/40 px-6 py-3 flex items-center justify-between text-xs">
-            <p className="text-zinc-500">
-              Mostrando <span className="text-white font-medium">{filteredTickets.length}</span> de{' '}
-              <span className="text-white font-medium">{tickets.length}</span> tickets
-            </p>
-            <div className="flex items-center gap-4">
-              <span className="text-zinc-500">
-                <span className="text-ruby-400 font-medium">{urgentCount}</span> urgentes
+          {/* Footer con Paginación */}
+          <div className="border-t border-zinc-800/50 bg-zinc-950/40 px-6 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-6 text-xs">
+              <p className="text-zinc-500">
+                Mostrando <span className="text-white font-medium">{((currentPage - 1) * pageSize) + 1}</span>-
+                <span className="text-white font-medium">{Math.min(currentPage * pageSize, totalCount)}</span> de{' '}
+                <span className="text-white font-medium">{totalCount}</span> tickets
+              </p>
+              <div className="flex items-center gap-4">
+                <span className="text-zinc-500">
+                  <span className="text-red-400 font-medium">{urgentCount}</span> urgentes
+                </span>
+                <span className="text-zinc-500">
+                  <span className="text-emerald-400 font-medium">{openCount}</span> abiertos
+                </span>
+              </div>
+            </div>
+            
+            {/* Controles de Paginación */}
+            <div className="flex items-center gap-2">
+              <select 
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className="h-7 w-7 p-0 border-zinc-700 text-zinc-400 hover:text-white disabled:opacity-30"
+              >
+                <ChevronLeft size={14} />
+              </Button>
+              
+              <span className="text-xs text-zinc-400 px-2">
+                Página <span className="text-white font-medium">{currentPage}</span> de <span className="text-white font-medium">{totalPages}</span>
               </span>
-              <span className="text-zinc-500">
-                <span className="text-emerald-400 font-medium">{openCount}</span> abiertos
-              </span>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                className="h-7 w-7 p-0 border-zinc-700 text-zinc-400 hover:text-white disabled:opacity-30"
+              >
+                <ChevronRight size={14} />
+              </Button>
             </div>
           </div>
         </div>

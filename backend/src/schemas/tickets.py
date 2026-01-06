@@ -16,6 +16,7 @@ class TimelineEventResponse(BaseModel):
     content: str
     created_at: datetime
     author_name: Optional[str] = None
+    meta_data: Optional[dict] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -65,8 +66,11 @@ class TicketResponse(BaseModel):
     connection_id: Optional[int] = None
     availability_note: Optional[str] = None
     created_at: datetime
+    updated_at: datetime
     creator_name: Optional[str] = None
     assigned_to_name: Optional[str] = None
+    client_name: Optional[str] = None
+    client_dni: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -83,6 +87,19 @@ class ConnectionDetailsResponse(BaseModel):
     node_ip: Optional[str] = None
     plan_name: Optional[str] = None
     plan_speed: Optional[int] = None  # En Mbps
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TicketAttachmentResponse(BaseModel):
+    """Respuesta de información de adjunto."""
+    id: int
+    filename: str
+    filepath: str
+    content_type: str
+    size: int
+    created_at: datetime
+    uploader_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

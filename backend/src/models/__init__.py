@@ -18,6 +18,7 @@ from .tickets import (
 	WorkOrderType,
 	WorkOrderItem,
 )
+from .ticket_attachments import TicketAttachment
 from .beholder import (
 	# Infraestructura
 	Subscriber,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ChevronLeft,
@@ -21,6 +21,10 @@ import {
   Pencil,
   Check,
   X,
+  Paperclip,
+  File,
+  Download,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -192,36 +196,194 @@ function WorkOrderCard({ workOrder }) {
 }
 
 function TimelineItem({ event, index }) {
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+  
   const eventIcons = {
-    NOTE: { icon: MessageSquare, color: 'text-blue-400' },
-    STATUS_CHANGE: { icon: AlertCircle, color: 'text-amber-400' },
-    OT_EVENT: { icon: FileText, color: 'text-emerald-400' },
-    ALERT: { icon: AlertTriangle, color: 'text-ruby-400' },
+    note: { icon: MessageSquare, color: 'text-blue-400' },
+    status_change: { icon: AlertCircle, color: 'text-amber-400' },
+    ot_event: { icon: FileText, color: 'text-emerald-400' },
+    alert: { icon: AlertTriangle, color: 'text-ruby-400' },
+    file: { icon: Paperclip, color: 'text-cyan-400' },
   };
 
-  const eventInfo = eventIcons[event.event_type] || eventIcons.NOTE;
+  const eventInfo = eventIcons[event.event_type?.toLowerCase?.()] || eventIcons.note;
   const Icon = eventInfo.icon;
 
+  // Extraer attachments del meta_data
+  const attachments = event.meta_data?.attachments || [];
+
+  const isImageFile = event.meta_data?.content_type?.startsWith('image/') || event.meta_data?.type?.startsWith('image/');
+  const fileSize = event.meta_data?.size;
+  const fileName = event.meta_data?.filename;
+  const filePath = event.meta_data?.filepath || event.meta_data?.url;
+
+  const formatFileSize = (bytes) => {
+    if (!bytes) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
   return (
-    <div className="flex gap-4 relative">
-      {index !== 0 && (
-        <div className="absolute left-3 top-0 bottom-0 w-px bg-zinc-800 -translate-y-4"></div>
-      )}
-      <div className={`w-6 h-6 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0 z-10 ${eventInfo.color}`}>
-        <Icon size={12} />
-      </div>
-      <div className="flex-1 pb-4">
-        <div className="flex items-start justify-between mb-1">
-          <p className="text-sm font-medium text-white">{event.content}</p>
-          <time className="text-xs text-zinc-500">
-            {new Date(event.created_at).toLocaleString('es-AR')}
-          </time>
-        </div>
-        {event.author_name && (
-          <p className="text-xs text-zinc-500">por {event.author_name}</p>
+    <>
+      <div className="flex gap-4 relative">
+        {index !== 0 && (
+          <div className="absolute left-3 top-0 bottom-0 w-px bg-zinc-800 -translate-y-4"></div>
         )}
+        <div className={`w-6 h-6 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0 z-10 ${eventInfo.color}`}>
+          <Icon size={12} />
+        </div>
+        <div className="flex-1 pb-4">
+          <div className="flex items-start justify-between mb-1">
+            <p className="text-sm font-medium text-white">{event.content}</p>
+            <time className="text-xs text-zinc-500 ml-4 whitespace-nowrap">
+              {new Date(event.created_at).toLocaleString('es-AR')}
+            </time>
+          </div>
+          {event.author_name && (
+            <p className="text-xs text-zinc-500">por {event.author_name}</p>
+          )}
+          
+          {/* Archivos adjuntos en NOTE */}
+          {attachments.length > 0 && (
+            <div className="mt-3 space-y-2">
+              <p className="text-xs text-zinc-400 font-semibold">
+                Adjuntos ({attachments.length})
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                {attachments.map(attachment => {
+                  const isImage = attachment.type?.startsWith('image/');
+
+                  return (
+                    <div key={attachment.id}>
+                      {isImage ? (
+                        <div
+                          onClick={() => {
+                            setSelectedImage(attachment);
+                            setShowImageModal(true);
+                          }}
+                          className="group relative rounded-lg overflow-hidden border border-zinc-700 bg-zinc-800 cursor-pointer hover:border-emerald-500/50 transition aspect-square"
+                        >
+                          <img
+                            src={attachment.url}
+                            alt={attachment.name}
+                            className="w-full h-full object-cover group-hover:scale-105 transition"
+                          />
+                          <div className="absolute inset-0 bg-black/30 group-hover:bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+                            <ImageIcon size={16} className="text-white" />
+                          </div>
+                        </div>
+                      ) : (
+                        <a
+                          href={attachment.url}
+                          download={attachment.name}
+                          className="flex flex-col items-center justify-center p-2 rounded-lg border border-zinc-700 bg-zinc-800 hover:bg-zinc-700/50 transition h-full gap-1 w-24"
+                          title={`Descargar ${attachment.name}`}
+                        >
+                          <File size={16} className="text-cyan-400" />
+                          <span className="text-xs text-zinc-300 text-center line-clamp-2 break-words max-w-full">
+                            {attachment.name}
+                          </span>
+                          <span className="text-xs text-zinc-500">
+                            {formatFileSize(attachment.size)}
+                          </span>
+                        </a>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Archivo adjunto (compatibilidad con FILE event_type antiguo) */}
+          {event.event_type?.toLowerCase?.() === 'file' && filePath && (
+            <div className="mt-3">
+              {isImageFile ? (
+                <div className="space-y-2">
+                  <img 
+                    src={filePath}
+                    alt={fileName}
+                    className="max-w-xs max-h-48 rounded-lg border border-zinc-700 cursor-pointer hover:border-emerald-500 transition-colors"
+                    onClick={() => setShowImageModal(true)}
+                  />
+                  <p className="text-xs text-zinc-500">{fileName} ({formatFileSize(fileSize)})</p>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 p-2 rounded-lg bg-zinc-900/50 border border-zinc-800 w-fit">
+                  <File size={16} className="text-cyan-400" />
+                  <div className="flex-1">
+                    <p className="text-sm text-white break-all">{fileName}</p>
+                    <p className="text-xs text-zinc-500">{formatFileSize(fileSize)}</p>
+                  </div>
+                  <a 
+                    href={filePath}
+                    download={fileName}
+                    className="ml-2 p-1.5 rounded hover:bg-zinc-800 transition-colors"
+                    title="Descargar archivo"
+                  >
+                    <Download size={16} className="text-cyan-400" />
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+
+      {/* Modal para ver imagen en tamaño completo */}
+      {showImageModal && selectedImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center p-4 overflow-auto"
+          onClick={() => setShowImageModal(false)}
+        >
+          <div
+            className="relative max-w-2xl max-h-[90vh] bg-zinc-900 rounded-lg overflow-hidden flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header con botón cerrar */}
+            <div className="flex items-center justify-between p-3 border-b border-zinc-800">
+              <p className="text-sm text-zinc-300 truncate flex-1 pr-4">
+                {selectedImage.name || fileName}
+              </p>
+              <button
+                onClick={() => setShowImageModal(false)}
+                className="shrink-0 p-1 rounded hover:bg-zinc-800 text-zinc-300 hover:text-white transition"
+                title="Cerrar (ESC)"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Imagen */}
+            <div className="flex-1 overflow-auto flex items-center justify-center min-h-0 bg-black/50">
+              <img
+                src={selectedImage.url || filePath}
+                alt={selectedImage.name || fileName}
+                className="max-w-full max-h-full object-contain"
+              />
+            </div>
+
+            {/* Footer con descarga */}
+            <div className="p-3 border-t border-zinc-800 flex items-center justify-between bg-zinc-950">
+              <span className="text-xs text-zinc-400">
+                {formatFileSize(selectedImage.size)}
+              </span>
+              <a
+                href={selectedImage.url || filePath}
+                download={selectedImage.name || fileName}
+                className="flex items-center gap-2 px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-sm transition"
+                title="Descargar imagen"
+              >
+                <Download size={16} />
+                Descargar
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -287,13 +449,16 @@ function AvailabilityEditor({ value, onSave, disabled }) {
 export default function TicketDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const fileInputRef = useRef(null);
   const [ticket, setTicket] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [noteContent, setNoteContent] = useState('');
   const [isSubmittingNote, setIsSubmittingNote] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [isSubmittingWO, setIsSubmittingWO] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [showVisitDialog, setShowVisitDialog] = useState(false);
   const [showEscalateDialog, setShowEscalateDialog] = useState(false);
   const [showReturnDialog, setShowReturnDialog] = useState(false);
@@ -354,19 +519,117 @@ export default function TicketDetailPage() {
 
   const handleAddNote = async (contentOverride) => {
     const content = (contentOverride ?? noteContent).trim();
-    if (!content) return;
+    if (!content && selectedFiles.length === 0) {
+      setError('Agrega un texto o archivos');
+      return;
+    }
 
     try {
       setIsSubmittingNote(true);
       setError(null);
-      await ticketsService.addNote(ticket.id, content);
+
+      // Crear FormData multipart
+      const formData = new FormData();
+      formData.append('content', content || 'Adjunto sin comentario');
+
+      // Agregar archivos
+      selectedFiles.forEach(({ file }) => {
+        formData.append('files', file);
+      });
+
+      // POST a endpoint de timeline
+      const response = await fetch(
+        `/api/v2/tickets/${ticket.id}/timeline`,
+        {
+          method: 'POST',
+          body: formData,
+          credentials: 'include',
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Error al publicar nota');
+      }
+
+      const newEvent = await response.json();
+
+      // Optimistic update: agregar evento al timeline inmediatamente (al final)
+      setTicket(prev => ({
+        ...prev,
+        timeline: [...prev.timeline, newEvent],
+      }));
+
+      // Limpiar estado
       setNoteContent('');
-      await loadTicket();
+      setSelectedFiles([]);
     } catch (err) {
       setError(err.message || 'Error al agregar nota');
       console.error('Error adding note:', err);
     } finally {
       setIsSubmittingNote(false);
+    }
+  };
+
+  const handleFileInputChange = (e) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    const newFiles = Array.from(files).map(file => ({
+      file,
+      id: Math.random(),
+    }));
+
+    setSelectedFiles(prev => [...prev, ...newFiles]);
+    
+    // Limpiar input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveFile = (fileId) => {
+    setSelectedFiles(prev => prev.filter(f => f.id !== fileId));
+  };
+
+  const handleFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsUploadingFile(true);
+      setError(null);
+      
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`/api/v2/tickets/${ticket.id}/attachments`, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error(`Error uploading file: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      // Actualizar el estado del ticket con el nuevo evento inmediatamente
+      if (data.event && ticket) {
+        setTicket(prev => ({
+          ...prev,
+          timeline: [data.event, ...prev.timeline]
+        }));
+      }
+    } catch (err) {
+      setError(err.message || 'Error al subir archivo');
+      console.error('File upload error:', err);
+    } finally {
+      setIsUploadingFile(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -641,19 +904,81 @@ export default function TicketDetailPage() {
 
             {!isClosed && (
               <div className="mt-6 border-t border-zinc-800 pt-4">
-                <p className="text-xs text-zinc-500 uppercase tracking-wide mb-2">Agregar nota</p>
+                <p className="text-xs text-zinc-500 uppercase tracking-wide mb-3">
+                  Agregar nota o archivo
+                </p>
                 <div className="space-y-3">
                   <textarea
                     value={noteContent}
                     onChange={(e) => setNoteContent(e.target.value)}
                     rows={3}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-sm text-white p-3 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    placeholder="Agregar detalle operativo para la bitácora"
+                    disabled={isSubmittingNote}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-sm text-white p-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
+                    placeholder="Escribe una nota (opcional si hay adjuntos)"
                   />
-                  <div className="flex justify-end">
-                    <Button size="sm" onClick={() => handleAddNote()} disabled={isSubmittingNote}>
+
+                  {/* Preview de archivos seleccionados */}
+                  {selectedFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-2 p-2 rounded-lg bg-zinc-900/50 border border-zinc-700/50">
+                      {selectedFiles.map(({ file, id }) => (
+                        <div
+                          key={id}
+                          className="flex items-center gap-2 px-2 py-1 bg-zinc-800 rounded border border-zinc-700"
+                        >
+                          {file.type.startsWith('image/') ? (
+                            <ImageIcon size={14} className="text-emerald-400" />
+                          ) : (
+                            <File size={14} className="text-cyan-400" />
+                          )}
+                          <span className="text-xs text-zinc-300 max-w-[150px] truncate">
+                            {file.name}
+                          </span>
+                          <button
+                            onClick={() => handleRemoveFile(id)}
+                            className="p-0.5 hover:bg-zinc-700 rounded transition-colors"
+                            title="Remover archivo"
+                          >
+                            <X size={12} className="text-zinc-400" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Input file oculto */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    onChange={handleFileInputChange}
+                    multiple
+                    disabled={isSubmittingNote}
+                    className="hidden"
+                    accept=".jpg,.jpeg,.png,.gif,.pdf,.txt,.doc,.docx,.xlsx"
+                  />
+
+                  {/* Botones Adjuntar + Publicar */}
+                  <div className="flex items-center gap-2 justify-end">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isSubmittingNote}
+                      className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                    >
+                      <Paperclip size={14} className="mr-2" />
+                      Adjuntar
+                    </Button>
+
+                    <Button
+                      size="sm"
+                      onClick={() => handleAddNote()}
+                      disabled={
+                        isSubmittingNote ||
+                        (noteContent.trim().length === 0 && selectedFiles.length === 0)
+                      }
+                    >
                       <Send size={14} className="mr-2" />
-                      {isSubmittingNote ? 'Enviando...' : 'Publicar nota'}
+                      {isSubmittingNote ? 'Enviando...' : 'Publicar'}
                     </Button>
                   </div>
                 </div>

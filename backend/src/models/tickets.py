@@ -65,6 +65,7 @@ class TicketTimelineEventType(StrEnum):
     alert = "alert"  # Alerta del sistema (Beholder)
     ot_event = "ot_event"  # Cambio de estado en OT
     status_change = "status_change"  # Cambio de estado del ticket
+    file = "file"  # Archivo adjunto
 
 
 class WorkOrderStatus(StrEnum):
@@ -193,6 +194,12 @@ class Ticket(Base, TimestampMixin):
     )
     work_orders: Mapped[list[WorkOrder]] = relationship(
         "WorkOrder",
+        back_populates="ticket",
+        lazy="select",
+        cascade="all, delete-orphan"
+    )
+    attachments: Mapped[list[TicketAttachment]] = relationship(
+        "TicketAttachment",
         back_populates="ticket",
         lazy="select",
         cascade="all, delete-orphan"

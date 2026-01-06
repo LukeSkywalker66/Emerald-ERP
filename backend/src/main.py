@@ -1,6 +1,8 @@
 import sys
 import os
+from pathlib import Path
 from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -47,6 +49,13 @@ app = FastAPI(
     title="Emerald ERP + Beholder",
     redirect_slashes=False,  # NO hacer redirects 307, aceptar ambas formas
 )
+
+# ✨ NUEVO: Configurar carpeta de medios para adjuntos
+MEDIA_DIR = Path(__file__).parent.parent / "media"
+MEDIA_DIR.mkdir(exist_ok=True)
+(MEDIA_DIR / "tickets").mkdir(exist_ok=True)
+
+app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
 # Incluir routers v1
 app.include_router(
