@@ -26,8 +26,8 @@ import {
   SidebarMenuButton,
   SidebarHeader,
   SidebarFooter,
-} from '@/components/ui/sidebar';
-import { EmeraldLogo } from '@/components/ui/EmeraldLogo';
+} from './ui/sidebar';
+import { EmeraldLogo } from './ui/EmeraldLogo';
 
 // Configuración de menú
 const menuSections = [

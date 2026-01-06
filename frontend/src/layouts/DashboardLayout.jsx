@@ -2,7 +2,7 @@ import React from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { AppSidebar } from '../components/AppSidebar';
+import AppSidebar from '../components/AppSidebar';
 
 export default function DashboardLayout() {
   const { user, logout } = useAuth();
