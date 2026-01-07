@@ -276,8 +276,35 @@ class Database:
 
             result = self.db.execute(sql_query, params).fetchone()
 
+            # Fallback: si no hay secret PPPoE, intentamos por tabla connections
             if not result:
-                return {"error": f"Cliente {pppoe_user} no encontrado."}
+                fallback_sql = text(
+                    """
+                    SELECT 
+                        COALESCE(cl.name, 'No Vinculado') as cliente_nombre,
+                        c.pppoe_username as pppoe_username,
+                        COALESCE(NULLIF(c.direccion, ''), NULLIF(cl.address, ''), 'Sin dirección') as direccion,
+                        COALESCE(pl.name, 'N/A') as plan,
+                        n.name as nodo_nombre,
+                        n.ip_address as nodo_ip,
+                        n.puerto as puerto,
+                        sub.sn as onu_sn,
+                        sub.olt_name as OLT,
+                        sub.mode as Modo,
+                        sub.unique_external_id
+                    FROM connections c
+                    LEFT JOIN clientes cl ON c.customer_id = cl.id
+                    LEFT JOIN plans pl ON c.plan_id = pl.plan_id
+                    LEFT JOIN nodes n ON c.node_id = n.node_id
+                    LEFT JOIN subscribers sub ON c.pppoe_username = sub.pppoe_username
+                    WHERE c.pppoe_username = :pppoe_user
+                    LIMIT 1
+                    """
+                )
+                result = self.db.execute(fallback_sql, {"pppoe_user": pppoe_user}).fetchone()
+
+                if not result:
+                    return {"error": f"Cliente {pppoe_user} no encontrado."}
 
             # Convertimos el resultado (Row) a Diccionario
             row = dict(result._mapping)
@@ -302,12 +329,13 @@ class Database:
 
                 # Objeto Mikrotik (Necesario para que no se rompa OutputBox)
                 "mikrotik": {
-                    "active": "Online" if not row.get("is_disabled") else "Disabled", # Simplificación, idealmente cruzar con ppp_active
-                    "uptime": "N/A", # La query de secrets no tiene uptime, eso está en ppp_active
+                    # Si venimos del fallback, no tenemos secret; marcamos offline pero útil para UI
+                    "active": False if row.get("last_logged_out") is None else "Online",
+                    "uptime": "N/A",
                     "secret": {
-                        "last-logged-out": row["last_logged_out"],
-                        "remote-address": row["nodo_ip"]
-                    }
+                        "last-logged-out": row.get("last_logged_out"),
+                        "remote-address": row.get("nodo_ip"),
+                    },
                 },
 
                 # Objetos ONU (Placeholders para que no rompa si el servicio no los llena después)
