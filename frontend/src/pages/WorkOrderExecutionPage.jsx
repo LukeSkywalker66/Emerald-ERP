@@ -240,7 +240,17 @@ export default function WorkOrderExecutionPage() {
       setBeholderData(data);
       console.log('Diagnóstico recibido:', data);
     } catch (err) {
-      const errorMsg = err?.response?.data?.detail || err.message || 'Error al consultar diagnóstico';
+      let errorMsg = 'Error al consultar diagnóstico';
+      
+      // Manejar error 404 (usuario no encontrado)
+      if (err?.response?.status === 404) {
+        errorMsg = `Usuario PPPoE "${pppoeUser}" no encontrado en la red. Verifica que el cliente esté activo.`;
+      } else if (err?.response?.data?.detail) {
+        errorMsg = err.response.data.detail;
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
+      
       setBeholderError(errorMsg);
       console.error('Error Beholder:', err);
     } finally {
