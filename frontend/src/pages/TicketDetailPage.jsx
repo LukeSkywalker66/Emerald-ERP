@@ -150,6 +150,7 @@ function InlineEditableSelect({ label, display, value, options, onSave, disabled
 }
 
 function WorkOrderCard({ workOrder }) {
+  const navigate = useNavigate();
   const statusIcons = {
     pending_planning: { icon: AlertCircle, color: 'text-amber-400', bg: 'bg-amber-950/30', label: 'En planificación' },
     assigned: { icon: User, color: 'text-blue-300', bg: 'bg-blue-950/30', label: 'Asignada' },
@@ -171,8 +172,18 @@ function WorkOrderCard({ workOrder }) {
 
   const typeInfo = typeLabels[workOrder.ot_type] || typeLabels.repair;
 
+  const handleOpen = () => {
+    navigate(`/app/work-orders/${workOrder.id}/execute`);
+  };
+
   return (
-    <div className={`p-4 rounded-lg border border-zinc-800/80 ${statusInfo.bg}`}>
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={handleOpen}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && handleOpen()}
+      className={`p-4 rounded-lg border border-zinc-800/80 ${statusInfo.bg} cursor-pointer hover:border-emerald-700/70 transition`}
+    >
       <div className="flex items-start justify-between mb-2">
         <div className="flex items-center gap-2">
           <Icon size={16} className={statusInfo.color} />
@@ -201,6 +212,7 @@ function WorkOrderCard({ workOrder }) {
 function TimelineItem({ event, index }) {
   const [showImageModal, setShowImageModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
+  const navigate = useNavigate();
   
   const eventIcons = {
     note: { icon: MessageSquare, color: 'text-blue-400' },
@@ -246,6 +258,45 @@ function TimelineItem({ event, index }) {
           </div>
           {event.author_name && (
             <p className="text-xs text-zinc-500">por {event.author_name}</p>
+          )}
+
+          {event.event_type === 'ot_event' && (
+            <div className="mt-3 space-y-2 text-sm text-zinc-300">
+              {event.meta_data?.description && (
+                <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2">
+                  <p className="text-xs uppercase text-zinc-500">Descripción</p>
+                  <p className="text-sm text-zinc-200">{event.meta_data.description}</p>
+                </div>
+              )}
+
+              {event.meta_data?.resolution_notes && (
+                <div className="rounded-lg border border-emerald-800/40 bg-emerald-900/10 px-3 py-2">
+                  <p className="text-xs uppercase text-emerald-400">Respuesta del técnico</p>
+                  <p className="text-sm text-emerald-100">{event.meta_data.resolution_notes}</p>
+                </div>
+              )}
+
+              {(event.meta_data?.new_status || event.meta_data?.status) && (
+                <div className="flex items-center gap-2 text-xs text-zinc-400">
+                  <span className="px-2 py-1 rounded-md border border-zinc-700 bg-zinc-900/70">
+                    Estado: {(event.meta_data.new_status || event.meta_data.status || '').replace(/_/g, ' ')}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {event.event_type === 'ot_event' && event.meta_data?.work_order_id && (
+            <div className="mt-3">
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-emerald-500/50 text-emerald-200 hover:bg-emerald-900/30"
+                onClick={() => navigate(`/app/work-orders/${event.meta_data.work_order_id}/execute`)}
+              >
+                Ver Orden de Trabajo #{event.meta_data.work_order_id}
+              </Button>
+            </div>
           )}
           
           {/* Archivos adjuntos en NOTE */}
@@ -462,7 +513,6 @@ export default function TicketDetailPage() {
   const [isSubmittingWO, setIsSubmittingWO] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
-  const [showVisitDialog, setShowVisitDialog] = useState(false);
   const [showEscalateDialog, setShowEscalateDialog] = useState(false);
   const [showReturnDialog, setShowReturnDialog] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
@@ -709,25 +759,6 @@ export default function TicketDetailPage() {
     } catch (err) {
       setError(err.message || 'Error al crear OT');
       console.error('Error creating work order:', err);
-    } finally {
-      setIsSubmittingWO(false);
-    }
-  };
-
-  const handleRequestVisit = async () => {
-    try {
-      setIsSubmittingWO(true);
-      await workOrdersService.createWorkOrder({
-        ticket_id: ticket.id,
-        ot_type: 'repair',
-        priority: 'medium',
-        description: 'Visita técnica solicitada desde soporte',
-      });
-      setShowVisitDialog(false);
-      await loadTicket();
-    } catch (err) {
-      setError(err.message || 'Error al solicitar visita');
-      console.error('Error requesting visit:', err);
     } finally {
       setIsSubmittingWO(false);
     }
@@ -1044,14 +1075,8 @@ export default function TicketDetailPage() {
               }} 
               disabled={isSaving || isSubmittingWO}
             >
-              <Zap size={16} className="mr-2" /> Generar OT
+              <Zap size={16} className="mr-2" /> Generar Orden de Trabajo
             </Button>
-
-            {isInSupport && !isClosed && (
-              <Button className="w-full" onClick={() => setShowVisitDialog(true)} disabled={isSaving || isSubmittingWO}>
-                <Calendar size={16} className="mr-2" /> Solicitar visita
-              </Button>
-            )}
 
             {isInSupport && !isClosed && (
               <Button
@@ -1196,21 +1221,6 @@ export default function TicketDetailPage() {
       </div>
 
       {/* Dialogs */}
-      <Dialog open={showVisitDialog} onOpenChange={setShowVisitDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Solicitar visita técnica</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-zinc-300">Se generará una OT de reparación y se notificará en la bitácora.</p>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setShowVisitDialog(false)}>Cancelar</Button>
-            <Button onClick={handleRequestVisit} disabled={isSubmittingWO}>
-              {isSubmittingWO ? 'Creando...' : 'Confirmar'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={showEscalateDialog} onOpenChange={setShowEscalateDialog}>
         <DialogContent>
           <DialogHeader>
@@ -1316,7 +1326,7 @@ export default function TicketDetailPage() {
               disabled={isSubmittingWO || !woForm.description.trim()}
               className="bg-emerald-600 hover:bg-emerald-500"
             >
-              {isSubmittingWO ? 'Creando...' : 'Crear OT'}
+              {isSubmittingWO ? 'Creando...' : 'Crear Orden de Trabajo'}
             </Button>
           </DialogFooter>
         </DialogContent>

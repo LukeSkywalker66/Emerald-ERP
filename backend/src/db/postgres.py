@@ -295,10 +295,10 @@ class Database:
                 "puerto": row["puerto"],
                 
                 # Datos de OLT planos en la raíz (OutputBox los busca ahí)
-                "OLT": row.get("olt"),  # PostgreSQL convierte alias a minúsculas
+                "OLT": row.get("olt"),
                 "onu_sn": row.get("onu_sn"),
                 "unique_external_id": row.get("unique_external_id"),
-                "Modo": row.get("modo"),  # PostgreSQL convierte alias a minúsculas
+                "Modo": row.get("modo"),
 
                 # Objeto Mikrotik (Necesario para que no se rompa OutputBox)
                 "mikrotik": {

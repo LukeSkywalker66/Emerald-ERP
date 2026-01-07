@@ -189,25 +189,54 @@ def list_tickets(
     if has_more:
         tickets = tickets[:limit]
     
-    # Convertir a response
-    response_list = [
-        TicketResponse(
-            id=t.id,
-            subject=t.subject,
-            status=t.status,
-            priority=t.priority,
-            connection_id=t.connection_id,
-            availability_note=t.availability_note,
-            created_at=t.created_at,
-            updated_at=t.updated_at,
-            creator_name=_safe_name(t.creator),
-            assigned_to_name=_safe_name(t.assigned_to),
-            client_name=None,
-            client_dni=None,
-            tags=[TagResponse.model_validate(tag) for tag in t.tags] if t.tags else [],
+    # Convertir a response, enriqueciendo con datos de conexión
+    response_list = []
+    for t in tickets:
+        client_name = None
+        client_dni = None
+        
+        # Enriquecer con datos de conexión si existe
+        if t.connection_id:
+            try:
+                conn_row = db.execute(
+                    text(
+                        """
+                        SELECT 
+                            cl.name as client_name,
+                            cl.doc_number as client_dni
+                        FROM connections c
+                        LEFT JOIN clientes cl ON c.customer_id = cl.id
+                        WHERE c.connection_id = :conn_id
+                        LIMIT 1
+                        """
+                    ),
+                    {"conn_id": t.connection_id},
+                ).first()
+                
+                if conn_row:
+                    client_name = conn_row[0]
+                    client_dni = conn_row[1]
+            except Exception:
+                # Si falla la consulta, usar None
+                pass
+        
+        response_list.append(
+            TicketResponse(
+                id=t.id,
+                subject=t.subject,
+                status=t.status,
+                priority=t.priority,
+                connection_id=t.connection_id,
+                availability_note=t.availability_note,
+                created_at=t.created_at,
+                updated_at=t.updated_at,
+                creator_name=_safe_name(t.creator),
+                assigned_to_name=_safe_name(t.assigned_to),
+                client_name=client_name,
+                client_dni=client_dni,
+                tags=[TagResponse.model_validate(tag) for tag in t.tags] if t.tags else [],
+            )
         )
-        for t in tickets
-    ]
     
     # Usar -1 para total desconocido si hay filtros
     total_count = -1 if (status or priority or search or tags) else len(response_list)

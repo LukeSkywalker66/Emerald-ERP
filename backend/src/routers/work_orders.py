@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import String, cast, or_
+from sqlalchemy import String, cast, or_, text
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from src.database import get_db
@@ -54,6 +54,8 @@ def create_work_order(
         raise HTTPException(status_code=404, detail="Ticket not found")
 
     # Crear la OT con datos heredados del ticket
+    ticket_custom_data = getattr(ticket, "custom_data", {}) or {}
+
     wo = WorkOrder(
         ticket_id=ticket.id,
         ot_type=payload.ot_type,
@@ -61,7 +63,7 @@ def create_work_order(
         technician_id=None,  # Sin asignar inicialmente
         notes=payload.description or payload.notes,
         custom_data={
-            **(ticket.custom_data or {}),
+            **ticket_custom_data,
             "priority": payload.priority or "medium",
             "client_id": getattr(ticket, "client_id", None),
             "connection_id": ticket.connection_id,
@@ -78,7 +80,13 @@ def create_work_order(
             author_id=current_user.id,
             event_type=TicketTimelineEventType.ot_event,
             content=f"Orden de trabajo generada ({payload.ot_type.value})",
-            meta_data={"work_order_id": wo.id, "ot_type": payload.ot_type.value},
+            meta_data={
+                "work_order_id": wo.id,
+                "ot_type": payload.ot_type.value,
+                "description": payload.description,
+                "priority": payload.priority or "medium",
+                "status": wo.status.value,
+            },
         )
     )
     db.commit()
@@ -168,7 +176,7 @@ def list_work_orders(
         .all()
     )
 
-    items = [_wo_to_list_response(wo).model_dump() for wo in work_orders]
+    items = [_wo_to_list_response(wo, db).model_dump() for wo in work_orders]
 
     return {
         "items": items,
@@ -203,6 +211,7 @@ def get_work_order_detail(
     # Construir ticket_info si existe, incluyendo cliente y dirección
     ticket_info = None
     if wo.ticket:
+        # Datos básicos del ticket
         ticket_info = {
             "id": wo.ticket.id,
             "subject": wo.ticket.subject,
@@ -211,6 +220,60 @@ def get_work_order_detail(
             "client_name": getattr(wo.ticket, "client_name", None) or (wo.ticket.creator.full_name if wo.ticket.creator else None),
             "address": getattr(wo.ticket, "address", None) or getattr(wo.ticket, "availability_note", None),
         }
+
+        # Enriquecer con datos de conexión si existe
+        if wo.ticket.connection_id:
+            conn_row = db.execute(
+                text(
+                    """
+                    SELECT 
+                        c.connection_id,
+                        c.pppoe_username,
+                        COALESCE(c.direccion, cl.address) as address,
+                        cl.name as client_name,
+                        cl.doc_number as client_dni,
+                        n.name as node_name,
+                        n.ip_address as node_ip,
+                        p.name as plan_name,
+                        p.speed as plan_speed,
+                        NULL::text as phone
+                    FROM connections c
+                    LEFT JOIN clientes cl ON c.customer_id = cl.id
+                    LEFT JOIN nodes n ON c.node_id = n.node_id
+                    LEFT JOIN plans p ON c.plan_id = p.plan_id
+                    WHERE c.connection_id = :conn_id
+                    LIMIT 1
+                    """
+                ),
+                {"conn_id": wo.ticket.connection_id},
+            ).first()
+
+            if conn_row:
+                ticket_info.update(
+                    {
+                        "pppoe_username": conn_row[1],
+                        "address": conn_row[2] or ticket_info.get("address"),
+                        "client_name": conn_row[3] or ticket_info.get("client_name"),
+                        "client_dni": conn_row[4],
+                        "node_name": conn_row[5],
+                        "node_ip": conn_row[6],
+                        "plan_name": conn_row[7],
+                        "plan_speed": conn_row[8],
+                        "contact_phone": conn_row[9],
+                    }
+                )
+
+        # Fallback: intentar obtener teléfono de creador del ticket si no vino de conexión
+        if not ticket_info.get("contact_phone"):
+            creator_phone = None
+            if wo.ticket and wo.ticket.creator:
+                creator_phone = (
+                    getattr(wo.ticket.creator, "phone", None)
+                    or getattr(wo.ticket.creator, "mobile", None)
+                    or getattr(wo.ticket.creator, "telefono", None)
+                )
+            if creator_phone:
+                ticket_info["contact_phone"] = creator_phone
     
     return WorkOrderDetailResponse(
         id=wo.id,
@@ -285,6 +348,7 @@ def update_work_order(
                 "work_order_id": wo.id,
                 "resolution_type": payload.resolution_type.value if payload.resolution_type else None,
                 "resolution_notes": resolution_notes,
+                "status": WorkOrderStatus.completed.value,
             },
         )
         db.add(timeline_event)
@@ -366,15 +430,163 @@ def remove_work_order_item(
     return None
 
 
-def _wo_to_list_response(wo: WorkOrder) -> WorkOrderListResponse:
-    """Construye la respuesta resumida para listado."""
+@router.put("/{work_order_id}/reopen", response_model=WorkOrderDetailResponse)
+@router.put("/{work_order_id}/reopen/", response_model=WorkOrderDetailResponse)
+def reopen_work_order(
+    work_order_id: int,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_user_id),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Reabrir una OT finalizada.
+    
+    **Reglas de Negocio:**
+    - **Admin:** Puede reabrir siempre
+    - **Técnico asignado:** Solo dentro de las 2 horas posteriores al cierre
+    - **Otros:** Prohibido
+    
+    **Acción:**
+    - Resetea estado a IN_PROGRESS
+    - Limpia completed_at, resolution_type, resolution_notes
+    - Crea evento en timeline
+    
+    **Errores:**
+    - 404: OT no existe
+    - 403: Sin permisos o ventana expirada
+    - 400: OT no está completada
+    """
+    # Cargar OT con relaciones
+    wo = (
+        db.query(WorkOrder)
+        .options(
+            joinedload(WorkOrder.technician),
+            joinedload(WorkOrder.ticket),
+        )
+        .filter(WorkOrder.id == work_order_id)
+        .first()
+    )
+    
+    if not wo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Orden de Trabajo no encontrada"
+        )
+    
+    # Validar que está completada
+    if not wo.completed_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La orden no está completada, no se puede reabrir"
+        )
+    
+    # Obtener rol del usuario
+    user_role = current_user.role.name if current_user.role else None
+    is_admin = user_role in ["admin", "coordinator"]
+    is_assigned_technician = wo.technician_id == user_id
+    
+    # Calcular tiempo transcurrido
+    now = datetime.now(wo.completed_at.tzinfo) if wo.completed_at.tzinfo else datetime.utcnow()
+    time_elapsed = now - wo.completed_at
+    grace_period = timedelta(hours=2)
+    within_grace_period = time_elapsed <= grace_period
+    
+    # Validación de permisos
+    if is_admin:
+        # Admin puede reabrir siempre
+        pass
+    elif is_assigned_technician and within_grace_period:
+        # Técnico asignado dentro de ventana de gracia
+        pass
+    elif is_assigned_technician and not within_grace_period:
+        # Técnico asignado pero fuera de ventana
+        hours_elapsed = int(time_elapsed.total_seconds() / 3600)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"El tiempo de corrección ha expirado ({hours_elapsed}h desde el cierre). Contacte a administración."
+        )
+    else:
+        # Ni admin ni técnico asignado
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene permisos para reabrir esta orden de trabajo"
+        )
+    
+    # Guardar datos previos para auditoría
+    old_resolution = wo.resolution_type.value if wo.resolution_type else "sin especificar"
+    
+    # Reabrir OT: resetear campos de finalización
+    wo.status = WorkOrderStatus.in_progress
+    wo.completed_at = None
+    wo.resolution_type = None
+    wo.resolution_notes = None
+    
+    # Crear evento en timeline
+    timeline_event = TicketTimeline(
+        ticket_id=wo.ticket_id,
+        author_id=user_id,
+        event_type=TicketTimelineEventType.ot_event,
+        content=f"OT #{wo.id} reabierta para corrección (resolución previa: {old_resolution})",
+        meta_data={
+            "work_order_id": wo.id,
+            "action": "reopen",
+            "previous_resolution": old_resolution,
+            "reopened_by": current_user.full_name or current_user.email,
+            "reopened_by_role": user_role,
+        },
+    )
+    db.add(timeline_event)
+    
+    db.commit()
+    db.refresh(wo)
+    
+    # Retornar detalle actualizado
+    return get_work_order_detail(work_order_id, db, user_id)
+
+
+def _wo_to_list_response(wo: WorkOrder, db: Session) -> WorkOrderListResponse:
+    """Construye la respuesta resumida para listado, enriquecida con datos de conexión."""
     ticket_title = wo.ticket.subject if wo.ticket else "Sin ticket"
     client_name = None
     if wo.ticket and wo.ticket.creator:
         client_name = wo.ticket.creator.full_name or wo.ticket.creator.email
 
-    # TODO: incluir dirección real cuando esté disponible (conexiones/ISPCube)
-    address = getattr(wo.ticket, "availability_note", None) or "-"
+    address = getattr(wo.ticket, "availability_note", None)
+
+    # Enriquecer con datos de conexión si existe
+    if wo.ticket and wo.ticket.connection_id:
+        try:
+            conn_row = db.execute(
+                text(
+                    """
+                    SELECT 
+                        c.connection_id,
+                        c.pppoe_username,
+                        COALESCE(c.direccion, cl.address) as address,
+                        cl.name as client_name,
+                        cl.doc_number as client_dni,
+                        n.name as node_name,
+                        n.ip_address as node_ip,
+                        p.name as plan_name,
+                        p.speed as plan_speed
+                    FROM connections c
+                    LEFT JOIN clientes cl ON c.customer_id = cl.id
+                    LEFT JOIN nodes n ON c.node_id = n.node_id
+                    LEFT JOIN plans p ON c.plan_id = p.plan_id
+                    WHERE c.connection_id = :conn_id
+                    LIMIT 1
+                    """
+                ),
+                {"conn_id": wo.ticket.connection_id},
+            ).first()
+
+            if conn_row:
+                # Actualizar con datos reales de conexión
+                address = conn_row[2] or address  # conexión dirección
+                client_name = conn_row[3] or client_name  # cliente real
+        except Exception:
+            # Si falla la consulta, usar datos fallback del ticket
+            pass
 
     return WorkOrderListResponse(
         id=wo.id,
@@ -382,8 +594,8 @@ def _wo_to_list_response(wo: WorkOrder) -> WorkOrderListResponse:
         ticket_title=ticket_title,
         ot_type=wo.ot_type.value if wo.ot_type else "unknown",
         status=wo.status.value if wo.status else WorkOrderStatus.pending_planning.value,
-        client_name=client_name,
-        address=address,
+        client_name=client_name or "Sin cliente",
+        address=address or "-",
         technician_name=wo.technician.full_name if wo.technician else None,
         scheduled_at=wo.scheduled_at,
         started_at=wo.started_at,

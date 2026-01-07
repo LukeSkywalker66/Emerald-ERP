@@ -228,6 +228,7 @@ export default {
   create,
   createWorkOrder,
   updateTicket,
+  getConnectionHistory,
   addNote,
   searchConnections,
   getUsers,

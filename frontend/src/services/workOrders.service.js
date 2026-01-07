@@ -127,6 +127,21 @@ export const runQuickDiagnostic = async (connectionId) => {
   });
 };
 
+/**
+ * Reabrir orden de trabajo finalizada
+ * @param {number} workOrderId - ID de la OT
+ * @returns {Promise<Object>} OT reabierta
+ */
+export const reopenWorkOrder = async (workOrderId) => {
+  try {
+    const { data } = await api.put(`${BASE_URL}/${workOrderId}/reopen`);
+    return data;
+  } catch (error) {
+    console.error(`❌ Error reopening work order ${workOrderId}:`, error);
+    throw error;
+  }
+};
+
 export default {
   createWorkOrder,
   listWorkOrders,
@@ -135,4 +150,5 @@ export default {
   addWorkOrderItem,
   removeWorkOrderItem,
   runQuickDiagnostic,
+  reopenWorkOrder,
 };

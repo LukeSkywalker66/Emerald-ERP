@@ -3,6 +3,7 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import AppSidebar from '../components/AppSidebar';
+import MobileNav from '../components/layout/MobileNav';
 
 export default function DashboardLayout() {
   const { user, logout } = useAuth();
@@ -15,13 +16,15 @@ export default function DashboardLayout() {
 
   return (
     <div className="flex h-screen bg-zinc-950">
-      {/* Sidebar with flat navigation */}
-      <AppSidebar />
+      {/* Sidebar - Solo visible en desktop (md+) */}
+      <div className="hidden md:flex">
+        <AppSidebar />
+      </div>
 
       {/* Main content area */}
       <div className="flex flex-col flex-1">
-        {/* Topbar */}
-        <header className="border-b border-zinc-800 bg-zinc-950/50 px-6 py-3 flex items-center justify-between">
+        {/* Topbar - Solo visible en desktop */}
+        <header className="hidden md:flex border-b border-zinc-800 bg-zinc-950/50 px-6 py-3 items-center justify-between">
           <div className="flex-1" />
           
           {/* Right side actions */}
@@ -41,11 +44,16 @@ export default function DashboardLayout() {
           </div>
         </header>
 
-        {/* Page content */}
+        {/* Page content con padding bottom para mobile nav */}
         <main className="flex-1 overflow-auto">
-          <Outlet />
+          <div className="pb-20 md:pb-0">
+            <Outlet />
+          </div>
         </main>
       </div>
+
+      {/* Mobile Navigation - Solo visible en móvil */}
+      <MobileNav />
     </div>
   );
 }
