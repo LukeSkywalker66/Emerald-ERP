@@ -11,7 +11,7 @@ import api from '@/api/client';
  */
 export const searchClients = async (query) => {
   try {
-    const { data } = await api.get('/api/search', {
+    const { data } = await api.get('/search', {
       params: { q: query },
     });
     return data;
@@ -30,7 +30,7 @@ export const searchClients = async (query) => {
 export const getDiagnosis = async (pppoeUser, ip = null) => {
   try {
     const params = ip ? { ip } : {};
-    const { data } = await api.get(`/api/diagnosis/${pppoeUser}`, { params });
+    const { data } = await api.get(`/diagnosis/${pppoeUser}`, { params });
     return data;
   } catch (error) {
     console.error(`❌ Error getting diagnosis for ${pppoeUser}:`, error);
