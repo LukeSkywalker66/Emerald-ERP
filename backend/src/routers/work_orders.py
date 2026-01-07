@@ -26,6 +26,8 @@ from src.schemas.tickets import (
     WorkOrderListResponse,
 )
 
+
+from .work_orders_snapshot_helper import build_connection_snapshot
 router = APIRouter(prefix="/v2/work-orders", tags=["work-orders"])
 
 
@@ -53,8 +55,9 @@ def create_work_order(
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
-    # Crear la OT con datos heredados del ticket
+    # Crear snapshot de conexión (persistente para evitar re-queries)
     ticket_custom_data = getattr(ticket, "custom_data", {}) or {}
+    connection_snapshot = build_connection_snapshot(db, ticket.connection_id)
 
     wo = WorkOrder(
         ticket_id=ticket.id,
@@ -68,6 +71,7 @@ def create_work_order(
             "client_id": getattr(ticket, "client_id", None),
             "connection_id": ticket.connection_id,
             "address": getattr(ticket, "address", None) or getattr(ticket, "availability_note", None),
+            "connection": connection_snapshot,  # 🔥 Snapshot persistente
         },
     )
     db.add(wo)
@@ -221,8 +225,21 @@ def get_work_order_detail(
             "address": getattr(wo.ticket, "address", None) or getattr(wo.ticket, "availability_note", None),
         }
 
-        # Enriquecer con datos de conexión si existe
-        if wo.ticket.connection_id:
+        # 1) Intentar con snapshot guardado en la OT
+        conn_snap = (wo.custom_data or {}).get("connection") if wo.custom_data else None
+        if conn_snap:
+            ticket_info.update({
+                "pppoe_username": conn_snap.get("pppoe_username"),
+                "address": conn_snap.get("address") or ticket_info.get("address"),
+                "client_name": conn_snap.get("client_name") or ticket_info.get("client_name"),
+                "client_dni": conn_snap.get("client_dni"),
+                "node_name": conn_snap.get("node_name"),
+                "node_ip": conn_snap.get("node_ip"),
+                "plan_name": conn_snap.get("plan_name"),
+                "plan_speed": conn_snap.get("plan_speed"),
+            })
+        # 2) Fallback: consultar DB si no hay snapshot
+        elif wo.ticket.connection_id:
             conn_row = db.execute(
                 text(
                     """
