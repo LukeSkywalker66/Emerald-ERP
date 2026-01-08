@@ -113,6 +113,26 @@ class WorkOrderType(StrEnum):
     infrastructure = "infrastructure"  # Cuadrilla de infraestructura
 
 
+class TicketType(StrEnum):
+    """
+    Tipos de tickets según flujo de negocio.
+    Define el proceso y las validaciones necesarias.
+    """
+    technical = "technical"              # Soporte/Reclamo técnico
+    installation = "installation"        # Alta de servicio (nueva conexión)
+    withdrawal = "withdrawal"            # Baja de servicio (retiro de equipos)
+    relocation = "relocation"            # Traslado/Mudanza (origen → destino)
+    administrative = "administrative"    # Gestión administrativa
+
+
+class AdministrativeSubtype(StrEnum):
+    """Subtipos para tickets administrativos."""
+    billing = "billing"                  # Consultas de facturación
+    data_update = "data_update"          # Actualización de datos del cliente
+    plan_change = "plan_change"          # Cambio de plan/upgrade
+    other = "other"                      # Otros trámites
+
+
 class WorkOrderResolutionType(StrEnum):
     """Tipos de resolución de una OT (resultado final)."""
     success = "success"  # Completado exitosamente
@@ -277,6 +297,44 @@ class Ticket(Base, TimestampMixin):
         comment="Operador asignado al ticket"
     )
 
+    # Tipo de ticket y flujo de negocio (NUEVO)
+    ticket_type: Mapped[TicketType] = mapped_column(
+        Enum(TicketType, name="ticket_type_enum", native_enum=False),
+        default=TicketType.technical,
+        nullable=False,
+        index=True,
+        comment="Tipo de flujo: technical, installation, withdrawal, relocation, administrative"
+    )
+
+    # Subtipo administrativo (NUEVO - opcional, solo para ADMINISTRATIVE)
+    administrative_subtype: Mapped[Optional[AdministrativeSubtype]] = mapped_column(
+        Enum(AdministrativeSubtype, name="administrative_subtype_enum", native_enum=False),
+        nullable=True,
+        comment="Subtipo para tickets administrativos: billing, data_update, plan_change, other"
+    )
+
+    # Campos para traslados (NUEVO)
+    origin_connection_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+        comment="FK soft a conexión de origen (para RELOCATION)"
+    )
+
+    destination_connection_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+        comment="FK soft a conexión de destino (para RELOCATION, INSTALLATION)"
+    )
+
+    # Tecnología de instalación (NUEVO - para INSTALLATION)
+    installation_tech: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="Tecnología de instalación: fiber, wireless, hybrid (para INSTALLATION)"
+    )
+
     # Relaciones
     creator: Mapped[Optional[User]] = relationship(
         "User",
@@ -320,6 +378,9 @@ class Ticket(Base, TimestampMixin):
         Index("ix_tickets_status_priority", "status", "priority"),
         Index("ix_tickets_creator", "creator_id"),
         Index("ix_tickets_assigned", "assigned_to_id"),
+        Index("ix_tickets_ticket_type", "ticket_type"),
+        Index("ix_tickets_origin_connection", "origin_connection_id"),
+        Index("ix_tickets_destination_connection", "destination_connection_id"),
     )
 
     def __repr__(self) -> str:

@@ -7,7 +7,14 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.models import TicketPriority, TicketStatus, WorkOrderType
-from src.models.tickets import TicketTimelineEventType, WorkOrderStatus, WorkOrderResolutionType, ResolutionCategory
+from src.models.tickets import (
+    TicketTimelineEventType,
+    WorkOrderStatus,
+    WorkOrderResolutionType,
+    ResolutionCategory,
+    TicketType,
+    AdministrativeSubtype,
+)
 
 
 # ===========================
@@ -168,10 +175,22 @@ class WorkOrderDetailResponse(BaseModel):
 
 
 class TicketCreate(BaseModel):
-    subject: str
+    """Schema para creación de ticket (extensible para 5 flujos)."""
+    subject: str = Field(..., min_length=3, max_length=255)
     description: Optional[str] = None
     priority: TicketPriority = TicketPriority.medium
-    connection_id: Optional[int] = None
+    
+    # Tipo de ticket y flujo (NUEVO)
+    ticket_type: TicketType = TicketType.technical
+    administrative_subtype: Optional[AdministrativeSubtype] = None
+    
+    # Conexiones según tipo (NUEVO)
+    connection_id: Optional[int] = Field(None, description="Conexión principal (TECHNICAL, WITHDRAWAL)")
+    origin_connection_id: Optional[int] = Field(None, description="Conexión origen (RELOCATION)")
+    destination_connection_id: Optional[int] = Field(None, description="Conexión destino (INSTALLATION, RELOCATION)")
+    
+    # Datos adicionales (NUEVO)
+    installation_tech: Optional[str] = Field(None, description="Tecnología: fiber, wireless, hybrid")
     availability_note: Optional[str] = None
 
 
@@ -180,7 +199,12 @@ class TicketResponse(BaseModel):
     subject: str
     status: TicketStatus
     priority: TicketPriority
+    ticket_type: TicketType  # NUEVO
+    administrative_subtype: Optional[AdministrativeSubtype] = None  # NUEVO
     connection_id: Optional[int] = None
+    origin_connection_id: Optional[int] = None  # NUEVO
+    destination_connection_id: Optional[int] = None  # NUEVO
+    installation_tech: Optional[str] = None  # NUEVO
     availability_note: Optional[str] = None
     created_at: datetime
     updated_at: datetime

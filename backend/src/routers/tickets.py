@@ -17,8 +17,11 @@ from src.models import (
     TicketTimelineEventType,
     WorkOrder,
     WorkOrderStatus,
+    WorkOrderType,
     TicketPriority,
     TicketStatus,
+    TicketType,
+    AdministrativeSubtype,
     TicketAttachment,
     Tag,
 )
@@ -94,7 +97,12 @@ def _ticket_to_response(ticket: Ticket, client_name: Optional[str] = None, clien
         subject=ticket.subject,
         status=ticket.status,
         priority=ticket.priority,
+        ticket_type=ticket.ticket_type,
+        administrative_subtype=ticket.administrative_subtype,
         connection_id=ticket.connection_id,
+        origin_connection_id=ticket.origin_connection_id,
+        destination_connection_id=ticket.destination_connection_id,
+        installation_tech=ticket.installation_tech,
         availability_note=ticket.availability_note,
         created_at=ticket.created_at,
         updated_at=ticket.updated_at,
@@ -273,30 +281,128 @@ def create_ticket(
     db: Session = Depends(get_db),
     user_id: int = Depends(get_user_id),
 ):
+    """
+    Crear nuevo ticket con soporte para 5 flujos de negocio.
+    
+    Validaciones según tipo:
+    - TECHNICAL: requiere connection_id
+    - INSTALLATION: requiere destination_connection_id e installation_tech
+    - WITHDRAWAL: requiere connection_id
+    - RELOCATION: requiere origin_connection_id y destination_connection_id
+    - ADMINISTRATIVE: requiere administrative_subtype
+    """
+    
+    # Validaciones por tipo
+    if payload.ticket_type == TicketType.technical:
+        if not payload.connection_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Tickets técnicos requieren connection_id"
+            )
+    
+    elif payload.ticket_type == TicketType.installation:
+        if not payload.destination_connection_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Instalaciones requieren destination_connection_id"
+            )
+        if not payload.installation_tech:
+            raise HTTPException(
+                status_code=400,
+                detail="Instalaciones requieren especificar tecnología (fiber/wireless/hybrid)"
+            )
+    
+    elif payload.ticket_type == TicketType.withdrawal:
+        if not payload.connection_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Retiros requieren connection_id de la conexión a dar de baja"
+            )
+    
+    elif payload.ticket_type == TicketType.relocation:
+        if not payload.origin_connection_id or not payload.destination_connection_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Traslados requieren origin_connection_id y destination_connection_id"
+            )
+    
+    elif payload.ticket_type == TicketType.administrative:
+        if not payload.administrative_subtype:
+            raise HTTPException(
+                status_code=400,
+                detail="Tickets administrativos requieren administrative_subtype"
+            )
+    
+    # Crear ticket
     ticket = Ticket(
         subject=payload.subject,
         description=payload.description,
         priority=payload.priority,
+        status=TicketStatus.open,
+        ticket_type=payload.ticket_type,
+        administrative_subtype=payload.administrative_subtype,
         connection_id=payload.connection_id,
+        origin_connection_id=payload.origin_connection_id,
+        destination_connection_id=payload.destination_connection_id,
+        installation_tech=payload.installation_tech,
         availability_note=payload.availability_note,
         creator_id=user_id,
     )
+    
     db.add(ticket)
     db.flush()
-
-    first_note = TicketTimeline(
+    
+    # Crear evento de timeline
+    timeline_event = TicketTimeline(
         ticket_id=ticket.id,
         author_id=user_id,
         event_type=TicketTimelineEventType.note,
-        content=payload.description or "Ticket creado",
-        meta_data=None,
+        content=f"Ticket creado - Tipo: {payload.ticket_type.value}",
+        meta_data={
+            "ticket_type": payload.ticket_type.value,
+            "administrative_subtype": payload.administrative_subtype.value if payload.administrative_subtype else None,
+        },
     )
-    db.add(first_note)
-
+    db.add(timeline_event)
+    
+    # Auto-crear OT según tipo
+    if payload.ticket_type in [TicketType.installation, TicketType.withdrawal, TicketType.relocation]:
+        ot_type_map = {
+            TicketType.installation: WorkOrderType.install,
+            TicketType.withdrawal: WorkOrderType.pickup,
+            TicketType.relocation: WorkOrderType.install,
+        }
+        
+        work_order = WorkOrder(
+            ticket_id=ticket.id,
+            ot_type=ot_type_map[payload.ticket_type],
+            status=WorkOrderStatus.pending_planning,
+            notes=f"OT generada automáticamente desde ticket {payload.ticket_type.value}",
+            custom_data={
+                "ticket_type": payload.ticket_type.value,
+                "installation_tech": payload.installation_tech,
+                "origin_connection_id": payload.origin_connection_id,
+                "destination_connection_id": payload.destination_connection_id,
+            }
+        )
+        db.add(work_order)
+        db.flush()
+        
+        # Timeline de OT creada
+        ot_timeline = TicketTimeline(
+            ticket_id=ticket.id,
+            author_id=user_id,
+            event_type=TicketTimelineEventType.ot_event,
+            content=f"OT de {ot_type_map[payload.ticket_type].value} generada automáticamente",
+            meta_data={"work_order_id": work_order.id},
+        )
+        db.add(ot_timeline)
+    
     db.commit()
     db.refresh(ticket)
     db.refresh(ticket, attribute_names=["creator", "assigned_to"])
     return _ticket_to_response(ticket)
+
 
 
 @router.get("/by-connection/{connection_id}", response_model=List[TicketResponse])
