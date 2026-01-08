@@ -1,0 +1,170 @@
+/**
+ * InstallationWizard - Alta de servicio
+ */
+
+import React, { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { ChevronLeft, Loader, Search, MapPin, AlertCircle } from 'lucide-react';
+import ticketsService from '@/services/tickets.service';
+
+export default function InstallationWizard({ onBack, onSuccess }) {
+  const [step, setStep] = useState(1);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+  const [formData, setFormData] = useState({
+    connection: null,
+    installation_tech: 'fiber',
+    availabilityNote: '',
+  });
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    try {
+      setIsSearching(true);
+      setError(null);
+      const results = [
+        { connection_id: 20, client_name: 'Nueva Conexión 1', installation_address: 'Calle Nueva 1', pppoe_username: 'new1', plan_name: 'Plan 50' },
+        { connection_id: 21, client_name: 'Nueva Conexión 2', installation_address: 'Calle Nueva 2', pppoe_username: 'new2', plan_name: 'Plan 100' },
+      ].filter(r => r.client_name.toLowerCase().includes(searchQuery.toLowerCase()));
+      setSearchResults(results);
+      if (results.length > 0) setStep(2);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleSelectConnection = (conn) => {
+    setFormData(p => ({ ...p, connection: conn }));
+    setStep(3);
+  };
+
+  const handleSubmit = async () => {
+    try {
+      setIsSubmitting(true);
+      setError(null);
+      const ticket = await ticketsService.create({
+        ticket_type: 'installation',
+        subject: `Instalación - ${formData.connection.client_name}`,
+        description: `Nueva instalación en ${formData.connection.installation_address}`,
+        priority: 'medium',
+        destination_connection_id: formData.connection.connection_id,
+        installation_tech: formData.installation_tech,
+        availability_note: formData.availabilityNote,
+      });
+      onSuccess(ticket);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (step === 1) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h3 className="text-lg font-semibold text-white mb-2">Buscar Cliente Nuevo</h3>
+          <p className="text-sm text-zinc-400">Ingresa datos de la nueva conexión</p>
+        </div>
+        {error && (
+          <div className="p-3 rounded-lg border border-rose-700/50 bg-rose-950/30 flex gap-2 text-rose-300 text-sm">
+            <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <Input
+            placeholder="Buscar cliente..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            className="bg-zinc-800 border-zinc-700 text-white"
+          />
+          <Button onClick={handleSearch} disabled={isSearching} className="bg-blue-600">
+            {isSearching ? <Loader size={16} className="animate-spin" /> : <Search size={16} />}
+          </Button>
+        </div>
+        <div className="flex justify-between pt-4 border-t border-zinc-800">
+          <Button variant="outline" onClick={onBack} className="border-zinc-700 text-zinc-300">
+            <ChevronLeft size={16} className="mr-1" />
+            Volver
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 2) {
+    return (
+      <div className="space-y-6">
+        <p className="text-sm text-zinc-400">Selecciona la conexión NUEVA</p>
+        <div className="space-y-3 max-h-[400px] overflow-y-auto">
+          {searchResults.map((conn) => (
+            <button
+              key={conn.connection_id}
+              onClick={() => handleSelectConnection(conn)}
+              className="w-full text-left p-4 rounded-lg border border-zinc-700 hover:border-blue-500/50 bg-zinc-800/50 hover:bg-zinc-800 transition-all"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <MapPin size={16} className="text-blue-400" />
+                <p className="text-sm font-medium text-white">{conn.installation_address}</p>
+              </div>
+              <p className="text-xs text-zinc-500">ID: {conn.connection_id} • Plan: {conn.plan_name}</p>
+            </button>
+          ))}
+        </div>
+        <div className="flex justify-between pt-4 border-t border-zinc-800">
+          <Button variant="outline" onClick={() => setStep(1)} className="border-zinc-700">
+            <ChevronLeft size={16} className="mr-1" />
+            Buscar Otro
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 3) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <label className="text-sm font-medium text-zinc-300 block mb-2">Tecnología *</label>
+          <select
+            value={formData.installation_tech}
+            onChange={(e) => setFormData(p => ({ ...p, installation_tech: e.target.value }))}
+            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white"
+          >
+            <option value="fiber">Fibra Óptica (FTTH)</option>
+            <option value="wireless">Inalámbrico (Punto a Punto)</option>
+            <option value="hybrid">Híbrido</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-sm font-medium text-zinc-300 block mb-2">Horarios de Disponibilidad</label>
+          <textarea
+            value={formData.availabilityNote}
+            onChange={(e) => setFormData(p => ({ ...p, availabilityNote: e.target.value }))}
+            rows={2}
+            placeholder="Ej: Lunes a viernes de 9 a 13hs"
+            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none"
+          />
+        </div>
+        <div className="flex justify-between pt-4 border-t border-zinc-800">
+          <Button variant="outline" onClick={() => setStep(2)} className="border-zinc-700">
+            <ChevronLeft size={16} className="mr-1" />
+            Atrás
+          </Button>
+          <Button onClick={handleSubmit} disabled={isSubmitting} className="bg-blue-600">
+            {isSubmitting ? <Loader size={16} className="animate-spin mr-2" /> : null}
+            Crear Instalación
+          </Button>
+        </div>
+      </div>
+    );
+  }
+}

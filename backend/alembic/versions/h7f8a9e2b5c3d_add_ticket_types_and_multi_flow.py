@@ -1,7 +1,7 @@
 """Add ticket types and multi-flow support.
 
 Revision ID: h7f8a9e2b5c3d
-Revises: g6e7f4d3c0b1a
+Revises: g6e7f4d3c0b1a, 324f44f48d0a
 Create Date: 2026-01-08 15:00:00.000000
 """
 from alembic import op
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision = 'h7f8a9e2b5c3d'
-down_revision = 'g6e7f4d3c0b1a'
+down_revision = ('g6e7f4d3c0b1a', '324f44f48d0a')
 branch_labels = None
 depends_on = None
 
