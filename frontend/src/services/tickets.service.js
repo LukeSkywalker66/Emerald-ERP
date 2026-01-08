@@ -132,7 +132,9 @@ export const addNote = async (ticketId, content) => {
  */
 export const searchConnections = async (query) => {
   try {
-    const { data } = await api.get('/v2/search', { params: { q: query } });
+    const { data } = await api.get(`${BASE_URL}/search-connections`, { 
+      params: { query, limit: 20 } 
+    });
     return data || [];
   } catch (error) {
     console.error('❌ Error searching connections:', error);

@@ -22,10 +22,7 @@ export default function WithdrawalWizard({ onBack, onSuccess }) {
     try {
       setIsSearching(true);
       setError(null);
-      const results = [
-        { connection_id: 5, client_name: 'Cliente para Retiro 1', address: 'Av. Principal 100', pppoe_username: 'retire1', plan_name: 'Plan 50' },
-        { connection_id: 6, client_name: 'Cliente para Retiro 2', address: 'Calle Secundaria 200', pppoe_username: 'retire2', plan_name: 'Plan 100' },
-      ].filter(r => r.client_name.toLowerCase().includes(searchQuery.toLowerCase()));
+      const results = await ticketsService.searchConnections(searchQuery);
       setSearchResults(results);
       if (results.length > 0) setStep(2);
     } catch (err) {

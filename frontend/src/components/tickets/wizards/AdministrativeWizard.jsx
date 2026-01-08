@@ -33,10 +33,7 @@ export default function AdministrativeWizard({ onBack, onSuccess }) {
     try {
       setIsSearching(true);
       setError(null);
-      const results = [
-        { connection_id: 1, client_name: 'Cliente Admin 1', address: 'Zona A', pppoe_username: 'admin1' },
-        { connection_id: 2, client_name: 'Cliente Admin 2', address: 'Zona B', pppoe_username: 'admin2' },
-      ].filter(r => r.client_name.toLowerCase().includes(searchQuery.toLowerCase()));
+      const results = await ticketsService.searchConnections(searchQuery);
       setSearchResults(results);
       if (results.length > 0) setStep(2);
     } catch (err) {

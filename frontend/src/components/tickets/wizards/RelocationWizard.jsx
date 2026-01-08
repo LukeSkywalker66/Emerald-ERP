@@ -40,35 +40,14 @@ export default function RelocationWizard({ onBack, onSuccess }) {
     try {
       setIsSearching(true);
       setError(null);
-      // Simular búsqueda en ISPCube
-      const results = [
-        {
-          connection_id: 10,
-          client_name: 'Cliente Test',
-          client_dni: '12345678',
-          installation_address: 'Calle Principal 100',
-          pppoe_username: 'clientetest',
-          plan_name: 'Plan 100 Mbps',
-        },
-        {
-          connection_id: 11,
-          client_name: 'Cliente Test',
-          client_dni: '12345678',
-          installation_address: 'Calle Nueva 200',
-          pppoe_username: 'clientetest2',
-          plan_name: 'Plan 100 Mbps',
-        },
-      ].filter(r => 
-        r.client_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        r.client_dni.includes(searchQuery)
-      );
+      const results = await ticketsService.searchConnections(searchQuery);
 
       setSearchResults(results);
       if (results.length > 0) {
         setFormData((prev) => ({
           ...prev,
           clientName: results[0].client_name,
-          clientDni: results[0].client_dni,
+          clientDni: results[0].client_id?.toString() || 'Sin DNI',
         }));
         setStep(2);
       } else {

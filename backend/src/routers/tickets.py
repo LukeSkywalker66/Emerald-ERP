@@ -152,6 +152,29 @@ def _workorder_to_response(wo: WorkOrder) -> WorkOrderResponse:
     )
 
 
+# ============== ENDPOINTS PARA WIZARDS ==============
+
+@router.get("/search-connections", response_model=List[dict])
+def search_connections(
+    query: str = Query(..., description="Texto a buscar (nombre, dirección, username)"),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """
+    Busca conexiones en ISPCube para wizards de tickets.
+    Endpoint usado por TechnicalWizard, InstallationWizard, etc.
+    """
+    from src.clients.ispcube import buscar_conexiones
+    
+    try:
+        results = buscar_conexiones(query, limit)
+        return results
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error buscando conexiones: {str(e)}"
+        )
+
+
 @router.get("/", response_model=dict)
 @router.get("", response_model=dict)
 def list_tickets(

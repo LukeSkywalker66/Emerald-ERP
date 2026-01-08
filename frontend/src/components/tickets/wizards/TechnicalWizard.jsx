@@ -30,13 +30,10 @@ export default function TechnicalWizard({ onBack, onSuccess }) {
     try {
       setIsSearching(true);
       setError(null);
-      // Simular búsqueda en ISPCube (en producción sería via API)
-      const results = [
-        { connection_id: 1, client_name: 'Cliente Test 1', installation_address: 'Calle 1 #123', pppoe_username: 'test1' },
-        { connection_id: 2, client_name: 'Cliente Test 2', installation_address: 'Calle 2 #456', pppoe_username: 'test2' },
-      ].filter(r => r.client_name.toLowerCase().includes(searchQuery.toLowerCase()));
       
-      setSearchResults(results);
+      // Llamar a API real de búsqueda de conexiones
+      const response = await ticketsService.searchConnections(searchQuery);
+      setSearchResults(response);
     } catch (err) {
       setError(err.message || 'Error al buscar');
     } finally {

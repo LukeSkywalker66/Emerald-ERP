@@ -26,10 +26,7 @@ export default function InstallationWizard({ onBack, onSuccess }) {
     try {
       setIsSearching(true);
       setError(null);
-      const results = [
-        { connection_id: 20, client_name: 'Nueva Conexión 1', installation_address: 'Calle Nueva 1', pppoe_username: 'new1', plan_name: 'Plan 50' },
-        { connection_id: 21, client_name: 'Nueva Conexión 2', installation_address: 'Calle Nueva 2', pppoe_username: 'new2', plan_name: 'Plan 100' },
-      ].filter(r => r.client_name.toLowerCase().includes(searchQuery.toLowerCase()));
+      const results = await ticketsService.searchConnections(searchQuery);
       setSearchResults(results);
       if (results.length > 0) setStep(2);
     } catch (err) {

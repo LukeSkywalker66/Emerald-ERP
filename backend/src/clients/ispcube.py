@@ -153,3 +153,80 @@ def obtener_clientes():
 
     print(f" ✅ Total: {len(all_customers)}")
     return all_customers
+
+
+# ==================== NUEVAS FUNCIONES PARA WIZARDS ====================
+# Estas funciones NO modifican las existentes (regla de oro)
+
+def buscar_conexiones(query: str, limit: int = 20):
+    """
+    Busca conexiones en ISPCube por nombre de cliente, dirección o username.
+    Retorna conexiones enriquecidas con datos del cliente.
+    
+    Args:
+        query: Texto a buscar (nombre, dirección, username)
+        limit: Máximo de resultados a retornar
+    
+    Returns:
+        Lista de diccionarios con estructura:
+        {
+            "connection_id": int,
+            "pppoe_username": str,
+            "installation_address": str,
+            "client_name": str,
+            "client_id": int,
+            "plan_name": str,
+            "node_name": str,
+            "status": str
+        }
+    """
+    try:
+        # 1. Obtener todas las conexiones (usa función existente)
+        todas_conexiones = obtener_todas_conexiones()
+        
+        # 2. Si hay query, filtrar
+        query_lower = query.lower() if query else ""
+        conexiones_filtradas = []
+        
+        for conn in todas_conexiones:
+            # Buscar en username o dirección
+            username = (conn.get("user") or "").lower()
+            direccion = (conn.get("direccion") or "").lower()
+            
+            if (not query_lower or 
+                query_lower in username or 
+                query_lower in direccion):
+                conexiones_filtradas.append(conn)
+                
+                if len(conexiones_filtradas) >= limit:
+                    break
+        
+        # 3. Enriquecer con datos del cliente
+        # Para evitar N+1 queries, obtener todos los clientes una vez
+        url_customers = f"{ISPCUBE_BASEURL}/customers/customers_list"
+        params = {"limit": 1000}  # Traer un lote grande
+        resp = _request("GET", url_customers, params=params)
+        clientes_dict = {c["id"]: c for c in resp.json() if isinstance(c, dict)}
+        
+        # 4. Construir resultado enriquecido
+        resultado = []
+        for conn in conexiones_filtradas[:limit]:
+            customer_id = conn.get("customer_id")
+            cliente = clientes_dict.get(customer_id, {})
+            
+            resultado.append({
+                "connection_id": conn.get("id"),
+                "pppoe_username": conn.get("user"),
+                "installation_address": conn.get("direccion") or cliente.get("address", "Sin dirección"),
+                "client_name": cliente.get("name", "Cliente sin nombre"),
+                "client_id": customer_id,
+                "plan_name": f"Plan ID {conn.get('plan_id')}" if conn.get('plan_id') else "Sin plan",
+                "node_name": f"Nodo ID {conn.get('node_id')}" if conn.get('node_id') else "Sin nodo",
+                "status": "active"  # ISPCube no retorna status en lista simple
+            })
+        
+        return resultado
+    
+    except Exception as e:
+        logger.error(f"Error buscando conexiones: {e}")
+        return []
