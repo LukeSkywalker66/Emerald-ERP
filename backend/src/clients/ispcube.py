@@ -1,5 +1,6 @@
 import requests
 import sys
+from datetime import datetime, timedelta
 from src import config
 from src.config import logger
 
@@ -10,6 +11,20 @@ ISPCUBE_PASSWORD = config.ISPCUBE_PASSWORD
 ISPCUBE_CLIENTID = config.ISPCUBE_CLIENTID
 
 _token_cache = None
+
+# Cache para búsqueda de conexiones (TTL: 5 minutos)
+_connections_cache = {
+    "data": None,
+    "timestamp": None,
+    "ttl_minutes": 5
+}
+
+# Cache para clientes (TTL: 10 minutos, cambian menos frecuentemente)
+_customers_cache = {
+    "data": None,
+    "timestamp": None,
+    "ttl_minutes": 10
+}
 
 def _obtener_token():
     url = f"{ISPCUBE_BASEURL}/sanctum/token"
@@ -158,10 +173,79 @@ def obtener_clientes():
 # ==================== NUEVAS FUNCIONES PARA WIZARDS ====================
 # Estas funciones NO modifican las existentes (regla de oro)
 
+def _get_cached_connections():
+    """
+    Retorna conexiones en cache si está vigente, sino None.
+    Cache TTL: 5 minutos (configurable en _connections_cache['ttl_minutes'])
+    """
+    global _connections_cache
+    
+    if _connections_cache["data"] is None:
+        return None
+    
+    if _connections_cache["timestamp"] is None:
+        return None
+    
+    # Verificar si el cache expiró
+    elapsed = datetime.now() - _connections_cache["timestamp"]
+    ttl = timedelta(minutes=_connections_cache["ttl_minutes"])
+    
+    if elapsed > ttl:
+        logger.info("⏰ Cache de conexiones expirado, se renovará")
+        return None
+    
+    logger.info(f"✅ Usando cache de conexiones (edad: {elapsed.seconds}s)")
+    return _connections_cache["data"]
+
+
+def _set_cached_connections(data):
+    """Guarda conexiones en cache con timestamp actual."""
+    global _connections_cache
+    _connections_cache["data"] = data
+    _connections_cache["timestamp"] = datetime.now()
+    logger.info(f"💾 Cache de conexiones actualizado ({len(data)} conexiones)")
+
+
+def _get_cached_customers():
+    """
+    Retorna clientes en cache si está vigente, sino None.
+    Cache TTL: 10 minutos (clientes cambian menos frecuentemente)
+    """
+    global _customers_cache
+    
+    if _customers_cache["data"] is None:
+        return None
+    
+    if _customers_cache["timestamp"] is None:
+        return None
+    
+    # Verificar si el cache expiró
+    elapsed = datetime.now() - _customers_cache["timestamp"]
+    ttl = timedelta(minutes=_customers_cache["ttl_minutes"])
+    
+    if elapsed > ttl:
+        logger.info("⏰ Cache de clientes expirado, se renovará")
+        return None
+    
+    logger.info(f"✅ Usando cache de clientes (edad: {elapsed.seconds}s)")
+    return _customers_cache["data"]
+
+
+def _set_cached_customers(data):
+    """Guarda clientes (dict) en cache con timestamp actual."""
+    global _customers_cache
+    _customers_cache["data"] = data
+    _customers_cache["timestamp"] = datetime.now()
+    logger.info(f"💾 Cache de clientes actualizado ({len(data)} clientes)")
+
+
 def buscar_conexiones(query: str, limit: int = 20):
     """
     Busca conexiones en ISPCube por nombre de cliente, dirección o username.
     Retorna conexiones enriquecidas con datos del cliente.
+    
+    **OPTIMIZACIÓN:** Usa cache en memoria con TTL de 5 minutos para evitar
+    descargar todas las conexiones en cada búsqueda.
     
     Args:
         query: Texto a buscar (nombre, dirección, username)
@@ -181,8 +265,14 @@ def buscar_conexiones(query: str, limit: int = 20):
         }
     """
     try:
-        # 1. Obtener todas las conexiones (usa función existente)
-        todas_conexiones = obtener_todas_conexiones()
+        # 1. Intentar obtener del cache
+        todas_conexiones = _get_cached_connections()
+        
+        if todas_conexiones is None:
+            # Cache vacío o expirado → descargar de ISPCube
+            logger.info("🌐 Descargando conexiones desde ISPCube...")
+            todas_conexiones = obtener_todas_conexiones()
+            _set_cached_connections(todas_conexiones)
         
         # 2. Si hay query, filtrar
         query_lower = query.lower() if query else ""
@@ -201,12 +291,18 @@ def buscar_conexiones(query: str, limit: int = 20):
                 if len(conexiones_filtradas) >= limit:
                     break
         
-        # 3. Enriquecer con datos del cliente
-        # Para evitar N+1 queries, obtener todos los clientes una vez
-        url_customers = f"{ISPCUBE_BASEURL}/customers/customers_list"
-        params = {"limit": 1000}  # Traer un lote grande
-        resp = _request("GET", url_customers, params=params)
-        clientes_dict = {c["id"]: c for c in resp.json() if isinstance(c, dict)}
+        # 3. Enriquecer con datos del cliente (con cache)
+        # Intentar obtener clientes del cache
+        clientes_dict = _get_cached_customers()
+        
+        if clientes_dict is None:
+            # Cache vacío o expirado → descargar de ISPCube
+            logger.info("🌐 Descargando clientes desde ISPCube...")
+            url_customers = f"{ISPCUBE_BASEURL}/customers/customers_list"
+            params = {"limit": 1000}  # Traer un lote grande
+            resp = _request("GET", url_customers, params=params)
+            clientes_dict = {c["id"]: c for c in resp.json() if isinstance(c, dict)}
+            _set_cached_customers(clientes_dict)
         
         # 4. Construir resultado enriquecido
         resultado = []
