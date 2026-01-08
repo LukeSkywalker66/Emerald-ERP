@@ -15,6 +15,7 @@
 - ✅ Detalles de conexión (cliente, plan, nodo)
 - ✅ Búsqueda avanzada (ID, asunto, cliente, DNI)
 - ✅ Componentes UI coherentes (Shadcn/UI + Tailwind)
+- ✅ Estados dinámicos en timeline (live status de OTs) - 2026-01-08
 
 ### Sistema de Autenticación
 - ✅ JWT + Refresh Tokens
