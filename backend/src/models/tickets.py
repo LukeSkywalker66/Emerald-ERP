@@ -50,7 +50,7 @@ ticket_tags_association = Table(
     Column(
         'ticket_id',
         Integer,
-        ForeignKey('tickets_v2.id', name='fk_ticket_tags_ticket_id', ondelete='CASCADE'),
+            ForeignKey('tickets.id', name='fk_ticket_tags_ticket_id', ondelete='CASCADE'),
         primary_key=True,
         comment='FK a ticket'
     ),
@@ -210,7 +210,7 @@ class Ticket(Base, TimestampMixin):
       - priority: Enum con valores CRITICAL, HIGH, MEDIUM, LOW
             - status: Enum con valores OPEN, IN_PROGRESS, PENDING, PENDING_INFRA, RESOLVED, CLOSED
     """
-    __tablename__ = "tickets_v2"
+    __tablename__ = "tickets"
 
     # Primary Key
     id: Mapped[int] = mapped_column(
@@ -360,7 +360,7 @@ class TicketTimeline(Base, TimestampMixin):
 
     # Foreign Keys
     ticket_id: Mapped[int] = mapped_column(
-        ForeignKey("tickets_v2.id", name="fk_ticket_timeline_ticket_id", ondelete="CASCADE"),
+        ForeignKey("tickets.id", name="fk_ticket_timeline_ticket_id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         comment="FK a ticket"
@@ -458,7 +458,7 @@ class WorkOrder(Base, TimestampMixin):
 
     # Foreign Keys
     ticket_id: Mapped[int] = mapped_column(
-        ForeignKey("tickets_v2.id", name="fk_work_orders_ticket_id", ondelete="CASCADE"),
+        ForeignKey("tickets.id", name="fk_work_orders_ticket_id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         comment="FK a ticket origen"

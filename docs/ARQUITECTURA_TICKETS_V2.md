@@ -1,6 +1,6 @@
 # 🎫 Arquitectura - Tickets
 
-> **Nota Historical:** Esta tabla se llama `tickets_v2` porque originalmente existía una tabla `tickets` para una demo visual obsoleta. Un futuro refactor renombrará `tickets_v2` → `tickets` para limpiar la nomenclatura. Ver [#RENAME-TICKETS-V2](./ARQUITECTURA_TICKETS_V2.md#rename-tickets-v2).
+> **Nota Historical (Actualizado 08/01/2026):** La tabla principal ahora se llama `tickets` (antes `tickets_v2`). La tabla legacy se renombró a `tickets_legacy` para preservar datos antiguos. Ver [#RENAME-TICKETS-V2](./ARQUITECTURA_TICKETS_V2.md#rename-tickets-v2).
 
 ## 📋 Contexto & Decisiones Arquitectónicas
 
@@ -12,10 +12,10 @@
 
 ## 1️⃣ Modelo de Datos - Estructura de Tablas
 
-### 1.1 Tabla Base: `tickets_v2`
+### 1.1 Tabla Base: `tickets` (antes `tickets_v2`)
 
 ```sql
-CREATE TABLE tickets_v2 (
+CREATE TABLE tickets (
     id SERIAL PRIMARY KEY,
     connection_id INTEGER,  -- FK WEAK: conexión es "casi" obligatoria pero nullable
     subject VARCHAR(255) NOT NULL,
@@ -28,10 +28,10 @@ CREATE TABLE tickets_v2 (
     updated_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
-CREATE INDEX ix_tickets_v2_connection_id ON tickets_v2(connection_id);
-CREATE INDEX ix_tickets_v2_status ON tickets_v2(status);
-CREATE INDEX ix_tickets_v2_priority ON tickets_v2(priority);
-CREATE INDEX ix_tickets_v2_created_at ON tickets_v2(created_at DESC);
+  CREATE INDEX ix_tickets_connection_id ON tickets(connection_id);
+  CREATE INDEX ix_tickets_status ON tickets(status);
+  CREATE INDEX ix_tickets_priority ON tickets(priority);
+  CREATE INDEX ix_tickets_created_at ON tickets(created_at DESC);
 ```
 
 **Rationale:**
@@ -45,7 +45,7 @@ CREATE INDEX ix_tickets_v2_created_at ON tickets_v2(created_at DESC);
 ```sql
 CREATE TABLE ticket_timeline (
     id SERIAL PRIMARY KEY,
-    ticket_id INTEGER NOT NULL REFERENCES tickets_v2(id) ON DELETE CASCADE,
+    ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
     author_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     event_type VARCHAR(13) NOT NULL,   -- ENUM: note, alert, ot_event, status_change
     content TEXT NOT NULL,              -- Narrativa del evento
@@ -71,7 +71,7 @@ CREATE INDEX ix_ticket_timeline_ticket_created ON ticket_timeline(ticket_id, cre
 ```sql
 CREATE TABLE work_orders (
     id SERIAL PRIMARY KEY,
-    ticket_id INTEGER NOT NULL REFERENCES tickets_v2(id) ON DELETE CASCADE,
+    ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
     ot_type VARCHAR(20) NOT NULL,              -- ENUM: repair, install, pickup, infrastructure
     status VARCHAR(20) NOT NULL,               -- ENUM: pending_planning, assigned, in_progress, completed, failed
     technician_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -633,24 +633,24 @@ El técnico completa una OT en sitio. Necesita:
 
 ## 🔄 #RENAME-TICKETS-V2
 
-**Decisión:** Renombrar tabla `tickets_v2` → `tickets`
+**Decisión (Ejecutada 08/01/2026):** Renombrar tabla `tickets_v2` → `tickets` y estacionar la tabla legacy como `tickets_legacy`.
 
-**Contexto:** Tabla vieja `tickets` era para demo visual obsoleta. Mantener `v2` es confuso.
+**Contexto:** La tabla `tickets` original era demo/legacy y generaba confusión. El código productivo usa el modelo nuevo.
 
-**Impacto:**
-- Migration Alembic: rename table + update FKs
-- Model: `class Ticket` (ya está así en código)
-- Routers: Cambios en queries raw SQL
-- Tests: Actualizar referencias
+**Impacto (completado):**
+- Migration Alembic: rename table + renombrar índices `_v2` → estándar (hecho)
+- Model: `class Ticket` actualiza `__tablename__ = "tickets"` (hecho)
+- Routers: import renombrado a `tickets` (hecho)
+- Tests/Referencias: se deben actualizar si usan el nombre antiguo
 
-**Prioridad:** MEDIA (después de estabilizar cierre de OT)
+**Prioridad:** COMPLETADO (08/01/2026)
 
 ---
 
 ## 9️⃣ Roadmap Futuro
 
 - [ ] Agregar teléfono del cliente a connection_details
-- [ ] Renombrar `tickets_v2` → `tickets` (cleanup nomenclatura)
+- [x] Renombrar `tickets_v2` → `tickets` (cleanup nomenclatura) — 08/01/2026
 - [ ] Soporte para SLAs (tiempo máximo de respuesta)
 - [ ] Búsqueda full-text en timeline (PostgreSQL `tsvector`)
 - [ ] Notificaciones automáticas (cuando status cambia)

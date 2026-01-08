@@ -298,13 +298,13 @@ docker compose exec db psql -U postgres -d emerald -c \
 
 ---
 
-## 🎫 Sistema de Tickets v2.0 (NUEVO - 02/01/2026)
+## 🎫 Sistema de Tickets (renombrado 08/01/2026, antes "tickets_v2")
 
 ### Diagrama de Entidades
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    TICKETS_V2                              │
+│                      TICKETS                               │
 ├─────────────────────────────────────────────────────────────┤
 │ PK: id (UUID)                                               │
 │ - ticket_code (STRING, UNIQUE)  # CNX-XXXX                │
@@ -359,7 +359,7 @@ docker compose exec db psql -U postgres -d emerald -c \
     └──────────────────────┘
 
 FK: creator_id, assigned_to_id → users.id
-FK: ticket_id → tickets_v2.id (CASCADE)
+FK: ticket_id → tickets.id (CASCADE)
 FK: technician_id → users.id (SET NULL)
 FK: work_order_id → work_orders.id (CASCADE)
 ```
@@ -430,16 +430,16 @@ class ResolutionCategory(str, Enum):
 
 ```sql
 -- Búsqueda rápida por código de ticket
-CREATE INDEX idx_tickets_v2_code ON tickets_v2(ticket_code);
+CREATE INDEX idx_tickets_code ON tickets(ticket_code);
 
 -- Búsqueda por estado
-CREATE INDEX idx_tickets_v2_status ON tickets_v2(status);
+CREATE INDEX idx_tickets_status ON tickets(status);
 
 -- Búsqueda por prioridad
-CREATE INDEX idx_tickets_v2_priority ON tickets_v2(priority);
+CREATE INDEX idx_tickets_priority ON tickets(priority);
 
 -- Búsqueda por técnico asignado
-CREATE INDEX idx_tickets_v2_assigned ON tickets_v2(assigned_to_id);
+CREATE INDEX idx_tickets_assigned ON tickets(assigned_to_id);
 
 -- Búsqueda en timeline por ticket
 CREATE INDEX idx_timeline_ticket ON ticket_timeline(ticket_id);
@@ -525,7 +525,7 @@ CREATE INDEX idx_work_order_items_serial ON work_order_items(serial_number);
 
 **Cambios aplicados:**
 ```
-1. CREATE TABLE tickets_v2 (10 columnas, 5 índices, 2 FKs)
+1. CREATE TABLE tickets_v2 (10 columnas, 5 índices, 2 FKs) → renombrada a `tickets` el 08/01/2026
 2. CREATE TABLE ticket_timeline (8 columnas, 3 índices, 2 FKs, JSONB meta_data)
 3. CREATE TABLE work_orders (10 columnas, 4 índices, 2 FKs)
 4. CREATE TABLE work_order_items (8 columnas, 3 índices, 1 FK)
@@ -553,7 +553,7 @@ for t in tables:
 # ✓ ticket_events
 # ✓ ticket_timeline
 # ✓ tickets
-# ✓ tickets_v2
+# ✓ tickets_legacy (solo si existía la tabla legacy)
 # ✓ work_order_items
 # ✓ work_orders
 ```

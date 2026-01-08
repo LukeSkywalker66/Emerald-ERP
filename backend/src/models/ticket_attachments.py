@@ -37,7 +37,7 @@ class TicketAttachment(Base, TimestampMixin):
 
     # Foreign Keys
     ticket_id: Mapped[int] = mapped_column(
-        ForeignKey("tickets_v2.id", name="fk_ticket_attachments_ticket_id", ondelete="CASCADE"),
+        ForeignKey("tickets.id", name="fk_ticket_attachments_ticket_id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         comment="FK a ticket"

@@ -1,4 +1,4 @@
-# Attachment upload endpoint - Agregar al final de tickets_v2.py
+# Attachment upload endpoint - Agregar al final de tickets.py
 
 # Validación de archivos
 ALLOWED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.pdf', '.txt', '.doc', '.docx', '.xlsx'}
