@@ -65,12 +65,55 @@ def upgrade() -> None:
     )
 
     # 3) Renombrar índices generados automáticamente para eliminar sufijo _v2
-    op.execute("ALTER INDEX IF EXISTS ix_tickets_v2_assigned_to_id RENAME TO ix_tickets_assigned_to_id;")
-    op.execute("ALTER INDEX IF EXISTS ix_tickets_v2_connection_id RENAME TO ix_tickets_connection_id;")
-    op.execute("ALTER INDEX IF EXISTS ix_tickets_v2_creator_id RENAME TO ix_tickets_creator_id;")
-    op.execute("ALTER INDEX IF EXISTS ix_tickets_v2_id RENAME TO ix_tickets_id;")
-    op.execute("ALTER INDEX IF EXISTS ix_tickets_v2_priority RENAME TO ix_tickets_priority;")
-    op.execute("ALTER INDEX IF EXISTS ix_tickets_v2_status RENAME TO ix_tickets_status;")
+    # Solo si el índice viejo existe y el nuevo no (evitar conflictos)
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            -- ix_tickets_v2_assigned_to_id → ix_tickets_assigned_to_id
+            IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'ix_tickets_v2_assigned_to_id')
+               AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'ix_tickets_assigned_to_id')
+            THEN
+                EXECUTE 'ALTER INDEX ix_tickets_v2_assigned_to_id RENAME TO ix_tickets_assigned_to_id';
+            END IF;
+            
+            -- ix_tickets_v2_connection_id → ix_tickets_connection_id
+            IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'ix_tickets_v2_connection_id')
+               AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'ix_tickets_connection_id')
+            THEN
+                EXECUTE 'ALTER INDEX ix_tickets_v2_connection_id RENAME TO ix_tickets_connection_id';
+            END IF;
+            
+            -- ix_tickets_v2_creator_id → ix_tickets_creator_id
+            IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'ix_tickets_v2_creator_id')
+               AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'ix_tickets_creator_id')
+            THEN
+                EXECUTE 'ALTER INDEX ix_tickets_v2_creator_id RENAME TO ix_tickets_creator_id';
+            END IF;
+            
+            -- ix_tickets_v2_id → ix_tickets_id
+            IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'ix_tickets_v2_id')
+               AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'ix_tickets_id')
+            THEN
+                EXECUTE 'ALTER INDEX ix_tickets_v2_id RENAME TO ix_tickets_id';
+            END IF;
+            
+            -- ix_tickets_v2_priority → ix_tickets_priority
+            IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'ix_tickets_v2_priority')
+               AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'ix_tickets_priority')
+            THEN
+                EXECUTE 'ALTER INDEX ix_tickets_v2_priority RENAME TO ix_tickets_priority';
+            END IF;
+            
+            -- ix_tickets_v2_status → ix_tickets_status
+            IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'ix_tickets_v2_status')
+               AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'ix_tickets_status')
+            THEN
+                EXECUTE 'ALTER INDEX ix_tickets_v2_status RENAME TO ix_tickets_status';
+            END IF;
+        END $$;
+        """
+    )
 
 
 def downgrade() -> None:
