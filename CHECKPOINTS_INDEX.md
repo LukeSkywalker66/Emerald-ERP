@@ -4,6 +4,18 @@
 
 ---
 
+## 📬 MENSAJE URGENTE PARA PRÓXIMA SESIÓN
+
+⚠️ **LEER PRIMERO:** [LEER_PRIMERO_PROXIMA_SESION.md](LEER_PRIMERO_PROXIMA_SESION.md)
+
+Este archivo contiene:
+- ✅ Instrucciones de validación inmediata (2 min)
+- ✅ Reglas de oro (qué NO modificar)
+- ✅ Troubleshooting rápido
+- ✅ Próximos pasos sugeridos
+
+---
+
 ## CHECKPOINT ACTIVO
 
 📍 **[CHECKPOINT_2026-01-08_MULTI_FLOW_COMPLETE.md](CHECKPOINT_2026-01-08_MULTI_FLOW_COMPLETE.md)**
