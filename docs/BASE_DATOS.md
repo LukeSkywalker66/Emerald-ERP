@@ -321,20 +321,27 @@ docker compose exec db psql -U postgres -d emerald -c \
                            │
             ┌──────────────┴──────────────┐
             │                             │
-    ┌───────▼──────────────┐   ┌────────▼──────────────┐
-    │  TICKET_TIMELINE     │   │   WORK_ORDERS        │
-    │ (Bitácora de Eventos)│   │ (Órdenes de Trabajo) │
-    ├──────────────────────┤   ├─────────────────────┤
-    │ PK: id               │   │ PK: id              │
-    │ FK: ticket_id ◄──────┤   │ FK: ticket_id ◄─────┤
-    │ FK: author_id        │   │ FK: technician_id   │
-    │ - event_type (ENUM)  │   │ - ot_type (ENUM)    │
-    │ - content (TEXT)     │   │ - status (ENUM)     │
-    │ - meta_data (JSONB)  │   │ - scheduled_date    │
-    │ - created_at         │   │ - completed_at      │
-    │                      │   │ - total_duration    │
-    │                      │   │ - created_at        │
-    │                      │   └─────────────────────┘
+    ┌───────▼──────────────┐   ┌────────▼──────────────────────────┐
+    │  TICKET_TIMELINE     │   │   WORK_ORDERS                    │
+    │ (Bitácora de Eventos)│   │ (Órdenes de Trabajo)             │
+    ├──────────────────────┤   ├───────────────────────────────────┤
+    │ PK: id               │   │ PK: id                            │
+    │ FK: ticket_id ◄──────┤   │ FK: ticket_id ◄────────────────────┤
+    │ FK: author_id        │   │ FK: technician_id                 │
+    │ - event_type (ENUM)  │   │ - ot_type (ENUM)                  │
+    │ - content (TEXT)     │   │ - status (ENUM)                   │
+    │ - meta_data (JSONB)  │   │ - scheduled_at (TIMESTAMP)        │
+    │ - created_at         │   │ - started_at (TIMESTAMP) *NUEVO*  │
+    │                      │   │ - completed_at (TIMESTAMP) *NUEVO*│
+    │                      │   │ - resolution_type (VARCHAR)       │
+    │                      │   │ - resolution_notes (TEXT) *NUEVO* │
+    │                      │   │ - resolution_category (ENUM) *NVO*│
+    │                      │   │ - photo_urls (JSONB) *NUEVO*      │
+    │                      │   │ - custom_data (JSONB)             │
+    │                      │   │ - notes (TEXT)                    │
+    │                      │   │ - created_at (TIMESTAMP)          │
+    │                      │   │ - updated_at (TIMESTAMP)          │
+    │                      │   └───────────────────────────────────┘
     │                      │           │
     │                      │           │ *
     │                      │    ┌──────▼─────────────┐
@@ -408,6 +415,15 @@ class WorkOrderType(str, Enum):
     INSTALL = "install"              # Instalación
     UPGRADE = "upgrade"              # Upgrade de equipos
     MAINTENANCE = "maintenance"      # Mantenimiento preventivo
+```
+
+**ResolutionCategory:** *(Añadido 07/01/2026 - Cierre de Órdenes de Trabajo)*
+```python
+class ResolutionCategory(str, Enum):
+    INFRASTRUCTURE = "infrastructure"  # Problema de infraestructura (fibra, router, etc.)
+    EQUIPMENT = "equipment"            # Problema de equipo del cliente
+    CONFIGURATION = "configuration"    # Problema de configuración/software
+    OTHER = "other"                    # Otra causa
 ```
 
 ### Índices y Performance

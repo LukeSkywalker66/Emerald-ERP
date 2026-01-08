@@ -1,4 +1,6 @@
-# 🎫 Arquitectura - Tickets V2.0
+# 🎫 Arquitectura - Tickets
+
+> **Nota Historical:** Esta tabla se llama `tickets_v2` porque originalmente existía una tabla `tickets` para una demo visual obsoleta. Un futuro refactor renombrará `tickets_v2` → `tickets` para limpiar la nomenclatura. Ver [#RENAME-TICKETS-V2](./ARQUITECTURA_TICKETS_V2.md#rename-tickets-v2).
 
 ## 📋 Contexto & Decisiones Arquitectónicas
 
@@ -70,10 +72,17 @@ CREATE INDEX ix_ticket_timeline_ticket_created ON ticket_timeline(ticket_id, cre
 CREATE TABLE work_orders (
     id SERIAL PRIMARY KEY,
     ticket_id INTEGER NOT NULL REFERENCES tickets_v2(id) ON DELETE CASCADE,
-    ot_type VARCHAR(20) NOT NULL,      -- ENUM: repair, install, maintenance, inspection
-    status VARCHAR(20) NOT NULL,       -- ENUM: pending_planning, assigned, in_progress, completed, failed
+    ot_type VARCHAR(20) NOT NULL,              -- ENUM: repair, install, pickup, infrastructure
+    status VARCHAR(20) NOT NULL,               -- ENUM: pending_planning, assigned, in_progress, completed, failed
     technician_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     scheduled_at TIMESTAMP,
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    resolution_type VARCHAR(15),               -- ENUM: success, failed, rescheduled, partial
+    resolution_notes TEXT,                     -- Narrativa del técnico (≥10 caracteres)
+    resolution_category VARCHAR(14),           -- ENUM: infrastructure, equipment, configuration, other
+    photo_urls JSONB DEFAULT '[]',             -- Array de URLs de fotos de evidencia
+    custom_data JSONB,                         -- Datos flexibles del técnico (speeds, signals, etc)
     notes TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT now(),
     updated_at TIMESTAMP NOT NULL DEFAULT now()
@@ -82,7 +91,23 @@ CREATE TABLE work_orders (
 CREATE INDEX ix_work_orders_ticket_id ON work_orders(ticket_id);
 CREATE INDEX ix_work_orders_status ON work_orders(status);
 CREATE INDEX ix_work_orders_technician_id ON work_orders(technician_id);
+CREATE INDEX ix_work_orders_completed_at ON work_orders(completed_at);
 ```
+
+**Nuevos Campos (8 de enero 2026):**
+- ✅ `resolution_category` (VARCHAR 14): Categoriza la resolución (infraestructura, equipamiento, configuración, otra)
+- ✅ `photo_urls` (JSONB): Array de strings con URLs de fotos de evidencia
+- ✅ `started_at`: Marca cuándo el técnico comienza el trabajo en sitio
+- ✅ `completed_at`: Marca cuándo se finaliza la OT
+- ✅ `resolution_type`: Tipo de resolución (éxito, fallo, reprogramado, parcial)
+- ✅ `resolution_notes`: Narrativa flexible del técnico sobre qué se hizo
+
+**Rationale:**
+- ✅ `completed_at` permite filtrar OTs finalizadas vs. en progreso
+- ✅ `resolution_category` facilita reportes por tipo de resolución
+- ✅ `photo_urls` (JSONB) almacena evidencia sin schema rígido
+- ✅ `resolution_notes` es libre-formato para narrativa del técnico (min 10 caracteres)
+- ✅ `custom_data` flexibiliza datos variables (speedtest, señal óptica, etc)
 
 ---
 
@@ -522,9 +547,110 @@ Status 422 con error descriptivo
 
 ---
 
+## 8️⃣ Flujo de Cierre de Orden de Trabajo (Nuevo - 8 de enero 2026)
+
+### Contexto
+El técnico completa una OT en sitio. Necesita:
+1. Categorizar la resolución (infraestructura/equipamiento/configuración/otra)
+2. Describir qué se hizo (narrativa >10 caracteres)
+3. Registrar materiales consumidos
+4. Adjuntar fotos como evidencia
+
+### Flujo en Backend
+
+**PATCH /v2/work-orders/{id}**
+
+```python
+# Payload
+{
+  "status": "completed",
+  "completed_at": "2026-01-08T11:29:54Z",
+  "resolution_category": "infrastructure",      # enum: infrastructure|equipment|configuration|other
+  "resolution_notes": "Se reemplazó fibra cortada...",  # min_length=10, max=1000
+  "photo_urls": [                               # JSONB array de strings
+    "/media/tickets/20/photo1.jpg",
+    "/media/tickets/20/photo2.jpg"
+  ]
+}
+```
+
+**Backend Processing:**
+1. Valida payload con `WorkOrderUpdate` schema (Pydantic)
+2. Aplica `flag_modified()` para campos JSONB
+3. Persiste en `work_orders` table
+4. Crea evento en `ticket_timeline` con metadata de resolución
+5. Devuelve `WorkOrderDetailResponse` con todos los datos
+
+**GET /v2/work-orders/{id}**
+
+```python
+# Response includes:
+{
+  "id": 12,
+  "status": "completed",
+  "completed_at": "2026-01-08T11:29:54Z",
+  "resolution_category": "infrastructure",
+  "resolution_notes": "Se reemplazó fibra cortada...",
+  "photo_urls": ["/media/tickets/20/photo1.jpg", "/media/tickets/20/photo2.jpg"],
+  "items": [...],                               # Materiales utilizados
+  "ticket_info": {...}
+}
+```
+
+### Flujo en Frontend
+
+**Wizard de 3 pasos** (`CloseWorkOrderDialog.jsx`):
+
+1. **Paso 1 - Resolución:**
+   - Select de 4 categorías (radio buttons estilo neon)
+   - Textarea para narrativa (validación en tiempo real: 10-1000 chars)
+
+2. **Paso 2 - Materiales:**
+   - Listado de materiales consumidos (desde `workOrder.items`)
+   - Advertencia si instalación sin materiales
+   - Formulario optional para agregar material manual
+
+3. **Paso 3 - Evidencia:**
+   - Botón "Explorar archivo" (file picker)
+   - Botón "Abrir cámara" (capture)
+   - Compresión client-side: imágenes >2MB → JPEG quality 0.82, max 1600px
+   - Upload a `/v2/tickets/{ticket_id}/attachments` con JWT
+   - Galería con miniaturas + botón eliminar
+
+**Validaciones:**
+- Categoría: obligatoria (select)
+- Notas: 10-1000 caracteres
+- Fotos: obligatoria si `ot_type` ∈ {repair, install} (opcional si pickup)
+
+**Resumen Post-Completación** (`WorkOrderCompletedSummary.jsx`):
+- Badge de categoría (colores: blue/purple/emerald/amber)
+- Descripción del trabajo
+- Materiales consumidos
+- Galería de fotos (2-3 cols, hover overlay "Ver")
+- Link al ticket origen con `navigate()`
+
+---
+
+## 🔄 #RENAME-TICKETS-V2
+
+**Decisión:** Renombrar tabla `tickets_v2` → `tickets`
+
+**Contexto:** Tabla vieja `tickets` era para demo visual obsoleta. Mantener `v2` es confuso.
+
+**Impacto:**
+- Migration Alembic: rename table + update FKs
+- Model: `class Ticket` (ya está así en código)
+- Routers: Cambios en queries raw SQL
+- Tests: Actualizar referencias
+
+**Prioridad:** MEDIA (después de estabilizar cierre de OT)
+
+---
+
 ## 9️⃣ Roadmap Futuro
 
 - [ ] Agregar teléfono del cliente a connection_details
+- [ ] Renombrar `tickets_v2` → `tickets` (cleanup nomenclatura)
 - [ ] Soporte para SLAs (tiempo máximo de respuesta)
 - [ ] Búsqueda full-text en timeline (PostgreSQL `tsvector`)
 - [ ] Notificaciones automáticas (cuando status cambia)

@@ -727,6 +727,117 @@ Actualizar estado de una orden de trabajo.
 - `in_progress` → `completed` (trabajo terminado)
 - Cualquiera → `cancelled` (cancelada)
 
+---
+
+## 🔧 ENDPOINTS v2 - Cierre de Órdenes de Trabajo (NUEVO - 07/01/2026)
+
+### PATCH /api/v2/work-orders/{id}
+Completar una orden de trabajo con categorización de resolución y evidencia fotográfica.
+
+**Autenticación:** Requerida (JWT)  
+**Método:** PATCH  
+**URL:** `/api/v2/work-orders/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`
+
+**Request Body:**
+```json
+{
+  "resolution_type": "fixed",
+  "resolution_notes": "Se reemplazó el módulo GPON que presentaba mala señal. Se verificó sincronización correcta.",
+  "resolution_category": "equipment",
+  "photo_urls": [
+    "/media/tickets/20/2026-01-07_15-30-45-compressed.jpg",
+    "/media/tickets/20/2026-01-07_15-32-10-compressed.jpg"
+  ]
+}
+```
+
+**Validaciones:**
+- `resolution_notes` (string, 10-1000 caracteres, obligatorio)
+- `resolution_category` (enum: `infrastructure`, `equipment`, `configuration`, `other`)
+- `photo_urls` (array de strings, máximo 10 fotos)
+- Cada foto debe ser un attachment previamente subido
+
+**Response (200):**
+```json
+{
+  "id": "work-order-uuid",
+  "ticket_id": "550e8400-e29b-41d4-a716-446655440000",
+  "ot_type": "repair",
+  "status": "completed",
+  "technician_id": "tech-uuid",
+  "scheduled_at": "2026-01-07T10:00:00Z",
+  "started_at": "2026-01-07T15:00:00Z",
+  "completed_at": "2026-01-07T15:45:00Z",
+  "resolution_type": "fixed",
+  "resolution_notes": "Se reemplazó el módulo GPON que presentaba mala señal. Se verificó sincronización correcta.",
+  "resolution_category": "equipment",
+  "photo_urls": [
+    "/media/tickets/20/2026-01-07_15-30-45-compressed.jpg",
+    "/media/tickets/20/2026-01-07_15-32-10-compressed.jpg"
+  ],
+  "custom_data": null,
+  "notes": null,
+  "created_at": "2026-01-02T14:15:00Z",
+  "updated_at": "2026-01-07T15:45:00Z"
+}
+```
+
+**Efectos secundarios:**
+- Marca la OT como `completed` y establece `completed_at` con timestamp actual
+- Crea entrada en `ticket_timeline` con `event_type: "ot_completed"`
+- meta_data del timeline incluye: `photo_count`, `resolution_category`, `resolution_type`
+- Actualiza el ticket asociado con información de cierre en la bitácora
+
+---
+
+### GET /api/v2/work-orders/{id}
+Obtener detalles completos de una orden de trabajo (incluye fotos y categorización).
+
+**Autenticación:** Requerida (JWT)  
+**Método:** GET  
+**URL:** `/api/v2/work-orders/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`
+
+**Response (200):**
+```json
+{
+  "id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "ticket_id": "550e8400-e29b-41d4-a716-446655440000",
+  "ticket_code": "CNX-8821",
+  "ot_type": "repair",
+  "status": "completed",
+  "technician_id": "tech-uuid-123",
+  "technician_name": "Juan Pérez",
+  "scheduled_at": "2026-01-07T10:00:00Z",
+  "started_at": "2026-01-07T15:00:00Z",
+  "completed_at": "2026-01-07T15:45:00Z",
+  "resolution_type": "fixed",
+  "resolution_notes": "Se reemplazó el módulo GPON que presentaba mala señal. Se verificó sincronización correcta.",
+  "resolution_category": "equipment",
+  "photo_urls": [
+    "/media/tickets/20/2026-01-07_15-30-45-compressed.jpg",
+    "/media/tickets/20/2026-01-07_15-32-10-compressed.jpg"
+  ],
+  "custom_data": {
+    "equipment_swapped": true,
+    "old_serial": "GPON12AB34CD56",
+    "new_serial": "GPON99XY87ZZ11"
+  },
+  "notes": "Cliente agradecido con el trabajo",
+  "created_at": "2026-01-02T14:15:00Z",
+  "updated_at": "2026-01-07T15:45:00Z"
+}
+```
+
+**Campos nuevos (v2):**
+- `started_at`: Timestamp cuando el técnico inició la ejecución
+- `completed_at`: Timestamp de finalización (se establece al hacer PATCH con cierre)
+- `resolution_type`: Tipo de resolución (`fixed`, `pending`, `transferred`, etc.)
+- `resolution_notes`: Descripción narrativa de qué se hizo (mín 10 caracteres)
+- `resolution_category`: Categorización de causa raíz (`infrastructure`, `equipment`, `configuration`, `other`)
+- `photo_urls`: Array de URLs a fotos de evidencia (máx 10 imágenes)
+
+---
+
 ### POST /api/v1/work-orders/{id}/items
 Agregar material consumido en una orden de trabajo.
 
