@@ -41,8 +41,32 @@ function TimelineEventCard({ event }) {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
-  // Si es evento de OT, renderizar como Card clickeable
+  // Mapeo de estados a colores
+  const statusColorMap = {
+    'pending_planning': 'bg-zinc-600 text-zinc-100',
+    'assigned': 'bg-blue-600 text-blue-100',
+    'in_progress': 'bg-amber-600 text-amber-100',
+    'completed': 'bg-emerald-600 text-emerald-100',
+    'failed': 'bg-red-600 text-red-100',
+  };
+
+  const getStatusLabel = (status) => {
+    const labels = {
+      'pending_planning': 'Pendiente',
+      'assigned': 'Asignada',
+      'in_progress': 'En progreso',
+      'completed': 'Completada',
+      'failed': 'Fallida',
+    };
+    return labels[status] || status;
+  };
+
+  // Si es evento de OT, renderizar como Card clickeable con status dinámico
   if (event.event_type === 'OT_EVENT' && event.meta_data?.work_order_id) {
+    // Usar el status ACTUAL si está disponible (desde backend), sino fallback al contenido
+    const currentStatus = event.meta_data?.current_status || 'pending_planning';
+    const statusColor = statusColorMap[currentStatus] || 'bg-zinc-600 text-zinc-100';
+    
     return (
       <div className="flex gap-4 relative">
         <div className={`w-6 h-6 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0 z-10 ${eventInfo.color}`}>
@@ -53,7 +77,12 @@ function TimelineEventCard({ event }) {
             onClick={() => navigate(`/app/work-orders/${event.meta_data.work_order_id}/execute`)}
             className="cursor-pointer rounded-lg border border-emerald-700/50 bg-emerald-900/30 p-4 hover:border-emerald-500 hover:bg-emerald-900/50 transition-all"
           >
-            <p className="text-sm text-emerald-200 font-semibold">OT #{event.meta_data.work_order_id}</p>
+            <div className="flex items-start justify-between mb-2">
+              <p className="text-sm text-emerald-200 font-semibold">OT #{event.meta_data.work_order_id}</p>
+              <span className={`px-2 py-1 rounded text-xs font-semibold ${statusColor}`}>
+                {getStatusLabel(currentStatus)}
+              </span>
+            </div>
             <p className="text-sm text-emerald-100 mt-1">{event.content}</p>
             <div className="flex items-center justify-between mt-2">
               <time className="text-xs text-zinc-500">

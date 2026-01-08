@@ -106,14 +106,31 @@ def _ticket_to_response(ticket: Ticket, client_name: Optional[str] = None, clien
     )
 
 
-def _timeline_to_response(event: TicketTimeline) -> TimelineEventResponse:
+def _timeline_to_response(event: TicketTimeline, db: Optional[Session] = None) -> TimelineEventResponse:
+    """Convierte TicketTimeline a response, enriqueciendo con datos dinámicos si es necesario.
+    
+    Para eventos de OT, trae el status ACTUAL de la orden, no el guardado históricamente.
+    """
+    meta = dict(event.meta_data) if event.meta_data else {}
+    
+    # Si es un evento de OT, traer el status actual de la orden
+    if event.event_type == TicketTimelineEventType.ot_event and meta.get('work_order_id') and db:
+        try:
+            wo = db.get(WorkOrder, meta['work_order_id'])
+            if wo:
+                # Incluir status ACTUAL de la OT, no el que estaba cuando se creó
+                meta['current_status'] = wo.status.value if hasattr(wo.status, 'value') else str(wo.status)
+                meta['current_ot_type'] = wo.ot_type.value if hasattr(wo.ot_type, 'value') else str(wo.ot_type)
+        except Exception:
+            pass  # Silenciar errores para no romper el flujo
+    
     return TimelineEventResponse(
         id=event.id,
         event_type=event.event_type,
         content=event.content,
         created_at=event.created_at,
         author_name=_safe_name(event.author),
-        meta_data=event.meta_data,
+        meta_data=meta,
     )
 
 
@@ -332,7 +349,8 @@ def get_ticket_detail(ticket_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
 
     timeline_events = sorted(ticket.timeline, key=lambda ev: ev.created_at)
-    timeline = [_timeline_to_response(ev) for ev in timeline_events]
+    # Pasar db a _timeline_to_response para que pueda traer estados dinámicos de OTs
+    timeline = [_timeline_to_response(ev, db) for ev in timeline_events]
     work_orders = [_workorder_to_response(wo) for wo in ticket.work_orders]
 
     # Enriquecer con datos de la conexión (si existe)
