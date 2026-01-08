@@ -7,7 +7,7 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.models import TicketPriority, TicketStatus, WorkOrderType
-from src.models.tickets import TicketTimelineEventType, WorkOrderStatus, WorkOrderResolutionType
+from src.models.tickets import TicketTimelineEventType, WorkOrderStatus, WorkOrderResolutionType, ResolutionCategory
 
 
 # ===========================
@@ -103,7 +103,20 @@ class WorkOrderUpdate(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     resolution_type: Optional[WorkOrderResolutionType] = None
-    resolution_notes: Optional[str] = None
+    resolution_notes: Optional[str] = Field(
+        None, 
+        min_length=10,
+        max_length=1000,
+        description="Notas de resolución (mín 10, máx 1000 caracteres al completar)"
+    )
+    resolution_category: Optional[ResolutionCategory] = Field(
+        None,
+        description="Categoría de resolución: infrastructure, equipment, configuration, other"
+    )
+    photo_urls: Optional[List[str]] = Field(
+        None,
+        description="URLs de fotos de evidencia"
+    )
     custom_data: Optional[Dict[str, Any]] = None
 
 
@@ -140,6 +153,8 @@ class WorkOrderDetailResponse(BaseModel):
     completed_at: Optional[datetime] = None
     resolution_type: Optional[WorkOrderResolutionType] = None
     resolution_notes: Optional[str] = None
+    resolution_category: Optional[ResolutionCategory] = None
+    photo_urls: Optional[List[str]] = None
     custom_data: Optional[Dict[str, Any]] = None
     notes: Optional[str] = None
     created_at: datetime

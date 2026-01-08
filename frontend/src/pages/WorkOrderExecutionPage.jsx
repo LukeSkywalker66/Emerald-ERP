@@ -31,6 +31,8 @@ import {
 } from '@/components/ui/dialog';
 import workOrdersService from '@/services/workOrders.service';
 import beholderService from '@/services/beholder.service';
+import CloseWorkOrderDialog from '@/components/work-orders/CloseWorkOrderDialog';
+import WorkOrderCompletedSummary from '@/components/work-orders/WorkOrderCompletedSummary';
 
 // Mapeo de tipos de OT
 const OT_TYPE_ICONS = {
@@ -100,7 +102,7 @@ export default function WorkOrderExecutionPage() {
 
   // Dialogs
   const [showMaterialDialog, setShowMaterialDialog] = useState(false);
-  const [showCompletionDialog, setShowCompletionDialog] = useState(false);
+  const [showCloseDialog, setShowCloseDialog] = useState(false);
 
   // Material form
   const [materialForm, setMaterialForm] = useState({
@@ -201,22 +203,16 @@ export default function WorkOrderExecutionPage() {
     }
   };
 
-  const handleCompleteWork = async () => {
+  const handleCloseWorkOrder = async () => {
     try {
       setIsSubmitting(true);
-      const updated = await workOrdersService.updateWorkOrder(id, {
-        status: 'completed',
-        completed_at: new Date().toISOString(),
-        resolution_type: completionForm.resolution_type,
-        resolution_notes: completionForm.resolution_notes || null,
-      });
-
+      const updated = await workOrdersService.getWorkOrder(id);
       setWorkOrder(updated);
-      setShowCompletionDialog(false);
+      setShowCloseDialog(false);
 
       setTimeout(() => navigate('/app/work-orders'), 1500);
     } catch (err) {
-      alert('Error al completar trabajo: ' + err.message);
+      console.error('[ERROR] Failed to reload WO after completion:', err);
     } finally {
       setIsSubmitting(false);
     }
@@ -331,7 +327,7 @@ export default function WorkOrderExecutionPage() {
             {isActive && (
               <Button
                 size="sm"
-                onClick={() => setShowCompletionDialog(true)}
+                onClick={() => setShowCloseDialog(true)}
                 className="bg-emerald-600 hover:bg-emerald-700 h-9"
               >
                 <CheckCircle2 size={14} className="mr-1" />
@@ -606,6 +602,14 @@ export default function WorkOrderExecutionPage() {
               Agregar Material
             </Button>
           </div>
+
+          {/* Resumen de OT Completada */}
+          {isCompleted && workOrder && (
+            <div className="p-4 rounded-lg border border-emerald-700/30 bg-emerald-900/20">
+              <h3 className="text-sm font-semibold text-white mb-4">Trabajo Completado</h3>
+              <WorkOrderCompletedSummary workOrder={workOrder} />
+            </div>
+          )}
         </div>
       </div>
 
@@ -677,69 +681,13 @@ export default function WorkOrderExecutionPage() {
       </Dialog>
 
       {/* Completion Dialog */}
-      <Dialog open={showCompletionDialog} onOpenChange={setShowCompletionDialog}>
-        <DialogContent className="bg-zinc-900 border-zinc-800">
-          <DialogHeader>
-            <DialogTitle className="text-white">Completar Trabajo</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-3 py-4">
-            <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-2">
-                Tipo de Resolución
-              </label>
-              <select
-                value={completionForm.resolution_type}
-                onChange={(e) =>
-                  setCompletionForm((prev) => ({ ...prev, resolution_type: e.target.value }))
-                }
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm"
-              >
-                <option value="success">✓ Exitosa</option>
-                <option value="failed">✗ Fallida</option>
-                <option value="partial">⊗ Parcial</option>
-                <option value="rescheduled">↻ Reprogramada</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-2">
-                Notas (opcional)
-              </label>
-              <textarea
-                value={completionForm.resolution_notes}
-                onChange={(e) =>
-                  setCompletionForm((prev) => ({ ...prev, resolution_notes: e.target.value }))
-                }
-                placeholder="Describe lo realizado, problemas encontrados, etc."
-                rows="3"
-                maxLength="500"
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 text-sm"
-              />
-              <p className="text-xs text-zinc-500 mt-1">
-                {completionForm.resolution_notes.length}/500
-              </p>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowCompletionDialog(false)}
-              disabled={isSubmitting}
-            >
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleCompleteWork}
-              disabled={isSubmitting}
-              className="bg-emerald-600 hover:bg-emerald-700"
-            >
-              {isSubmitting ? 'Guardando...' : 'Completar Trabajo'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Close Work Order Dialog (Wizard de 3 pasos) */}
+      <CloseWorkOrderDialog
+        workOrder={workOrder}
+        isOpen={showCloseDialog}
+        onClose={() => setShowCloseDialog(false)}
+        onComplete={handleCloseWorkOrder}
+      />
     </div>
   );
 }

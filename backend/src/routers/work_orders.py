@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import String, cast, or_, text
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload, attributes
 
 from src.database import get_db
 from src.models.tickets import (
@@ -304,6 +304,8 @@ def get_work_order_detail(
         completed_at=wo.completed_at,
         resolution_type=wo.resolution_type,
         resolution_notes=wo.resolution_notes,
+        resolution_category=wo.resolution_category,
+        photo_urls=wo.photo_urls,
         custom_data=wo.custom_data or {},
         notes=wo.notes,
         created_at=wo.created_at,
@@ -339,8 +341,16 @@ def update_work_order(
     
     # Actualizar campos
     update_data = payload.model_dump(exclude_unset=True)
+    print(f"[DEBUG] Updating WO #{work_order_id} with data: {update_data}")
+    
     for key, value in update_data.items():
         setattr(wo, key, value)
+    
+    # Flag modified para campos JSONB (photo_urls, custom_data)
+    if 'photo_urls' in update_data:
+        attributes.flag_modified(wo, "photo_urls")
+    if 'custom_data' in update_data:
+        attributes.flag_modified(wo, "custom_data")
     
     # Crear evento de timeline si cambia estado
     if payload.status and payload.status != old_status:
@@ -356,22 +366,27 @@ def update_work_order(
     # Si se completa la OT, registrar en timeline con detalles de resolución
     if payload.completed_at and not wo.completed_at:
         resolution_notes = payload.resolution_notes or (payload.resolution_type.value if payload.resolution_type else "sin especificar")
+        meta_data = {
+            "work_order_id": wo.id,
+            "resolution_type": payload.resolution_type.value if payload.resolution_type else None,
+            "resolution_notes": resolution_notes,
+            "resolution_category": payload.resolution_category.value if payload.resolution_category else None,
+            "photo_count": len(payload.photo_urls) if payload.photo_urls else 0,
+            "status": WorkOrderStatus.completed.value,
+        }
         timeline_event = TicketTimeline(
             ticket_id=wo.ticket_id,
             author_id=user_id,
             event_type=TicketTimelineEventType.ot_event,
             content=f"OT #{wo.id} Finalizada: {resolution_notes}",
-            meta_data={
-                "work_order_id": wo.id,
-                "resolution_type": payload.resolution_type.value if payload.resolution_type else None,
-                "resolution_notes": resolution_notes,
-                "status": WorkOrderStatus.completed.value,
-            },
+            meta_data=meta_data,
         )
         db.add(timeline_event)
     
     db.commit()
     db.refresh(wo)
+    
+    print(f"[DEBUG] After refresh, WO #{work_order_id} photo_urls: {wo.photo_urls}, resolution_category: {wo.resolution_category}")
     
     return get_work_order_detail(work_order_id, db, user_id)
 

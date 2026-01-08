@@ -121,6 +121,14 @@ class WorkOrderResolutionType(StrEnum):
     partial = "partial"  # Completado parcialmente
 
 
+class ResolutionCategory(StrEnum):
+    """Categoría macro de resolución de una OT completada."""
+    infrastructure = "infrastructure"  # Infraestructura (fibra, nodos, torres)
+    equipment = "equipment"  # Equipamiento (routers, ONUs, antenas)
+    configuration = "configuration"  # Configuración (software, parámetros)
+    other = "other"  # Otra categoría
+
+
 # ===========================
 # MODELO: Tag (Etiqueta)
 # ===========================
@@ -505,6 +513,19 @@ class WorkOrder(Base, TimestampMixin):
         Text,
         nullable=True,
         comment="Notas del técnico sobre la resolución final"
+    )
+
+    resolution_category: Mapped[Optional[ResolutionCategory]] = mapped_column(
+        Enum(ResolutionCategory, name="resolution_category_enum", native_enum=False),
+        nullable=True,
+        comment="Categoría macro de resolución: infrastructure, equipment, configuration, other"
+    )
+
+    photo_urls: Mapped[Optional[list[str]]] = mapped_column(
+        JSONB,
+        nullable=True,
+        default=None,
+        comment="Array de URLs de fotos de evidencia de la resolución"
     )
 
     # Datos flexibles del diagnóstico (JSONB)

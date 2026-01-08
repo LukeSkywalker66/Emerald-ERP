@@ -41,6 +41,7 @@ import workOrdersService from '@/services/workOrders.service';
 import TicketHistoryCard from '@/components/tickets/TicketHistoryCard';
 import RepeatedIssueAlert from '@/components/tickets/RepeatedIssueAlert';
 import TicketTags from '@/components/tickets/TicketTags';
+import WorkOrderCompletedSummary from '@/components/work-orders/WorkOrderCompletedSummary';
 
 const statusConfig = {
   open: { label: 'Abierto', tone: 'text-emerald-400', chip: 'bg-emerald-500/10 border-emerald-500/50' },
@@ -177,33 +178,42 @@ function WorkOrderCard({ workOrder }) {
   };
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={handleOpen}
-      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && handleOpen()}
-      className={`p-4 rounded-lg border border-zinc-800/80 ${statusInfo.bg} cursor-pointer hover:border-emerald-700/70 transition`}
-    >
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <Icon size={16} className={statusInfo.color} />
-          <span className="text-sm font-medium text-white">OT #{workOrder.id}</span>
+    <div>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={handleOpen}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && handleOpen()}
+        className={`p-4 rounded-lg border border-zinc-800/80 ${statusInfo.bg} cursor-pointer hover:border-emerald-700/70 transition`}
+      >
+        <div className="flex items-start justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <Icon size={16} className={statusInfo.color} />
+            <span className="text-sm font-medium text-white">OT #{workOrder.id}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-xs">{statusInfo.label}</Badge>
+            <Badge variant="outline" className={`text-xs ${typeInfo.tone}`}>{typeInfo.label}</Badge>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-xs">{statusInfo.label}</Badge>
-          <Badge variant="outline" className={`text-xs ${typeInfo.tone}`}>{typeInfo.label}</Badge>
-        </div>
+        {workOrder.technician_name && (
+          <p className="text-sm text-zinc-400 flex items-center gap-2">
+            <User size={14} />
+            {workOrder.technician_name}
+          </p>
+        )}
+        {workOrder.scheduled_at && (
+          <p className="text-xs text-zinc-500 mt-1">
+            Programada: {new Date(workOrder.scheduled_at).toLocaleString('es-AR')}
+          </p>
+        )}
       </div>
-      {workOrder.technician_name && (
-        <p className="text-sm text-zinc-400 flex items-center gap-2">
-          <User size={14} />
-          {workOrder.technician_name}
-        </p>
-      )}
-      {workOrder.scheduled_at && (
-        <p className="text-xs text-zinc-500 mt-1">
-          Programada: {new Date(workOrder.scheduled_at).toLocaleString('es-AR')}
-        </p>
+
+      {/* Resumen de OT Completada */}
+      {workOrder.completed_at && (
+        <div className="mt-4 p-4 rounded-lg border border-emerald-700/30 bg-emerald-900/20">
+          <WorkOrderCompletedSummary workOrder={workOrder} />
+        </div>
       )}
     </div>
   );
