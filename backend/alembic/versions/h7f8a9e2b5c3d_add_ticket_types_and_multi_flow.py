@@ -41,6 +41,9 @@ def upgrade():
         )
     )
     
+    # Actualizar tickets existentes a 'technical' (por si acaso)
+    op.execute("UPDATE tickets SET ticket_type = 'technical' WHERE ticket_type IS NULL")
+    
     op.add_column(
         'tickets',
         sa.Column(
