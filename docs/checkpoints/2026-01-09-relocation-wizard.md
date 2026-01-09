@@ -1,9 +1,10 @@
 # Checkpoint - 2026-01-09
 
 ## Estado actual
-- Rama activa: `develop` (push reciente con fixes de refresh tokens y wizard de traslado).
+- Rama activa: `develop` (push recientes: refresh tokens, wizard de traslado, notas OT descriptivas, fix de diálogo de cierre de OT).
 - Cambios clave: búsqueda de conexiones ahora acepta `source`; backend prioriza DB local para `/v2/tickets/search-connections`; wizard de traslado permite dirección manual y usa `source=local`.
 - Tickets/traslado: se puede crear traslado sin `destination_connection_id` si se informa dirección en `availability_note`.
+- OTs: notas y timeline más descriptivas para traslados/instalaciones/retiros; cierre de OT reestilizado con `DialogContent` (UI restablecida).
 
 ## Archivos modificados (última sesión)
 - backend/src/routers/tickets.py
@@ -34,3 +35,4 @@ WHERE c.pppoe_username ILIKE '%usuarioprueba%';
 - Verificar datos reales para `usuarioprueba` y ajustar registro en DB si está incorrecto.
 - Si se necesita fallback a ISPCube en otros flujos, usar `searchConnections(query, { source: 'mixed' })` desde frontend.
 - Completar chequeo de login/refresh backend (pendiente en TODO).
+  
