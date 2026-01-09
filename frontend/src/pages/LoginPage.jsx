@@ -6,14 +6,15 @@ import { EmeraldLogo } from '../components/ui/EmeraldLogo';
 
 export default function LoginPage() {
   const { login, loading, error } = useAuth();
-  const [email, setEmail] = useState('admin@emerald.com');
+  const [username, setUsername] = useState('admin@emerald.com');
   const [password, setPassword] = useState('Admin@123');
   const navigate = useNavigate();
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     try {
-      await login({ email, password });
+      // El backend acepta tanto email como username
+      await login({ email: username, password });
       navigate('/app');
     } catch (err) {
       console.error('Login fallido', err);
@@ -41,22 +42,23 @@ export default function LoginPage() {
           {/* Formulario */}
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-zinc-300 mb-2">
-                Correo Electrónico
+              <label htmlFor="username" className="block text-sm font-medium text-zinc-300 mb-2">
+                Usuario o Email
               </label>
               <div className="relative">
                 <Mail size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
                 <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  id="username"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
                   className="w-full pl-11 pr-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
-                  placeholder="usuario@emerald.com"
+                  placeholder="usuario o email@example.com"
                   autoComplete="username"
                   required
                 />
               </div>
+              <p className="text-xs text-zinc-500 mt-1.5">Usa tu username o dirección de email</p>
             </div>
 
             <div>
