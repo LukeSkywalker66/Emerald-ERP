@@ -26,12 +26,38 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import usersService from '@/services/users.service';
+
+// Roles disponibles (TODO: obtener desde endpoint /api/v2/roles/)
+const AVAILABLE_ROLES = [
+  { id: 4, name: 'admin', label: 'Administrador' },
+  { id: 5, name: 'tecnico', label: 'Técnico' },
+  { id: 6, name: 'viewer', label: 'Visualizador' },
+  { id: 8, name: 'operador', label: 'Operador' },
+];
 
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [formData, setFormData] = useState({
+    email: '',
+    username: '',
+    full_name: '',
+    password: '',
+    role_id: 5, // Técnico por defecto
+  });
+  const [formErrors, setFormErrors] = useState({});
+  const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -95,6 +121,71 @@ export default function UsersPage() {
     }
   };
 
+  const handleOpenCreateDialog = () => {
+    setFormData({
+      email: '',
+      username: '',
+      full_name: '',
+      password: '',
+      role_id: 5,
+    });
+    setFormErrors({});
+    setDialogOpen(true);
+  };
+
+  const validateForm = () => {
+    const errors = {};
+    
+    if (!formData.email.trim()) {
+      errors.email = 'El email es requerido';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      errors.email = 'Email inválido';
+    }
+    
+    if (!formData.username.trim()) {
+      errors.username = 'El username es requerido';
+    } else if (formData.username.length < 3) {
+      errors.username = 'Mínimo 3 caracteres';
+    }
+    
+    if (!formData.password.trim()) {
+      errors.password = 'La contraseña es requerida';
+    } else if (formData.password.length < 8) {
+      errors.password = 'Mínimo 8 caracteres';
+    }
+    
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleCreateUser = async () => {
+    if (!validateForm()) return;
+    
+    try {
+      setSubmitting(true);
+      await usersService.createUser(formData);
+      alert(`Usuario ${formData.username} creado exitosamente`);
+      setDialogOpen(false);
+      loadUsers();
+    } catch (error) {
+      if (error.response?.status === 409) {
+        alert('Error: El email o username ya existe');
+      } else {
+        alert(`Error: ${error.message}`);
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleInputChange = (field, value) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+    // Limpiar error del campo al editar
+    if (formErrors[field]) {
+      setFormErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
+  };
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       {/* Header */}
@@ -108,7 +199,7 @@ export default function UsersPage() {
           </p>
         </div>
         <Button
-          onClick={() => alert('Crear usuario: implementar formulario')}
+          onClick={handleOpenCreateDialog}
           className="bg-emerald-600 hover:bg-emerald-700"
         >
           <UserPlus className="mr-2 h-4 w-4" />
@@ -231,6 +322,120 @@ export default function UsersPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Dialog Crear Usuario */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5 text-emerald-500" />
+              Crear Nuevo Usuario
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Email */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                Email *
+              </label>
+              <Input
+                type="email"
+                placeholder="usuario@emerald.com"
+                value={formData.email}
+                onChange={(e) => handleInputChange('email', e.target.value)}
+                className={formErrors.email ? 'border-red-500' : ''}
+              />
+              {formErrors.email && (
+                <p className="text-xs text-red-400 mt-1">{formErrors.email}</p>
+              )}
+            </div>
+
+            {/* Username */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                Username *
+              </label>
+              <Input
+                type="text"
+                placeholder="usuario123"
+                value={formData.username}
+                onChange={(e) => handleInputChange('username', e.target.value)}
+                className={formErrors.username ? 'border-red-500' : ''}
+              />
+              {formErrors.username && (
+                <p className="text-xs text-red-400 mt-1">{formErrors.username}</p>
+              )}
+            </div>
+
+            {/* Nombre Completo */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                Nombre Completo
+              </label>
+              <Input
+                type="text"
+                placeholder="Juan Pérez"
+                value={formData.full_name}
+                onChange={(e) => handleInputChange('full_name', e.target.value)}
+              />
+            </div>
+
+            {/* Contraseña */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                Contraseña *
+              </label>
+              <Input
+                type="password"
+                placeholder="Mínimo 8 caracteres"
+                value={formData.password}
+                onChange={(e) => handleInputChange('password', e.target.value)}
+                className={formErrors.password ? 'border-red-500' : ''}
+              />
+              {formErrors.password && (
+                <p className="text-xs text-red-400 mt-1">{formErrors.password}</p>
+              )}
+            </div>
+
+            {/* Rol */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                Rol
+              </label>
+              <select
+                value={formData.role_id}
+                onChange={(e) => handleInputChange('role_id', parseInt(e.target.value))}
+                className="flex h-10 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
+              >
+                {AVAILABLE_ROLES.map((role) => (
+                  <option key={role.id} value={role.id}>
+                    {role.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setDialogOpen(false)}
+              disabled={submitting}
+              className="text-zinc-400 hover:text-zinc-100"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleCreateUser}
+              disabled={submitting}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {submitting ? 'Creando...' : 'Crear Usuario'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
