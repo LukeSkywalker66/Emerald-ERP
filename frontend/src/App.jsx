@@ -14,6 +14,7 @@ import NodesPage from './pages/NodesPage';
 import CustomersPage from './pages/CustomersPage';
 import ClientesPage from './pages/ClientesPage';
 import InventarioPage from './pages/InventarioPage';
+import UsersPage from './pages/UsersPage';
 import SettingsPage from './pages/SettingsPage';
 import NotFoundPage from './pages/NotFoundPage';
 import LoadingScreen from './components/ui/LoadingScreen';
@@ -47,6 +48,7 @@ const AppRoutes = () => (
         <Route path="customers" element={<CustomersPage />} />
         <Route path="clientes" element={<ClientesPage />} />
         <Route path="inventario" element={<InventarioPage />} />
+        <Route path="users" element={<UsersPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
 

@@ -47,6 +47,19 @@ def _generate_temporary_password(length: int = 14) -> str:
     return "".join(chars)
 
 
+@router.get("/", response_model=list[UserResponse])
+def list_users(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    _admin = Depends(get_current_active_superuser),
+):
+    """Lista todos los usuarios del sistema (solo superusuarios)."""
+    user_repo = UserRepository(db)
+    users = user_repo.get_all(skip=skip, limit=limit)
+    return users
+
+
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user_admin(
     data: UserCreate,

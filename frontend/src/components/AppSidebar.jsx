@@ -14,6 +14,7 @@ import {
   Network,
   TowerControl,
   Users,
+  UserCog,
   Settings,
 } from 'lucide-react';
 import {
@@ -91,6 +92,12 @@ const menuSections = [
   {
     label: 'Sistema',
     items: [
+      {
+        title: 'Usuarios',
+        icon: UserCog,
+        href: '/app/users',
+        description: 'Gestión de usuarios',
+      },
       {
         title: 'Configuración',
         icon: Settings,
