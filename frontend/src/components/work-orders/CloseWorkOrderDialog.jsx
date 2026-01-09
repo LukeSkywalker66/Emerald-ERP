@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ChevronRight, ChevronLeft, Paperclip, Camera, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Dialog } from '@/components/ui/dialog';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import api from '@/api/client';
 
@@ -220,9 +220,10 @@ export default function CloseWorkOrderDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <div className="w-full max-w-2xl bg-zinc-900 border border-zinc-700 rounded-lg p-6">
+      <DialogContent className="max-w-3xl bg-zinc-900 border-zinc-800 p-0">
+        <div className="w-full bg-zinc-900 rounded-lg p-6 space-y-6">
         {/* Header */}
-        <div className="mb-6">
+        <div className="mb-2">
           <h2 className="text-xl font-bold text-white mb-2">Completar Orden de Trabajo</h2>
           <p className="text-sm text-zinc-400">
             Paso {step} de 3: {step === 1 ? 'Resolución' : step === 2 ? 'Materiales' : 'Evidencia'}
@@ -230,7 +231,7 @@ export default function CloseWorkOrderDialog({
         </div>
 
         {/* Progress Bar */}
-        <div className="flex gap-2 mb-6">
+        <div className="flex gap-2 mb-2">
           {[1, 2, 3].map((num) => (
             <div
               key={num}
@@ -244,7 +245,7 @@ export default function CloseWorkOrderDialog({
         </div>
 
         {/* Contenido por Paso */}
-        <div className="mb-8 min-h-96">
+        <div className="mb-2 min-h-96">
           {/* PASO 1: RESOLUCIÓN */}
           {step === 1 && (
             <div className="space-y-6">
@@ -467,7 +468,7 @@ export default function CloseWorkOrderDialog({
         </div>
 
         {/* Botones de navegación */}
-        <div className="flex gap-3 justify-between">
+        <div className="flex gap-3 justify-between pt-4 border-t border-zinc-800">
           <Button
             variant="outline"
             onClick={handlePrevious}
@@ -497,7 +498,8 @@ export default function CloseWorkOrderDialog({
             </Button>
           )}
         </div>
-      </div>
+        </div>
+      </DialogContent>
     </Dialog>
   );
 }
