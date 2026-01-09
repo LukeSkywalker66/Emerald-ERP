@@ -2,8 +2,9 @@
 Modelos de autenticación y autorización (SQLAlchemy 2.0)
 """
 from typing import Optional
+from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, String, Integer
+from sqlalchemy import Boolean, ForeignKey, String, Integer, DateTime
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -87,6 +88,13 @@ class User(Base, TimestampMixin):
         default=False,
         nullable=False,
         comment="Tiene permisos de superusuario"
+    )
+    
+    last_login: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+        comment="Último login exitoso del usuario"
     )
     
     # Foreign Keys

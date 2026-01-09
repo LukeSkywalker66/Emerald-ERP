@@ -99,6 +99,7 @@ class UserResponse(UserBase):
     is_superuser: bool
     role_id: Optional[int]
     role: Optional[RoleResponse]
+    last_login: Optional[datetime]
     created_at: datetime
     updated_at: datetime
     

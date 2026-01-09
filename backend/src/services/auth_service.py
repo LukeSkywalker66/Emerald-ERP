@@ -2,7 +2,7 @@
 Servicio de autenticación y autorización
 """
 import logging
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -62,6 +62,10 @@ class AuthService:
         
         if not user:
             return None
+        
+        # Actualizar last_login
+        user.last_login = datetime.now(timezone.utc)
+        self.session.commit()
         
         if expires_delta is None:
             expires_delta = timedelta(minutes=30)
