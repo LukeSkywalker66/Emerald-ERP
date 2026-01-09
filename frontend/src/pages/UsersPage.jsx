@@ -36,6 +36,7 @@ import {
 import { Input } from '@/components/ui/input';
 import usersService from '@/services/users.service';
 import rolesService from '@/services/roles.service';
+import { formatTimeAgo, isUserOnline } from '@/utils/time';
 
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
@@ -334,6 +335,7 @@ export default function UsersPage() {
                   <TableHead className="text-zinc-300">Email</TableHead>
                   <TableHead className="text-zinc-300">Estado</TableHead>
                   <TableHead className="text-zinc-300">Rol</TableHead>
+                  <TableHead className="text-zinc-300">Último Acceso</TableHead>
                   <TableHead className="text-zinc-300 text-right">
                     Acciones
                   </TableHead>
@@ -370,6 +372,25 @@ export default function UsersPage() {
                       {user.role?.name || (
                         <span className="text-zinc-500">Sin rol</span>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`h-2.5 w-2.5 rounded-full ${
+                            isUserOnline(user.last_login)
+                              ? 'bg-emerald-500'
+                              : 'bg-zinc-700'
+                          }`}
+                          title={
+                            isUserOnline(user.last_login)
+                              ? 'En línea'
+                              : 'Fuera de línea'
+                          }
+                        />
+                        <span className="text-xs text-zinc-400">
+                          {formatTimeAgo(user.last_login)}
+                        </span>
+                      </div>
                     </TableCell>
                     <TableCell className="text-right space-x-2">
                       <Button
