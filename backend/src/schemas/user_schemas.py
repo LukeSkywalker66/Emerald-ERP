@@ -122,6 +122,27 @@ class TokenData(BaseModel):
 
 # --- Admin User Management Schemas ---
 
+class PasswordResetRequest(BaseModel):
+    """Payload opcional para reset de contraseña administrado."""
+    new_password: Optional[str] = Field(None, min_length=8, max_length=100)
+    
+    @field_validator('new_password')
+    @classmethod
+    def validate_password(cls, v: Optional[str]) -> Optional[str]:
+        """Valida la complejidad del password si es proporcionado."""
+        if v is None:
+            return v
+        if len(v) < 8:
+            raise ValueError('El password debe tener al menos 8 caracteres')
+        if not any(char.isupper() for char in v):
+            raise ValueError('El password debe contener al menos una mayúscula')
+        if not any(char.islower() for char in v):
+            raise ValueError('El password debe contener al menos una minúscula')
+        if not any(char.isdigit() for char in v):
+            raise ValueError('El password debe contener al menos un número')
+        return v
+
+
 class PasswordResetResponse(BaseModel):
     """Respuesta al reset de contraseña administrado."""
     user_id: int
