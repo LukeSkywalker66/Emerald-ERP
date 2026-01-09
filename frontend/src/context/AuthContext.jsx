@@ -11,11 +11,16 @@ export const AuthProvider = ({ children }) => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    // Si tenemos access pero no refresh, forzar logout para evitar loops 401
+    if (token && !refreshToken) {
+      logout();
+      return;
+    }
     if (token && !user) {
       // Placeholder: could fetch /me when backend is ready
       setUser({ email: localStorage.getItem('emerald_email') || 'admin@emerald.com', role: 'admin' });
     }
-  }, [token, user]);
+  }, [token, refreshToken, user]);
 
   const login = async ({ email, password }) => {
     setLoading(true);

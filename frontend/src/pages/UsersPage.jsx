@@ -97,6 +97,16 @@ export default function UsersPage() {
         alert('Sesión expirada o no autenticado. Redirigiendo al login...');
         localStorage.removeItem('emerald_token');
         localStorage.removeItem('emerald_email');
+        localStorage.removeItem('emerald_refresh');
+        navigate('/login');
+        return;
+      }
+      // Si el interceptor no pudo refrescar por falta de refresh token
+      if (error.message && error.message.toLowerCase().includes('refresh token')) {
+        alert('Sesión expirada. Por favor inicia sesión nuevamente.');
+        localStorage.removeItem('emerald_token');
+        localStorage.removeItem('emerald_refresh');
+        localStorage.removeItem('emerald_email');
         navigate('/login');
         return;
       }

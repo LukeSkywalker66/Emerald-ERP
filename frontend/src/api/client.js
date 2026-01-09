@@ -21,6 +21,10 @@ let refreshPromise = null;
 async function refreshToken() {
   const storedRefresh = localStorage.getItem('emerald_refresh');
   if (!storedRefresh) {
+    localStorage.removeItem('emerald_token');
+    localStorage.removeItem('emerald_email');
+    // Forzar logout suave si no hay refresh disponible
+    // Devolvemos un error para que el interceptor redirija
     throw new Error('No hay refresh token disponible');
   }
   const { data } = await axios.post(
@@ -64,6 +68,11 @@ api.interceptors.response.use(
       } catch (refreshError) {
         localStorage.removeItem('emerald_token');
         localStorage.removeItem('emerald_refresh');
+        localStorage.removeItem('emerald_email');
+        // Redirigir a login si el refresh falla o no existe
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
         return Promise.reject(refreshError);
       }
     }
