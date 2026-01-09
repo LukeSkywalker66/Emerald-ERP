@@ -167,6 +167,15 @@ export default function UsersPage() {
       errors.password = 'La contraseña es requerida';
     } else if (formData.password.length < 8) {
       errors.password = 'Mínimo 8 caracteres';
+    } else {
+      // Validar complejidad del password (igual que backend)
+      if (!/[A-Z]/.test(formData.password)) {
+        errors.password = 'Debe contener al menos una mayúscula';
+      } else if (!/[a-z]/.test(formData.password)) {
+        errors.password = 'Debe contener al menos una minúscula';
+      } else if (!/[0-9]/.test(formData.password)) {
+        errors.password = 'Debe contener al menos un número';
+      }
     }
     
     setFormErrors(errors);
@@ -185,6 +194,15 @@ export default function UsersPage() {
     } catch (error) {
       if (error.response?.status === 409) {
         alert('Error: El email o username ya existe');
+      } else if (error.response?.status === 422) {
+        // Error de validación del backend
+        const detail = error.response?.data?.detail;
+        if (Array.isArray(detail) && detail.length > 0) {
+          const firstError = detail[0];
+          alert(`Error de validación: ${firstError.msg}`);
+        } else {
+          alert('Error de validación. Verifica los datos ingresados.');
+        }
       } else {
         alert(`Error: ${error.message}`);
       }
@@ -403,13 +421,21 @@ export default function UsersPage() {
               </label>
               <Input
                 type="password"
-                placeholder="Mínimo 8 caracteres"
+                placeholder="Min. 8 caracteres, 1 mayúscula, 1 minúscula, 1 número"
                 value={formData.password}
                 onChange={(e) => handleInputChange('password', e.target.value)}
                 className={formErrors.password ? 'border-red-500' : ''}
               />
               {formErrors.password && (
                 <p className="text-xs text-red-400 mt-1">{formErrors.password}</p>
+              )}
+              {!formErrors.password && formData.password && (
+                <p className="text-xs text-zinc-500 mt-1">
+                  {formData.password.length >= 8 && '✓ Longitud OK'}
+                  {formData.password.length >= 8 && /[A-Z]/.test(formData.password) && ' · ✓ Mayúscula'}
+                  {formData.password.length >= 8 && /[a-z]/.test(formData.password) && ' · ✓ Minúscula'}
+                  {formData.password.length >= 8 && /[0-9]/.test(formData.password) && ' · ✓ Número'}
+                </p>
               )}
             </div>
 
