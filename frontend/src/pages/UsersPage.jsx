@@ -35,26 +35,20 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import usersService from '@/services/users.service';
-
-// Roles disponibles (TODO: obtener desde endpoint /api/v2/roles/)
-const AVAILABLE_ROLES = [
-  { id: 4, name: 'admin', label: 'Administrador' },
-  { id: 5, name: 'tecnico', label: 'Técnico' },
-  { id: 6, name: 'viewer', label: 'Visualizador' },
-  { id: 8, name: 'operador', label: 'Operador' },
-];
+import rolesService from '@/services/roles.service';
 
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [roles, setRoles] = useState([]);
   const [formData, setFormData] = useState({
     email: '',
     username: '',
     full_name: '',
     password: '',
-    role_id: 5, // Técnico por defecto
+    role_id: null,
   });
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -62,7 +56,26 @@ export default function UsersPage() {
 
   useEffect(() => {
     loadUsers();
+    loadRoles();
   }, []);
+
+  const loadRoles = async () => {
+    try {
+      const data = await rolesService.getAllRoles();
+      setRoles(data);
+      // Establecer rol por defecto (técnico si existe)
+      const defaultRole = data.find((r) => r.name === 'tecnico') || data[0];
+      if (defaultRole && !formData.role_id) {
+        setFormData((prev) => ({ ...prev, role_id: defaultRole.id }));
+      }
+    } catch (error) {
+      console.error('Error al cargar roles:', error);
+      // Si falla, usar lista mínima de fallback
+      setRoles([
+        { id: 5, name: 'tecnico', permissions: [] },
+      ]);
+    }
+  };
 
   const loadUsers = async () => {
     try {
@@ -122,12 +135,14 @@ export default function UsersPage() {
   };
 
   const handleOpenCreateDialog = () => {
+    // Resetear formulario con rol por defecto
+    const defaultRole = roles.find((r) => r.name === 'tecnico') || roles[0];
     setFormData({
       email: '',
       username: '',
       full_name: '',
       password: '',
-      role_id: 5,
+      role_id: defaultRole?.id || null,
     });
     setFormErrors({});
     setDialogOpen(true);
@@ -404,13 +419,16 @@ export default function UsersPage() {
                 Rol
               </label>
               <select
-                value={formData.role_id}
+                value={formData.role_id || ''}
                 onChange={(e) => handleInputChange('role_id', parseInt(e.target.value))}
                 className="flex h-10 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
               >
-                {AVAILABLE_ROLES.map((role) => (
+                {roles.length === 0 && (
+                  <option value="">Cargando roles...</option>
+                )}
+                {roles.map((role) => (
                   <option key={role.id} value={role.id}>
-                    {role.label}
+                    {role.name.charAt(0).toUpperCase() + role.name.slice(1)}
                   </option>
                 ))}
               </select>
