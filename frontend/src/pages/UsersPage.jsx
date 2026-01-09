@@ -42,6 +42,11 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [resetUserId, setResetUserId] = useState(null);
+  const [resetPasswordMode, setResetPasswordMode] = useState('auto'); // 'auto' o 'custom'
+  const [customResetPassword, setCustomResetPassword] = useState('');
+  const [resetPasswordError, setResetPasswordError] = useState('');
   const [roles, setRoles] = useState([]);
   const [formData, setFormData] = useState({
     email: '',
@@ -107,17 +112,63 @@ export default function UsersPage() {
   };
 
   const handleResetPassword = async (userId) => {
-    if (!confirm('¿Resetear contraseña de este usuario?')) return;
-    
+    setResetUserId(userId);
+    setResetPasswordMode('auto');
+    setCustomResetPassword('');
+    setResetPasswordError('');
+    setResetDialogOpen(true);
+  };
+
+  const handleConfirmResetPassword = async () => {
     try {
-      const result = await usersService.resetPassword(userId);
+      // Validar si es custom
+      if (resetPasswordMode === 'custom') {
+        if (!customResetPassword) {
+          setResetPasswordError('La contraseña es requerida');
+          return;
+        }
+        if (customResetPassword.length < 8) {
+          setResetPasswordError('Mínimo 8 caracteres');
+          return;
+        }
+        if (!/[A-Z]/.test(customResetPassword)) {
+          setResetPasswordError('Debe contener al menos una mayúscula');
+          return;
+        }
+        if (!/[a-z]/.test(customResetPassword)) {
+          setResetPasswordError('Debe contener al menos una minúscula');
+          return;
+        }
+        if (!/[0-9]/.test(customResetPassword)) {
+          setResetPasswordError('Debe contener al menos un número');
+          return;
+        }
+      }
+
+      const result = await usersService.resetPassword(
+        resetUserId,
+        resetPasswordMode === 'custom' ? customResetPassword : null
+      );
+      
+      setResetDialogOpen(false);
+      
+      // Mostrar la contraseña generada/configurada
       prompt(
-        'Contraseña temporal generada (copiar y entregar al usuario):',
+        'Contraseña establecida (copiar y entregar al usuario):',
         result.temporary_password
       );
       alert('Contraseña reseteada exitosamente');
     } catch (error) {
-      alert(`Error: ${error.message}`);
+      if (error.response?.status === 422) {
+        const detail = error.response?.data?.detail;
+        if (Array.isArray(detail) && detail.length > 0) {
+          setResetPasswordError(detail[0].msg);
+        } else {
+          setResetPasswordError('Error de validación');
+        }
+      } else {
+        alert(`Error: ${error.message}`);
+      }
     }
   };
 
@@ -476,6 +527,111 @@ export default function UsersPage() {
               className="bg-emerald-600 hover:bg-emerald-700"
             >
               {submitting ? 'Creando...' : 'Crear Usuario'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog Reset Contraseña */}
+      <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Key className="h-5 w-5 text-amber-500" />
+              Resetear Contraseña
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <p className="text-sm text-zinc-400">
+              Elige cómo establecer la nueva contraseña:
+            </p>
+
+            {/* Opciones de modo */}
+            <div className="space-y-2">
+              <label className="flex items-center gap-3 p-3 border border-zinc-700 rounded-lg cursor-pointer hover:bg-zinc-800/50">
+                <input
+                  type="radio"
+                  name="resetMode"
+                  value="auto"
+                  checked={resetPasswordMode === 'auto'}
+                  onChange={(e) => setResetPasswordMode(e.target.value)}
+                  className="text-emerald-600 focus:ring-emerald-500"
+                />
+                <div>
+                  <div className="text-sm font-medium text-zinc-200">
+                    Generar automáticamente
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    Contraseña robusta de 14 caracteres
+                  </div>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-3 p-3 border border-zinc-700 rounded-lg cursor-pointer hover:bg-zinc-800/50">
+                <input
+                  type="radio"
+                  name="resetMode"
+                  value="custom"
+                  checked={resetPasswordMode === 'custom'}
+                  onChange={(e) => setResetPasswordMode(e.target.value)}
+                  className="text-emerald-600 focus:ring-emerald-500"
+                />
+                <div>
+                  <div className="text-sm font-medium text-zinc-200">
+                    Escribir manualmente
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    Define tú la contraseña temporal
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            {/* Input de contraseña custom */}
+            {resetPasswordMode === 'custom' && (
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                  Nueva Contraseña *
+                </label>
+                <Input
+                  type="password"
+                  placeholder="Min. 8 caracteres, 1 mayúscula, 1 minúscula, 1 número"
+                  value={customResetPassword}
+                  onChange={(e) => {
+                    setCustomResetPassword(e.target.value);
+                    setResetPasswordError('');
+                  }}
+                  className={resetPasswordError ? 'border-red-500' : ''}
+                />
+                {resetPasswordError && (
+                  <p className="text-xs text-red-400 mt-1">{resetPasswordError}</p>
+                )}
+                {!resetPasswordError && customResetPassword && (
+                  <p className="text-xs text-zinc-500 mt-1">
+                    {customResetPassword.length >= 8 && '✓ Longitud OK'}
+                    {customResetPassword.length >= 8 && /[A-Z]/.test(customResetPassword) && ' · ✓ Mayúscula'}
+                    {customResetPassword.length >= 8 && /[a-z]/.test(customResetPassword) && ' · ✓ Minúscula'}
+                    {customResetPassword.length >= 8 && /[0-9]/.test(customResetPassword) && ' · ✓ Número'}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setResetDialogOpen(false)}
+              className="text-zinc-400 hover:text-zinc-100"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleConfirmResetPassword}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              Resetear Contraseña
             </Button>
           </DialogFooter>
         </DialogContent>

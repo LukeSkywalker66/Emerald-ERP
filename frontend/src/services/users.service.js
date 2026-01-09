@@ -19,9 +19,12 @@ const usersService = {
 
   /**
    * Resetear contraseña de un usuario (genera temporal)
+   * @param {number} userId - ID del usuario
+   * @param {string} [customPassword] - Contraseña personalizada opcional
    */
-  async resetPassword(userId) {
-    const response = await api.post(`/v2/users/${userId}/reset-password`);
+  async resetPassword(userId, customPassword = null) {
+    const payload = customPassword ? { new_password: customPassword } : null;
+    const response = await api.post(`/v2/users/${userId}/reset-password`, payload);
     return response.data;
   },
 
