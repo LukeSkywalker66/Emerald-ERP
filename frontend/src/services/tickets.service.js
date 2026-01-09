@@ -130,10 +130,14 @@ export const addNote = async (ticketId, content) => {
  * @param {string} query - Término de búsqueda
  * @returns {Promise<Array>} Array de conexiones encontradas
  */
-export const searchConnections = async (query) => {
+export const searchConnections = async (query, options = {}) => {
   try {
-    const { data } = await api.get(`${BASE_URL}/search-connections`, { 
-      params: { query, limit: 20 } 
+    const { data } = await api.get(`${BASE_URL}/search-connections`, {
+      params: {
+        query,
+        limit: options.limit ?? 20,
+        source: options.source ?? 'mixed',
+      },
     });
     return data || [];
   } catch (error) {

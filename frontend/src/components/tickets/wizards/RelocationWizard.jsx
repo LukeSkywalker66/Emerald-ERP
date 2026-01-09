@@ -32,7 +32,10 @@ export default function RelocationWizard({ onBack, onSuccess }) {
     originConnection: null,
     destinationConnection: null,
     availabilityNote: '',
+    destinationAddress: '',
   });
+
+  const [destinationMode, setDestinationMode] = useState('existing'); // existing | manual
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -40,7 +43,7 @@ export default function RelocationWizard({ onBack, onSuccess }) {
     try {
       setIsSearching(true);
       setError(null);
-      const results = await ticketsService.searchConnections(searchQuery);
+      const results = await ticketsService.searchConnections(searchQuery, { source: 'local' });
 
       setSearchResults(results);
       if (results.length > 0) {
@@ -66,7 +69,21 @@ export default function RelocationWizard({ onBack, onSuccess }) {
   };
 
   const handleSelectDestination = (connection) => {
-    setFormData((prev) => ({ ...prev, destinationConnection: connection }));
+    setError(null);
+    setDestinationMode('existing');
+    setFormData((prev) => ({ ...prev, destinationConnection: connection, destinationAddress: '' }));
+    setStep(4);
+  };
+
+  const handleManualDestination = () => {
+    const trimmedAddress = formData.destinationAddress.trim();
+    if (!trimmedAddress) {
+      setError('Ingresa la nueva dirección de destino');
+      return;
+    }
+    setError(null);
+    setDestinationMode('manual');
+    setFormData((prev) => ({ ...prev, destinationConnection: null, destinationAddress: trimmedAddress }));
     setStep(4);
   };
 
@@ -75,14 +92,42 @@ export default function RelocationWizard({ onBack, onSuccess }) {
       setIsSubmitting(true);
       setError(null);
 
+      if (!formData.originConnection) {
+        setError('Selecciona una conexión de origen');
+        setIsSubmitting(false);
+        return;
+      }
+
+      const hasDestinationConnection = Boolean(formData.destinationConnection);
+      const manualAddress = formData.destinationAddress?.trim();
+
+      if (!hasDestinationConnection && !manualAddress) {
+        setError('Selecciona una conexión de destino o ingresa una dirección manual');
+        setIsSubmitting(false);
+        return;
+      }
+
+      const destinationLabel = hasDestinationConnection
+        ? formData.destinationConnection.installation_address
+        : `Dirección manual: ${manualAddress}`;
+
+      const availabilityNote = [
+        formData.availabilityNote?.trim(),
+        !hasDestinationConnection ? `Destino manual: ${manualAddress}` : null,
+      ]
+        .filter(Boolean)
+        .join(' | ');
+
       const ticket = await ticketsService.create({
         ticket_type: 'relocation',
-        subject: `Traslado - ${formData.clientName}`,
-        description: `Traslado desde ${formData.originConnection.installation_address} hacia ${formData.destinationConnection.installation_address}`,
+        subject: `Traslado - ${formData.clientName || 'Cliente'}`,
+        description: `Traslado desde ${formData.originConnection.installation_address} hacia ${destinationLabel}`,
         priority: 'medium',
         origin_connection_id: formData.originConnection.connection_id,
-        destination_connection_id: formData.destinationConnection.connection_id,
-        availability_note: formData.availabilityNote,
+        destination_connection_id: hasDestinationConnection
+          ? formData.destinationConnection.connection_id
+          : null,
+        availability_note: availabilityNote || null,
       });
 
       onSuccess(ticket);
@@ -248,6 +293,31 @@ export default function RelocationWizard({ onBack, onSuccess }) {
                 </div>
               </button>
             ))}
+
+          <div className="w-full p-4 rounded-lg border border-dashed border-emerald-700/60 bg-emerald-950/10">
+            <p className="text-sm text-emerald-100 font-medium mb-2 flex items-center gap-2">
+              <MapPin size={16} className="text-emerald-400" />
+              Ingresar dirección manual
+            </p>
+            <p className="text-xs text-emerald-200/80 mb-3">
+              Usa esta opción si la dirección nueva aún no existe en la base local (sin conexión creada).
+            </p>
+            <Input
+              type="text"
+              placeholder="Ej: Calle 123, Ciudad, Provincia"
+              value={formData.destinationAddress}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, destinationAddress: e.target.value }))
+              }
+              className="bg-zinc-900 border-emerald-700/60 text-white placeholder:text-emerald-200/50"
+            />
+            <Button
+              onClick={handleManualDestination}
+              className="mt-3 bg-emerald-600 hover:bg-emerald-500"
+            >
+              Continuar con dirección manual
+            </Button>
+          </div>
         </div>
 
         <div className="flex justify-between pt-4 border-t border-zinc-800">
@@ -312,13 +382,17 @@ export default function RelocationWizard({ onBack, onSuccess }) {
             <div className="p-4 rounded-lg bg-emerald-950/20 border border-emerald-700/50">
               <p className="text-xs text-emerald-300 uppercase tracking-wide mb-2 flex items-center gap-1">
                 <MapPin size={12} />
-                Destino (Instalación)
+                Destino ({destinationMode === 'manual' ? 'Dirección manual' : 'Instalación'})
               </p>
               <p className="text-sm text-white">
-                {formData.destinationConnection.installation_address}
+                {destinationMode === 'manual'
+                  ? formData.destinationAddress
+                  : formData.destinationConnection.installation_address}
               </p>
               <p className="text-xs text-zinc-400 mt-2">
-                ID: {formData.destinationConnection.connection_id}
+                {destinationMode === 'manual'
+                  ? 'ID: N/A (sin conexión cargada)'
+                  : `ID: ${formData.destinationConnection.connection_id}`}
               </p>
             </div>
           </div>

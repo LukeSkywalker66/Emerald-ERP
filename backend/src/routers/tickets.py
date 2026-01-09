@@ -158,31 +158,20 @@ def _workorder_to_response(wo: WorkOrder) -> WorkOrderResponse:
 def search_connections(
     query: str = Query(..., description="Texto a buscar (nombre, dirección, username, DNI)"),
     limit: int = Query(20, ge=1, le=100),
+    source: str = Query("mixed", pattern="^(local|mixed)$", description="local: solo DB Emerald; mixed: DB y fallback ISPCube"),
     db: Session = Depends(get_db),
 ):
     """
-    Busca conexiones en ISPCube y en la DB.
-    Fallback: Si ISPCube no retorna resultados, busca en la DB local.
-    
-    Busca en:
-    - Username PPPoE
-    - Dirección de instalación
-    - Nombre del cliente
-    - DNI del cliente
+    Busca conexiones priorizando la DB local de Emerald.
+    Si `source` es mixed y la DB no devuelve resultados, usa ISPCube como fallback.
     """
-    from src.clients.ispcube import buscar_conexiones
     from sqlalchemy import text
-    
+
     try:
-        # 1. Intentar con ISPCube primero
-        results = buscar_conexiones(query, limit)
-        
-        # 2. Si no hay resultados, buscar en la DB como fallback
-        if not results:
-            search_term = f"%{query}%"
-            
-            # Búsqueda en DB: cliente por nombre o DNI + sus conexiones
-            db_results = db.execute(text("""
+        search_term = f"%{query}%"
+        db_results = db.execute(
+            text(
+                """
                 SELECT 
                     c.connection_id,
                     c.pppoe_username,
@@ -198,33 +187,48 @@ def search_connections(
                     OR c.pppoe_username ILIKE :search
                     OR c.direccion ILIKE :search
                 LIMIT :limit
-            """), {"search": search_term, "limit": limit}).fetchall()
-            
-            if db_results:
-                results = [
-                    {
-                        "connection_id": row[0],
-                        "pppoe_username": row[1],
-                        "installation_address": row[2],
-                        "client_name": row[3] or "Cliente sin nombre",
-                        "client_id": row[4],
-                        "client_dni": row[5],
-                        "plan_name": "N/A",
-                        "node_name": "N/A",
-                        "status": "active"
-                    }
-                    for row in db_results
-                ]
-        else:
-            # 3. Enriquecer resultados de ISPCube con datos de la DB (DNI, etc)
-            # Para cada resultado de ISPCube, traer datos del cliente de la DB
-            enriched_results = []
-            search_term = f"%{query}%"
-            
-            for result in results:
-                try:
-                    # Intentar obtener datos de la DB por connection_id
-                    db_result = db.execute(text("""
+                """
+            ),
+            {"search": search_term, "limit": limit},
+        ).fetchall()
+
+        if db_results:
+            return [
+                {
+                    "connection_id": row[0],
+                    "pppoe_username": row[1],
+                    "installation_address": row[2],
+                    "client_name": row[3] or "Cliente sin nombre",
+                    "client_id": row[4],
+                    "client_dni": row[5],
+                    "plan_name": "N/A",
+                    "node_name": "N/A",
+                    "status": "active",
+                }
+                for row in db_results
+            ]
+
+        # Si se pidió solo DB, devolver vacío
+        if source == "local":
+            return []
+
+        # Fallback a ISPCube solo si se solicita mixed
+        try:
+            from src.clients.ispcube import buscar_conexiones
+
+            external_results = buscar_conexiones(query, limit)
+        except Exception:
+            external_results = []
+
+        if not external_results:
+            return []
+
+        enriched_results = []
+        for result in external_results:
+            try:
+                db_result = db.execute(
+                    text(
+                        """
                         SELECT 
                             cl.name,
                             cl.doc_number
@@ -232,23 +236,24 @@ def search_connections(
                         LEFT JOIN clientes cl ON c.customer_id = cl.id
                         WHERE c.connection_id = :conn_id
                         LIMIT 1
-                    """), {"conn_id": result.get("connection_id")}).first()
-                    
-                    if db_result and db_result[1]:  # Si tiene DNI
-                        result["client_dni"] = db_result[1]
-                        result["client_name"] = db_result[0] or result.get("client_name", "Cliente sin nombre")
-                except:
-                    pass  # Si falla, usar lo que ISPCube retornó
-                
-                enriched_results.append(result)
-            
-            results = enriched_results
-        
-        return results
+                        """
+                    ),
+                    {"conn_id": result.get("connection_id")},
+                ).first()
+
+                if db_result and db_result[1]:
+                    result["client_dni"] = db_result[1]
+                    result["client_name"] = db_result[0] or result.get("client_name", "Cliente sin nombre")
+            except Exception:
+                pass
+
+            enriched_results.append(result)
+
+        return enriched_results
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error buscando conexiones: {str(e)}"
+            detail=f"Error buscando conexiones: {str(e)}",
         )
 
 
@@ -425,10 +430,15 @@ def create_ticket(
             )
     
     elif payload.ticket_type == TicketType.relocation:
-        if not payload.origin_connection_id or not payload.destination_connection_id:
+        if not payload.origin_connection_id:
             raise HTTPException(
                 status_code=400,
-                detail="Traslados requieren origin_connection_id y destination_connection_id"
+                detail="Traslados requieren origin_connection_id"
+            )
+        if not payload.destination_connection_id and not payload.availability_note:
+            raise HTTPException(
+                status_code=400,
+                detail="Traslados requieren destination_connection_id o dirección de destino en availability_note"
             )
     
     elif payload.ticket_type == TicketType.administrative:
