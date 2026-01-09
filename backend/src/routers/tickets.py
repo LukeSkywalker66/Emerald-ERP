@@ -488,11 +488,19 @@ def create_ticket(
             TicketType.relocation: WorkOrderType.install,
         }
         
+        # Nota más descriptiva para la OT (reutiliza la descripción del ticket)
+        wo_note = payload.description or (
+            f"Traslado desde conexión {payload.origin_connection_id} hacia "
+            f"{payload.destination_connection_id or 'destino manual'}"
+        )
+        if payload.availability_note:
+            wo_note = f"{wo_note} | Disponibilidad: {payload.availability_note}"
+
         work_order = WorkOrder(
             ticket_id=ticket.id,
             ot_type=ot_type_map[payload.ticket_type],
             status=WorkOrderStatus.pending_planning,
-            notes=f"OT generada automáticamente desde ticket {payload.ticket_type.value}",
+            notes=wo_note,
             custom_data={
                 "ticket_type": payload.ticket_type.value,
                 "installation_tech": payload.installation_tech,
@@ -508,7 +516,7 @@ def create_ticket(
             ticket_id=ticket.id,
             author_id=user_id,
             event_type=TicketTimelineEventType.ot_event,
-            content=f"OT de {ot_type_map[payload.ticket_type].value} generada automáticamente",
+            content=wo_note,
             meta_data={"work_order_id": work_order.id},
         )
         db.add(ot_timeline)
