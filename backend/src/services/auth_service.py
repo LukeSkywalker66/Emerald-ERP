@@ -14,7 +14,9 @@ from src.core.security import (
     verify_password,
     get_password_hash,
     create_access_token,
+    create_refresh_token,
 )
+from src import config
 
 
 logger = logging.getLogger("Emerald.AuthService")
@@ -68,7 +70,8 @@ class AuthService:
         self.session.commit()
         
         if expires_delta is None:
-            expires_delta = timedelta(minutes=30)
+            expires_delta = timedelta(minutes=config.ACCESS_TOKEN_EXPIRE_MINUTES)
+        refresh_expires = timedelta(minutes=config.REFRESH_TOKEN_EXPIRE_MINUTES)
         
         access_token = create_access_token(
             data={
@@ -77,13 +80,20 @@ class AuthService:
                 "username": user.username,
                 "is_superuser": user.is_superuser,
             },
-            expires_delta=expires_delta
+            expires_delta=expires_delta,
+            token_type="access",
+        )
+        refresh_token = create_refresh_token(
+            user_id=str(user.id),
+            expires_delta=refresh_expires,
         )
         
         return Token(
             access_token=access_token,
+            refresh_token=refresh_token,
             token_type="bearer",
-            expires_in=int(expires_delta.total_seconds())
+            expires_in=int(expires_delta.total_seconds()),
+            refresh_expires_in=int(refresh_expires.total_seconds()),
         )
     
     def register_user(self, user_create: UserCreate) -> User:

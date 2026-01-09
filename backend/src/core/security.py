@@ -99,7 +99,8 @@ def get_password_hash(password: str) -> str:
 
 def create_access_token(
     data: dict[str, Any],
-    expires_delta: Optional[timedelta] = None
+    expires_delta: Optional[timedelta] = None,
+    token_type: str = "access"
 ) -> str:
     """
     Crea un JSON Web Token (JWT) firmado con HS256 (HMAC-SHA256).
@@ -136,16 +137,12 @@ def create_access_token(
     Configuration:
         - SECRET_KEY: src/config.py (variable de entorno)
         - ALGORITHM: "HS256" (no cambiar sin actualizar clientes)
-        - Default expiry: 30 minutos (modificable por expires_delta)
+        - Default expiry: ACCESS_TOKEN_EXPIRE_MINUTES (config.py)
     """
     to_encode = data.copy()
-    
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=30)
-    
-    to_encode.update({"exp": expire})
+    expire_minutes = expires_delta or timedelta(minutes=config.ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.utcnow() + expire_minutes
+    to_encode.update({"exp": expire, "token_type": token_type})
     
     encoded_jwt = jwt.encode(
         to_encode,
@@ -154,6 +151,15 @@ def create_access_token(
     )
     
     return encoded_jwt
+
+
+def create_refresh_token(
+    user_id: str,
+    expires_delta: Optional[timedelta] = None
+) -> str:
+    """Crea un refresh token firmado, sin datos sensibles adicionales."""
+    delta = expires_delta or timedelta(minutes=config.REFRESH_TOKEN_EXPIRE_MINUTES)
+    return create_access_token({"sub": user_id}, expires_delta=delta, token_type="refresh")
 
 
 def get_current_user(

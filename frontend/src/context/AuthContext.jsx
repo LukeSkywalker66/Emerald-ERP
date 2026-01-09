@@ -5,6 +5,7 @@ const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(() => localStorage.getItem('emerald_token'));
+  const [refreshToken, setRefreshToken] = useState(() => localStorage.getItem('emerald_refresh'));
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -28,11 +29,16 @@ export const AuthProvider = ({ children }) => {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
       const accessToken = data?.access_token;
+      const nextRefresh = data?.refresh_token;
       if (accessToken) {
         localStorage.setItem('emerald_token', accessToken);
         localStorage.setItem('emerald_email', email);
         setToken(accessToken);
         setUser({ email, role: 'admin' });
+      }
+      if (nextRefresh) {
+        localStorage.setItem('emerald_refresh', nextRefresh);
+        setRefreshToken(nextRefresh);
       }
       return data;
     } catch (err) {
@@ -46,14 +52,17 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     localStorage.removeItem('emerald_token');
+    localStorage.removeItem('emerald_refresh');
     localStorage.removeItem('emerald_email');
     setToken(null);
+    setRefreshToken(null);
     setUser(null);
   };
 
   const value = useMemo(
     () => ({
       token,
+      refreshToken,
       user,
       loading,
       error,
@@ -61,7 +70,7 @@ export const AuthProvider = ({ children }) => {
       login,
       logout,
     }),
-    [token, user, loading, error]
+    [token, refreshToken, user, loading, error]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

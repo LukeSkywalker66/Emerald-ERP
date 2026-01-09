@@ -113,12 +113,19 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int = 1800  # 30 minutos en segundos
+    refresh_token: Optional[str] = None
+    refresh_expires_in: Optional[int] = None
 
 
 class TokenData(BaseModel):
     """Datos almacenados en el token JWT"""
     user_id: Optional[int] = None
     email: Optional[str] = None
+
+
+class RefreshTokenRequest(BaseModel):
+    """Payload para refrescar sesión sin pedir credenciales nuevamente."""
+    refresh_token: str
 
 
 # --- Admin User Management Schemas ---
