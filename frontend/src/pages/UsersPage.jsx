@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Users,
   UserPlus,
@@ -6,6 +7,7 @@ import {
   Ban,
   CheckCircle,
   Key,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   Card,
@@ -29,6 +31,8 @@ import usersService from '@/services/users.service';
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     loadUsers();
@@ -37,11 +41,27 @@ export default function UsersPage() {
   const loadUsers = async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await usersService.getAllUsers();
       setUsers(data);
     } catch (error) {
       console.error('Error al cargar usuarios:', error);
-      alert(`Error: ${error.message}`);
+      
+      // Manejar errores específicos
+      if (error.response?.status === 401) {
+        alert('Sesión expirada o no autenticado. Redirigiendo al login...');
+        localStorage.removeItem('emerald_token');
+        localStorage.removeItem('emerald_email');
+        navigate('/login');
+        return;
+      }
+      
+      if (error.response?.status === 403) {
+        setError('No tienes permisos para acceder a este módulo. Solo superusuarios pueden gestionar usuarios.');
+        return;
+      }
+      
+      setError(error.message || 'Error al cargar usuarios');
     } finally {
       setLoading(false);
     }
@@ -109,7 +129,25 @@ export default function UsersPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {loading ? (
+          {error ? (
+            <div className="flex items-start gap-3 p-4 bg-red-900/20 border border-red-700/50 rounded-lg">
+              <AlertTriangle className="h-5 w-5 text-red-400 mt-0.5 flex-shrink-0" />
+              <div className="space-y-2">
+                <h3 className="font-semibold text-red-300">
+                  Error de Acceso
+                </h3>
+                <p className="text-sm text-red-200">{error}</p>
+                <Button
+                  onClick={() => navigate('/app')}
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 border-red-700 text-red-300 hover:bg-red-900/30"
+                >
+                  Volver al Dashboard
+                </Button>
+              </div>
+            </div>
+          ) : loading ? (
             <div className="text-center py-8 text-zinc-400">
               Cargando usuarios...
             </div>
