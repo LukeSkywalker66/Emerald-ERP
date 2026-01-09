@@ -232,6 +232,7 @@ def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Usuario inactivo"
         )
+    return user
     
 def get_current_active_superuser(
     current_user = Depends(get_current_user)

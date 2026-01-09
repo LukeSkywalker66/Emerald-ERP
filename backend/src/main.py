@@ -21,6 +21,7 @@ from src import models
 from src import config
 from src.services.api_key_service import APIKeyService
 from src.routers.v1 import auth  # Removed old tickets router import
+from src.routers.v2 import users as users_v2
 from src.routers import tickets, search, tags, work_orders
 
 # 👇 IMPORTAMOS EL NUEVO SERVICIO (Tu lógica adaptada)
@@ -89,6 +90,13 @@ app.include_router(
     search.router,
     prefix="/api",
     tags=["Search"]
+)
+
+# Users V2 (admin)
+app.include_router(
+    users_v2.router,
+    prefix="/api/v2/users",
+    tags=["Users V2"]
 )
 
 @app.on_event("startup")

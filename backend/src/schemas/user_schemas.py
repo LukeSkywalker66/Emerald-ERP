@@ -118,3 +118,21 @@ class TokenData(BaseModel):
     """Datos almacenados en el token JWT"""
     user_id: Optional[int] = None
     email: Optional[str] = None
+
+
+# --- Admin User Management Schemas ---
+
+class PasswordResetResponse(BaseModel):
+    """Respuesta al reset de contraseña administrado."""
+    user_id: int
+    temporary_password: str
+
+
+class RoleChangeRequest(BaseModel):
+    """Payload para cambio de rol"""
+    role_id: int
+
+
+class StatusUpdateRequest(BaseModel):
+    """Payload para activar/desactivar usuario"""
+    is_active: bool
