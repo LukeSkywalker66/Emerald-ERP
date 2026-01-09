@@ -1,12 +1,13 @@
 """Router para búsqueda global."""
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import Table, MetaData, or_, select, text
 from sqlalchemy.orm import Session
 
 from src.database import get_db
+from src.services import ispcube as ispcube_service
 from src.models import User  # Para obtener usuarios
 
 router = APIRouter()
@@ -78,6 +79,42 @@ def search_connections(
         )
         for row in connections
     ]
+
+
+@router.get("/external/customer-lookup")
+def external_customer_lookup(
+    dni: str = Query(..., min_length=3, description="DNI del cliente en ISPCube"),
+):
+    """Consulta read-only al API de ISPCube para obtener un cliente y sus conexiones."""
+    data = ispcube_service.get_customer_by_dni(dni)
+
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Cliente no encontrado en ISPCube",
+        )
+
+    customer = data.get("customer", {})
+    connections = data.get("connections") or []
+
+    return {
+        "customer": {
+            "external_id": customer.get("id"),
+            "name": customer.get("name"),
+            "doc_number": customer.get("doc_number"),
+        },
+        "connections": [
+            {
+                "external_id": conn.get("id"),
+                "pppoe_username": conn.get("user"),
+                "address": conn.get("address") or conn.get("direccion"),
+                "plan_id": conn.get("plan_id"),
+                "node_id": conn.get("node_id"),
+                "status": conn.get("status") or conn.get("state") or "unknown",
+            }
+            for conn in connections
+        ],
+    }
 
 
 @router.get("/v2/users", response_model=List[UserSimpleResponse])

@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/dialog';
 import AsyncCombobox from '@/components/ui/AsyncCombobox';
 import TagsFilterPopover from '@/components/tickets/TagsFilterPopover';
+import CreateTicketDialog from '@/components/tickets/CreateTicketDialog';
 import ticketsService, { getTags } from '@/services/tickets.service';
 
 const statusConfig = {
@@ -89,12 +90,6 @@ export default function TicketsPage() {
   const [pageSize, setPageSize] = useState(20);
   const [tagsFilter, setTagsFilter] = useState([]);
   const [availableTags, setAvailableTags] = useState([]);
-  const [formData, setFormData] = useState({
-    subject: '',
-    description: '',
-    priority: 'medium',
-    connection_id: null,
-  });
 
   const loadTickets = async () => {
     try {
@@ -173,46 +168,6 @@ export default function TicketsPage() {
     } catch (err) {
       console.error('Search error:', err);
       return [];
-    }
-  };
-
-  const handleConnectionSelect = (connectionId, connectionData) => {
-    setSelectedConnection(connectionData);
-    setFormData(prev => ({
-      ...prev,
-      connection_id: connectionId,
-    }));
-  };
-
-  const handleCreateSubmit = async () => {
-    if (!formData.subject.trim()) {
-      setError('El asunto es requerido');
-      return;
-    }
-    if (!formData.connection_id) {
-      setError('Debes seleccionar un cliente/conexión');
-      return;
-    }
-    
-    try {
-      setIsSubmitting(true);
-      setError(null);
-      const created = await ticketsService.create({
-        subject: formData.subject,
-        description: formData.description || undefined,
-        priority: formData.priority,
-        connection_id: formData.connection_id,
-      });
-      setShowCreateDialog(false);
-      setFormData({ subject: '', description: '', priority: 'medium', connection_id: null });
-      setSelectedConnection(null);
-      await loadTickets();
-      navigate(`/app/tickets/${created.id}`);
-    } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Error al crear el ticket');
-      console.error('Error creating ticket:', err);
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -538,102 +493,17 @@ export default function TicketsPage() {
         </div>
       )}
 
-      {/* Create Ticket Dialog */}
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="bg-zinc-900 border-zinc-800">
-          <DialogHeader>
-            <DialogTitle className="text-white">Crear nuevo ticket</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            {/* Cliente/Conexión Búsqueda Asincrónica */}
-            <div>
-              <label className="text-sm font-medium text-zinc-300 block mb-2">
-                Cliente/Conexión *
-              </label>
-              <AsyncCombobox
-                onSearch={handleSearchConnections}
-                onSelect={handleConnectionSelect}
-                placeholder="Busca por nombre, DNI o PPPoE..."
-                displayField="name"
-                valueField="connection_id"
-              />
-            </div>
-
-            {/* Asunto */}
-            <div>
-              <label className="text-sm font-medium text-zinc-300 block mb-2">
-                Asunto *
-              </label>
-              <Input
-                placeholder="Ej: Sin internet, cable cortado, latencia alta..."
-                value={formData.subject}
-                onChange={(e) =>
-                  setFormData({ ...formData, subject: e.target.value })
-                }
-                className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
-              />
-            </div>
-
-            {/* Descripción */}
-            <div>
-              <label className="text-sm font-medium text-zinc-300 block mb-2">
-                Descripción
-              </label>
-              <textarea
-                placeholder="Detalles adicionales del problema (opcional)"
-                value={formData.description}
-                onChange={(e) =>
-                  setFormData({ ...formData, description: e.target.value })
-                }
-                rows={3}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 resize-none"
-              />
-            </div>
-
-            {/* Prioridad */}
-            <div>
-              <label className="text-sm font-medium text-zinc-300 block mb-2">
-                Prioridad
-              </label>
-              <select
-                value={formData.priority}
-                onChange={(e) =>
-                  setFormData({ ...formData, priority: e.target.value })
-                }
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
-              >
-                <option value="low">Baja</option>
-                <option value="medium">Media</option>
-                <option value="high">Alta</option>
-                <option value="critical">Crítica</option>
-              </select>
-            </div>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setShowCreateDialog(false)}
-              className="border-zinc-700 text-zinc-300"
-            >
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleCreateSubmit}
-              disabled={isSubmitting}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader size={16} className="animate-spin" />
-                  Creando...
-                </>
-              ) : (
-                'Crear Ticket'
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Create Ticket Dialog - Multi-Flow Wizards */}
+      <CreateTicketDialog
+        isOpen={showCreateDialog}
+        onClose={() => setShowCreateDialog(false)}
+        onSuccess={(createdTicket) => {
+          setShowCreateDialog(false);
+          setSelectedConnection(null);
+          loadTickets();
+          navigate(`/app/tickets/${createdTicket.id}`);
+        }}
+      />
     </div>
   );
 }

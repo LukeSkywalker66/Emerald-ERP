@@ -143,6 +143,27 @@ export const searchConnections = async (query) => {
 };
 
 /**
+ * Buscar cliente por DNI en ISPCube (lookup externo)
+ * Optimizado para búsqueda rápida por DNI sin timeout
+ * @param {string} dni - DNI del cliente
+ * @returns {Promise<Object>} { customer: {...}, connections: [...] }
+ */
+export const lookupCustomerByDNI = async (dni) => {
+  try {
+    const { data } = await api.get('/external/customer-lookup', {
+      params: { dni }
+    });
+    return data;
+  } catch (error) {
+    if (error.response?.status === 404) {
+      return null; // Cliente no encontrado
+    }
+    console.error('❌ Error looking up customer by DNI:', error);
+    throw error;
+  }
+};
+
+/**
  * Obtener lista de usuarios activos
  * @returns {Promise<Array>} Array de usuarios
  */
@@ -233,6 +254,7 @@ export default {
   getConnectionHistory,
   addNote,
   searchConnections,
+  lookupCustomerByDNI,
   getUsers,
   // Tags
   getTags,

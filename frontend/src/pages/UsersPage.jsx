@@ -6,8 +6,6 @@ import {
   Ban,
   CheckCircle,
   Key,
-  UserCog,
-  AlertTriangle,
 } from 'lucide-react';
 import {
   Card,
@@ -26,44 +24,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { useToast } from '@/components/ui/use-toast';
 import usersService from '@/services/users.service';
 
 export default function UsersPage() {
-  const { toast } = useToast();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [resetPasswordDialog, setResetPasswordDialog] = useState(null);
-  const [temporaryPassword, setTemporaryPassword] = useState('');
-  const [confirmActionDialog, setConfirmActionDialog] = useState(null);
-
-  const [formData, setFormData] = useState({
-    email: '',
-    username: '',
-    password: '',
-    full_name: '',
-  });
 
   useEffect(() => {
     loadUsers();
@@ -75,73 +40,39 @@ export default function UsersPage() {
       const data = await usersService.getAllUsers();
       setUsers(data);
     } catch (error) {
-      toast({
-        variant: 'destructive',
-        title: 'Error al cargar usuarios',
-        description: error.message,
-      });
+      console.error('Error al cargar usuarios:', error);
+      alert(`Error: ${error.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCreateUser = async () => {
-    try {
-      await usersService.createUser(formData);
-      toast({
-        title: 'Usuario creado',
-        description: `Usuario ${formData.username} creado exitosamente`,
-      });
-      setCreateDialogOpen(false);
-      setFormData({ email: '', username: '', password: '', full_name: '' });
-      loadUsers();
-    } catch (error) {
-      toast({
-        variant: 'destructive',
-        title: 'Error al crear usuario',
-        description: error.message,
-      });
-    }
-  };
-
   const handleResetPassword = async (userId) => {
+    if (!confirm('¿Resetear contraseña de este usuario?')) return;
+    
     try {
       const result = await usersService.resetPassword(userId);
-      setTemporaryPassword(result.temporary_password);
-      setResetPasswordDialog(result);
+      prompt(
+        'Contraseña temporal generada (copiar y entregar al usuario):',
+        result.temporary_password
+      );
+      alert('Contraseña reseteada exitosamente');
     } catch (error) {
-      toast({
-        variant: 'destructive',
-        title: 'Error al resetear contraseña',
-        description: error.message,
-      });
+      alert(`Error: ${error.message}`);
     }
   };
 
-  const handleToggleStatus = async (userId, currentStatus) => {
+  const handleToggleStatus = async (user) => {
+    const action = user.is_active ? 'desactivar' : 'activar';
+    if (!confirm(`¿Seguro que desea ${action} a ${user.username}?`)) return;
+
     try {
-      await usersService.updateStatus(userId, !currentStatus);
-      toast({
-        title: currentStatus ? 'Usuario desactivado' : 'Usuario activado',
-        description: 'Estado actualizado correctamente',
-      });
-      setConfirmActionDialog(null);
+      await usersService.updateStatus(user.id, !user.is_active);
+      alert(`Usuario ${action}do exitosamente`);
       loadUsers();
     } catch (error) {
-      toast({
-        variant: 'destructive',
-        title: 'Error al cambiar estado',
-        description: error.message,
-      });
+      alert(`Error: ${error.message}`);
     }
-  };
-
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    toast({
-      title: 'Copiado',
-      description: 'Contraseña temporal copiada al portapapeles',
-    });
   };
 
   return (
@@ -157,7 +88,7 @@ export default function UsersPage() {
           </p>
         </div>
         <Button
-          onClick={() => setCreateDialogOpen(true)}
+          onClick={() => alert('Crear usuario: implementar formulario')}
           className="bg-emerald-600 hover:bg-emerald-700"
         >
           <UserPlus className="mr-2 h-4 w-4" />
@@ -233,20 +164,20 @@ export default function UsersPage() {
                         size="sm"
                         onClick={() => handleResetPassword(user.id)}
                         className="text-zinc-400 hover:text-zinc-100"
+                        title="Resetear contraseña"
                       >
                         <Key className="h-4 w-4" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() =>
-                          setConfirmActionDialog({ user, action: 'toggle' })
-                        }
+                        onClick={() => handleToggleStatus(user)}
                         className={
                           user.is_active
                             ? 'text-red-400 hover:text-red-300'
                             : 'text-emerald-400 hover:text-emerald-300'
                         }
+                        title={user.is_active ? 'Desactivar' : 'Activar'}
                       >
                         {user.is_active ? (
                           <Ban className="h-4 w-4" />
@@ -262,173 +193,6 @@ export default function UsersPage() {
           )}
         </CardContent>
       </Card>
-
-      {/* Create User Dialog */}
-      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
-          <DialogHeader>
-            <DialogTitle className="flex items-center">
-              <UserPlus className="mr-2 h-5 w-5 text-emerald-500" />
-              Crear Nuevo Usuario
-            </DialogTitle>
-            <DialogDescription className="text-zinc-400">
-              Complete los datos para crear un nuevo usuario en el sistema
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="usuario@emerald.com"
-                value={formData.email}
-                onChange={(e) =>
-                  setFormData({ ...formData, email: e.target.value })
-                }
-                className="bg-zinc-800 border-zinc-700"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="username">Nombre de Usuario</Label>
-              <Input
-                id="username"
-                placeholder="usuario"
-                value={formData.username}
-                onChange={(e) =>
-                  setFormData({ ...formData, username: e.target.value })
-                }
-                className="bg-zinc-800 border-zinc-700"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="full_name">Nombre Completo</Label>
-              <Input
-                id="full_name"
-                placeholder="Nombre Completo"
-                value={formData.full_name}
-                onChange={(e) =>
-                  setFormData({ ...formData, full_name: e.target.value })
-                }
-                className="bg-zinc-800 border-zinc-700"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Contraseña</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="Mínimo 8 caracteres"
-                value={formData.password}
-                onChange={(e) =>
-                  setFormData({ ...formData, password: e.target.value })
-                }
-                className="bg-zinc-800 border-zinc-700"
-              />
-              <p className="text-xs text-zinc-500">
-                Debe contener mayúsculas, minúsculas, números y símbolos
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setCreateDialogOpen(false)}
-              className="border-zinc-700 text-zinc-300"
-            >
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleCreateUser}
-              className="bg-emerald-600 hover:bg-emerald-700"
-            >
-              Crear Usuario
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Reset Password Dialog */}
-      <Dialog
-        open={!!resetPasswordDialog}
-        onOpenChange={() => setResetPasswordDialog(null)}
-      >
-        <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
-          <DialogHeader>
-            <DialogTitle className="flex items-center text-amber-500">
-              <AlertTriangle className="mr-2 h-5 w-5" />
-              Contraseña Temporal Generada
-            </DialogTitle>
-            <DialogDescription className="text-zinc-400">
-              La contraseña ha sido reseteada. Copie y entregue esta contraseña
-              temporal al usuario.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="bg-zinc-800 p-4 rounded-lg border border-zinc-700">
-            <code className="text-amber-400 text-lg font-mono break-all">
-              {temporaryPassword}
-            </code>
-          </div>
-          <DialogFooter>
-            <Button
-              onClick={() => copyToClipboard(temporaryPassword)}
-              className="bg-emerald-600 hover:bg-emerald-700"
-            >
-              Copiar Contraseña
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setResetPasswordDialog(null)}
-              className="border-zinc-700 text-zinc-300"
-            >
-              Cerrar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Confirm Action Dialog */}
-      <AlertDialog
-        open={!!confirmActionDialog}
-        onOpenChange={() => setConfirmActionDialog(null)}
-      >
-        <AlertDialogContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {confirmActionDialog?.user?.is_active
-                ? 'Desactivar Usuario'
-                : 'Activar Usuario'}
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400">
-              {confirmActionDialog?.user?.is_active
-                ? `¿Desactivar al usuario ${confirmActionDialog?.user?.username}? No podrá acceder al sistema.`
-                : `¿Activar al usuario ${confirmActionDialog?.user?.username}? Podrá acceder nuevamente al sistema.`}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="border-zinc-700 text-zinc-300">
-              Cancelar
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() =>
-                handleToggleStatus(
-                  confirmActionDialog?.user?.id,
-                  confirmActionDialog?.user?.is_active
-                )
-              }
-              className={
-                confirmActionDialog?.user?.is_active
-                  ? 'bg-red-600 hover:bg-red-700'
-                  : 'bg-emerald-600 hover:bg-emerald-700'
-              }
-            >
-              {confirmActionDialog?.user?.is_active
-                ? 'Desactivar'
-                : 'Activar'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

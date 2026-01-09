@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { ChevronRight, ChevronLeft, Paperclip, Camera, X } from 'lucide-react';
-import Button from '@/components/ui/Button';
-import Dialog from '@/components/ui/Dialog';
-import Badge from '@/components/ui/Badge';
+import { Button } from '@/components/ui/button';
+import { Dialog } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
 import api from '@/api/client';
 
 /**

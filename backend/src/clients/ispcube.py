@@ -277,15 +277,31 @@ def buscar_conexiones(query: str, limit: int = 20):
         # 2. Si hay query, filtrar
         query_lower = query.lower() if query else ""
         conexiones_filtradas = []
+
+        # Intentar obtener clientes del cache (lo necesitamos para filtrar por DNI/nombre)
+        clientes_dict = _get_cached_customers()
+        if clientes_dict is None:
+            logger.info("🌐 Descargando clientes desde ISPCube (cache vacío)...")
+            # Reutilizamos la función con paginación completa para no perder DNIs
+            clientes_full = obtener_clientes()
+            clientes_dict = {c["id"]: c for c in clientes_full if isinstance(c, dict) and c.get("id")}
+            _set_cached_customers(clientes_dict)
         
         for conn in todas_conexiones:
-            # Buscar en username o dirección
+            # Buscar en username, dirección o datos del cliente (nombre/DNI)
             username = (conn.get("user") or "").lower()
             direccion = (conn.get("direccion") or "").lower()
+            cliente = clientes_dict.get(conn.get("customer_id"), {}) if clientes_dict else {}
+            nombre_cliente = (cliente.get("name") or "").lower()
+            dni_cliente = str(cliente.get("doc_number") or "").lower()
             
-            if (not query_lower or 
-                query_lower in username or 
-                query_lower in direccion):
+            if (
+                not query_lower
+                or query_lower in username
+                or query_lower in direccion
+                or query_lower in nombre_cliente
+                or query_lower in dni_cliente
+            ):
                 conexiones_filtradas.append(conn)
                 
                 if len(conexiones_filtradas) >= limit:
@@ -293,8 +309,6 @@ def buscar_conexiones(query: str, limit: int = 20):
         
         # 3. Enriquecer con datos del cliente (con cache)
         # Intentar obtener clientes del cache
-        clientes_dict = _get_cached_customers()
-        
         if clientes_dict is None:
             # Cache vacío o expirado → descargar de ISPCube
             logger.info("🌐 Descargando clientes desde ISPCube...")
@@ -316,6 +330,7 @@ def buscar_conexiones(query: str, limit: int = 20):
                 "installation_address": conn.get("direccion") or cliente.get("address", "Sin dirección"),
                 "client_name": cliente.get("name", "Cliente sin nombre"),
                 "client_id": customer_id,
+                "client_dni": cliente.get("doc_number"),
                 "plan_name": f"Plan ID {conn.get('plan_id')}" if conn.get('plan_id') else "Sin plan",
                 "node_name": f"Nodo ID {conn.get('node_id')}" if conn.get('node_id') else "Sin nodo",
                 "status": "active"  # ISPCube no retorna status en lista simple

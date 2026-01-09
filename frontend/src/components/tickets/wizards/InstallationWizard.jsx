@@ -2,7 +2,7 @@
  * InstallationWizard - Alta de servicio
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ChevronLeft, Loader, Search, MapPin, AlertCircle } from 'lucide-react';
@@ -21,16 +21,71 @@ export default function InstallationWizard({ onBack, onSuccess }) {
     availabilityNote: '',
   });
 
+  // Helper: Detectar si el query es un DNI (números puros, 7-8 dígitos)
+  const isDNI = (query) => /^\d{7,9}$/.test(query.trim());
+
+  // Auto-search con debounce de 500ms
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      handleSearch();
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     try {
       setIsSearching(true);
       setError(null);
-      const results = await ticketsService.searchConnections(searchQuery);
-      setSearchResults(results);
-      if (results.length > 0) setStep(2);
+      
+      // Si es un DNI, usar lookup externo (mucho más rápido)
+      if (isDNI(searchQuery)) {
+        const result = await ticketsService.lookupCustomerByDNI(searchQuery);
+        if (!result) {
+          setError('Cliente no encontrado en ISPCube');
+          setSearchResults([]);
+          return;
+        }
+        
+        // Transformar el resultado al formato esperado
+        const connections = (result.connections || []).map((conn) => ({
+          connection_id: conn.external_id,
+          client_name: result.customer?.name,
+          client_dni: result.customer?.doc_number,
+          pppoe_username: conn.pppoe_username,
+          installation_address: conn.address,
+          plan_name: `Plan ID ${conn.plan_id || 'N/A'}`,
+          node_name: `Nodo ID ${conn.node_id || 'N/A'}`,
+          plan_id: conn.plan_id,
+          node_id: conn.node_id,
+          status: conn.status,
+        }));
+        
+        setSearchResults(connections);
+        if (connections.length > 0) {
+          setStep(2);
+        } else {
+          setError('El cliente no tiene conexiones disponibles');
+        }
+      } else {
+        // Búsqueda local por nombre/dirección (cuidado: puede timeout)
+        const results = await ticketsService.searchConnections(searchQuery);
+        setSearchResults(results);
+        
+        if (results.length === 0) {
+          setError('No se encontraron clientes en ISPCube');
+        } else if (results.length > 0) {
+          setStep(2);
+        }
+      }
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Error en la búsqueda');
     } finally {
       setIsSearching(false);
     }

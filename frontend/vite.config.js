@@ -14,7 +14,8 @@ export default defineConfig({
     host: true,        // Escuchar en 0.0.0.0 (Para Docker)
     allowedHosts: true, // 👈 LA CLAVE: Permitir cualquier dominio (emerald.2finternet.ar)
     hmr: {
-      host: 'emerald.2finternet.ar',
+      // HMR dinámico: usa dominio actual si no se define HMR_HOST
+      host: process.env.HMR_HOST || undefined,
       protocol: 'wss',
       clientPort: 443,
     },

@@ -3,10 +3,10 @@
  * filepath: frontend/src/components/tickets/wizards/TechnicalWizard.jsx
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ChevronLeft, Loader, Search, AlertCircle } from 'lucide-react';
+import { ChevronLeft, Loader, Search, AlertCircle, MapPin } from 'lucide-react';
 import ticketsService from '@/services/tickets.service';
 
 export default function TechnicalWizard({ onBack, onSuccess }) {
@@ -24,6 +24,20 @@ export default function TechnicalWizard({ onBack, onSuccess }) {
     priority: 'medium',
   });
 
+  // Auto-search con debounce de 500ms
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      handleSearch();
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     
@@ -31,9 +45,12 @@ export default function TechnicalWizard({ onBack, onSuccess }) {
       setIsSearching(true);
       setError(null);
       
-      // Llamar a API real de búsqueda de conexiones
       const response = await ticketsService.searchConnections(searchQuery);
       setSearchResults(response);
+      
+      if (response.length === 0) {
+        setError('No se encontraron conexiones');
+      }
     } catch (err) {
       setError(err.message || 'Error al buscar');
     } finally {
@@ -42,7 +59,12 @@ export default function TechnicalWizard({ onBack, onSuccess }) {
   };
 
   const handleSelectConnection = (conn) => {
-    setFormData(p => ({ ...p, connection_id: conn.connection_id, connection: conn }));
+    setFormData(p => ({ 
+      ...p, 
+      connection_id: conn.connection_id, 
+      connection: conn,
+      subject: p.subject || `Reclamo - ${conn.client_name}`
+    }));
     setSearchResults([]);
   };
 
@@ -83,9 +105,12 @@ export default function TechnicalWizard({ onBack, onSuccess }) {
         {formData.connection ? (
           <div className="p-3 rounded-lg bg-emerald-950/30 border border-emerald-700/50">
             <p className="text-white font-medium">{formData.connection.client_name}</p>
-            <p className="text-sm text-zinc-400 mt-1">{formData.connection.installation_address}</p>
+            <div className="flex items-center gap-1 text-sm text-zinc-400 mt-1">
+              <MapPin size={14} className="text-emerald-400" />
+              <span>{formData.connection.installation_address}</span>
+            </div>
             <button
-              onClick={() => setFormData(p => ({ ...p, connection_id: null, connection: null }))}
+              onClick={() => setFormData(p => ({ ...p, connection_id: null, connection: null, subject: '' }))}
               className="text-xs text-emerald-300 hover:text-emerald-200 mt-2"
             >
               Cambiar cliente
@@ -100,7 +125,6 @@ export default function TechnicalWizard({ onBack, onSuccess }) {
                 placeholder="Buscar por nombre, DNI o PPPoE..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                 className="pl-10 bg-zinc-800 border-zinc-700 text-white"
               />
             </div>

@@ -156,17 +156,94 @@ def _workorder_to_response(wo: WorkOrder) -> WorkOrderResponse:
 
 @router.get("/search-connections", response_model=List[dict])
 def search_connections(
-    query: str = Query(..., description="Texto a buscar (nombre, dirección, username)"),
+    query: str = Query(..., description="Texto a buscar (nombre, dirección, username, DNI)"),
     limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
 ):
     """
-    Busca conexiones en ISPCube para wizards de tickets.
-    Endpoint usado por TechnicalWizard, InstallationWizard, etc.
+    Busca conexiones en ISPCube y en la DB.
+    Fallback: Si ISPCube no retorna resultados, busca en la DB local.
+    
+    Busca en:
+    - Username PPPoE
+    - Dirección de instalación
+    - Nombre del cliente
+    - DNI del cliente
     """
     from src.clients.ispcube import buscar_conexiones
+    from sqlalchemy import text
     
     try:
+        # 1. Intentar con ISPCube primero
         results = buscar_conexiones(query, limit)
+        
+        # 2. Si no hay resultados, buscar en la DB como fallback
+        if not results:
+            search_term = f"%{query}%"
+            
+            # Búsqueda en DB: cliente por nombre o DNI + sus conexiones
+            db_results = db.execute(text("""
+                SELECT 
+                    c.connection_id,
+                    c.pppoe_username,
+                    COALESCE(c.direccion, cl.address, 'Sin dirección') as installation_address,
+                    cl.name as client_name,
+                    cl.id as client_id,
+                    cl.doc_number as client_dni
+                FROM connections c
+                LEFT JOIN clientes cl ON c.customer_id = cl.id
+                WHERE 
+                    cl.name ILIKE :search
+                    OR cl.doc_number ILIKE :search
+                    OR c.pppoe_username ILIKE :search
+                    OR c.direccion ILIKE :search
+                LIMIT :limit
+            """), {"search": search_term, "limit": limit}).fetchall()
+            
+            if db_results:
+                results = [
+                    {
+                        "connection_id": row[0],
+                        "pppoe_username": row[1],
+                        "installation_address": row[2],
+                        "client_name": row[3] or "Cliente sin nombre",
+                        "client_id": row[4],
+                        "client_dni": row[5],
+                        "plan_name": "N/A",
+                        "node_name": "N/A",
+                        "status": "active"
+                    }
+                    for row in db_results
+                ]
+        else:
+            # 3. Enriquecer resultados de ISPCube con datos de la DB (DNI, etc)
+            # Para cada resultado de ISPCube, traer datos del cliente de la DB
+            enriched_results = []
+            search_term = f"%{query}%"
+            
+            for result in results:
+                try:
+                    # Intentar obtener datos de la DB por connection_id
+                    db_result = db.execute(text("""
+                        SELECT 
+                            cl.name,
+                            cl.doc_number
+                        FROM connections c
+                        LEFT JOIN clientes cl ON c.customer_id = cl.id
+                        WHERE c.connection_id = :conn_id
+                        LIMIT 1
+                    """), {"conn_id": result.get("connection_id")}).first()
+                    
+                    if db_result and db_result[1]:  # Si tiene DNI
+                        result["client_dni"] = db_result[1]
+                        result["client_name"] = db_result[0] or result.get("client_name", "Cliente sin nombre")
+                except:
+                    pass  # Si falla, usar lo que ISPCube retornó
+                
+                enriched_results.append(result)
+            
+            results = enriched_results
+        
         return results
     except Exception as e:
         raise HTTPException(
