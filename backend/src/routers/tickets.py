@@ -91,7 +91,18 @@ def _safe_name(user) -> Optional[str]:
     return user.full_name or user.username
 
 
-def _ticket_to_response(ticket: Ticket, client_name: Optional[str] = None, client_dni: Optional[str] = None) -> TicketResponse:
+def _ticket_to_response(
+    ticket: Ticket,
+    client_name: Optional[str] = None,
+    client_dni: Optional[str] = None,
+    connection_id_override: Optional[int] = None,
+) -> TicketResponse:
+    """Convierte Ticket ORM a respuesta enriquecida.
+
+    connection_id_override permite mantener visibles los paneles de conexión
+    en la UI incluso si el ticket usa destination_connection_id (instalación)
+    o origin_connection_id (traslado) como única referencia.
+    """
     return TicketResponse(
         id=ticket.id,
         subject=ticket.subject,
@@ -99,7 +110,7 @@ def _ticket_to_response(ticket: Ticket, client_name: Optional[str] = None, clien
         priority=ticket.priority,
         ticket_type=ticket.ticket_type,
         administrative_subtype=ticket.administrative_subtype,
-        connection_id=ticket.connection_id,
+        connection_id=connection_id_override if connection_id_override is not None else ticket.connection_id,
         origin_connection_id=ticket.origin_connection_id,
         destination_connection_id=ticket.destination_connection_id,
         installation_tech=ticket.installation_tech,
@@ -467,6 +478,61 @@ def create_ticket(
     db.add(ticket)
     db.flush()
     
+    # Si es instalación, sincronizar cliente + conexión desde ISPCube a Postgres
+    if payload.ticket_type == TicketType.installation:
+        try:
+            from src.clients import ispcube
+            from src.db.postgres import Database
+
+            db_sync = Database()
+
+            # Camino preferido: usar payload del wizard (no re-consultar)
+            if payload.ispcube_customer:
+                try:
+                    selected_conn = None
+                    if payload.destination_connection_id and (payload.ispcube_connections or []):
+                        for conn in payload.ispcube_connections:
+                            if str(conn.get("id")) == str(payload.destination_connection_id):
+                                selected_conn = conn
+                                break
+                    connections_to_sync = [selected_conn] if selected_conn else (payload.ispcube_connections or [])
+                    db_sync.sync_cliente_instalacion(
+                        customer_data=payload.ispcube_customer,
+                        connections_data=connections_to_sync
+                    )
+                except Exception as inner_e:
+                    from src.config import logger
+                    logger.warning(f"Sync (wizard payload) falló para ticket {ticket.id}: {inner_e}")
+
+            elif payload.customer_dni:
+                # Camino preferido: lookup directo por DNI (retorna cliente y conexiones)
+                pack = ispcube.obtener_cliente_por_dni(payload.customer_dni)
+                if pack and pack.get("customer"):
+                    db_sync.sync_cliente_instalacion(
+                        customer_data=pack.get("customer"),
+                        connections_data=pack.get("connections") or []
+                    )
+            elif payload.destination_connection_id:
+                # Fallback: obtener la conexión y usar customer_id para lookup por ID
+                todas_conexiones = ispcube.obtener_todas_conexiones()
+                conexion_data = next(
+                    (c for c in todas_conexiones if c.get("id") == payload.destination_connection_id),
+                    None
+                )
+                if conexion_data and conexion_data.get("customer_id"):
+                    cliente_pack = ispcube.obtener_cliente_por_id(int(conexion_data.get("customer_id")))
+                    if cliente_pack and cliente_pack.get("customer"):
+                        db_sync.sync_cliente_instalacion(
+                            customer_data=cliente_pack.get("customer"),
+                            connections_data=[conexion_data]
+                        )
+
+            db_sync.close()
+        except Exception as e:
+            # No fallar la creación del ticket si falla la sincronización
+            from src.config import logger
+            logger.warning(f"Error sincronizando cliente para ticket {ticket.id}: {e}")
+    
     # Crear evento de timeline
     timeline_event = TicketTimeline(
         ticket_id=ticket.id,
@@ -583,8 +649,14 @@ def get_ticket_detail(ticket_id: int, db: Session = Depends(get_db)):
     work_orders = [_workorder_to_response(wo) for wo in ticket.work_orders]
 
     # Enriquecer con datos de la conexión (si existe)
+    effective_connection_id = (
+        ticket.connection_id
+        or ticket.destination_connection_id
+        or ticket.origin_connection_id
+    )
+
     connection_details = None
-    if ticket.connection_id:
+    if effective_connection_id:
         conn_data = db.execute(
             text("""
                 SELECT 
@@ -605,7 +677,7 @@ def get_ticket_detail(ticket_id: int, db: Session = Depends(get_db)):
                 WHERE c.connection_id = :conn_id
                 LIMIT 1
             """),
-            {"conn_id": ticket.connection_id}
+            {"conn_id": effective_connection_id}
         ).first()
         
         if conn_data:
@@ -623,7 +695,12 @@ def get_ticket_detail(ticket_id: int, db: Session = Depends(get_db)):
             )
 
     return TicketDetailResponse(
-        **_ticket_to_response(ticket).model_dump(),
+        **_ticket_to_response(
+            ticket,
+            client_name=connection_details.client_name if connection_details else None,
+            client_dni=connection_details.client_dni if connection_details else None,
+            connection_id_override=effective_connection_id,
+        ).model_dump(),
         connection_details=connection_details,
         timeline=timeline,
         work_orders=work_orders,

@@ -90,6 +90,72 @@ class Database:
         # Reemplaza a [cite: 84]
         obj = models.ClienteTelefono(customer_id=customer_id, number=number)
         self.db.add(obj)
+    
+    def sync_cliente_instalacion(self, customer_data: dict, connections_data: list):
+        """
+        Sincroniza cliente + conexiones a Postgres durante creación de ticket de instalación.
+        Usa insert_cliente() e insert_connection() existentes.
+        
+        Args:
+            customer_data: Dict con datos del cliente desde ISPCube
+            connections_data: Lista de conexiones del cliente desde ISPCube
+        """
+        from src.jobs.sync import mapear_cliente, insertar_contactos_relacionados
+        
+        try:
+            customer_id = customer_data.get("id")
+            if not customer_id:
+                return
+            
+            # Sincronizar cliente
+            mapped_cliente = mapear_cliente(customer_data)
+            existing_cliente = self.db.query(models.Cliente).filter_by(id=customer_id).first()
+            
+            if existing_cliente:
+                # Actualizar datos del cliente existente
+                for key, value in mapped_cliente.items():
+                    if hasattr(existing_cliente, key):
+                        setattr(existing_cliente, key, value)
+            else:
+                # Insertar nuevo cliente
+                self.insert_cliente(mapped_cliente)
+            
+            # Insertar contactos (emails, teléfonos)
+            insertar_contactos_relacionados(self, customer_data)
+            
+            # Sincronizar conexiones
+            if connections_data:
+                for conn in connections_data:
+                    if not conn.get("id"):
+                        continue
+                    
+                    conn_id = str(conn.get("id"))
+                    existing_conn = self.db.query(models.Connection).filter_by(connection_id=conn_id).first()
+                    
+                    if existing_conn:
+                        # Actualizar conexión existente
+                        existing_conn.pppoe_username = str(conn.get("user") or "")
+                        existing_conn.customer_id = customer_id
+                        existing_conn.node_id = conn.get("node_id")
+                        existing_conn.plan_id = conn.get("plan_id")
+                        existing_conn.direccion = conn.get("direccion") or conn.get("address")
+                    else:
+                        # Crear nueva conexión
+                        self.insert_connection(
+                            str(conn.get("id")),
+                            str(conn.get("user") or ""),
+                            customer_id,
+                            conn.get("node_id"),
+                            conn.get("plan_id"),
+                            conn.get("direccion") or conn.get("address")
+                        )
+            
+            self.commit()
+            
+        except Exception as e:
+            from src.config import logger
+            logger.error(f"Error sincronizando cliente {customer_data.get('id')}: {e}")
+            self.db.rollback()
 
     def insert_secret(self, secret_data: dict, router_ip: str):
         # Reemplaza a

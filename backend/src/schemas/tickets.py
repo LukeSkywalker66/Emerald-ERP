@@ -192,6 +192,12 @@ class TicketCreate(BaseModel):
     # Datos adicionales (NUEVO)
     installation_tech: Optional[str] = Field(None, description="Tecnología: fiber, wireless, hybrid")
     availability_note: Optional[str] = None
+    
+    # Datos opcionales para instalación (lookup directo en ISPCube)
+    customer_dni: Optional[str] = Field(None, description="DNI/CUIT del cliente para sincronización post-creación")
+    # Payloads entregados por el wizard (NO re-consultar en backend)
+    ispcube_customer: Optional[Dict[str, Any]] = Field(None, description="JSON completo del cliente devuelto por ISPCube /api/customer")
+    ispcube_connections: Optional[List[Dict[str, Any]]] = Field(None, description="Array de conexiones devuelto por ISPCube /api/customer")
 
 
 class TicketResponse(BaseModel):

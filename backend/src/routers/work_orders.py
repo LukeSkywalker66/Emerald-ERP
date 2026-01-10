@@ -221,24 +221,24 @@ def get_work_order_detail(
             "subject": wo.ticket.subject,
             "connection_id": wo.ticket.connection_id,
             "priority": wo.ticket.priority.value if wo.ticket.priority else None,
-            "client_name": getattr(wo.ticket, "client_name", None) or (wo.ticket.creator.full_name if wo.ticket.creator else None),
-            "address": getattr(wo.ticket, "address", None) or getattr(wo.ticket, "availability_note", None),
+            "client_name": None,  # Se llenará desde conexión o fallback
+            "address": getattr(wo.ticket, "availability_note", None),
         }
 
-        # 1) Intentar con snapshot guardado en la OT
+        # 1) Intentar con snapshot guardado en la OT (prioridad alta)
         conn_snap = (wo.custom_data or {}).get("connection") if wo.custom_data else None
         if conn_snap:
             ticket_info.update({
                 "pppoe_username": conn_snap.get("pppoe_username"),
                 "address": conn_snap.get("address") or ticket_info.get("address"),
-                "client_name": conn_snap.get("client_name") or ticket_info.get("client_name"),
+                "client_name": conn_snap.get("client_name"),
                 "client_dni": conn_snap.get("client_dni"),
                 "node_name": conn_snap.get("node_name"),
                 "node_ip": conn_snap.get("node_ip"),
                 "plan_name": conn_snap.get("plan_name"),
                 "plan_speed": conn_snap.get("plan_speed"),
             })
-        # 2) Fallback: consultar DB si no hay snapshot
+        # 2) Fallback: consultar DB si no hay snapshot y hay connection_id
         elif wo.ticket.connection_id:
             conn_row = db.execute(
                 text(

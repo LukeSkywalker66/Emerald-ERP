@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { ChevronRight, ChevronLeft, Paperclip, Camera, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -39,6 +39,10 @@ export default function CloseWorkOrderDialog({
   const [uploadedPhotos, setUploadedPhotos] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
+  
+  // Refs para inputs ocultos
+  const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
 
   // Compresión de imágenes
   const maybeCompressImage = async (file) => {
@@ -107,6 +111,8 @@ export default function CloseWorkOrderDialog({
         formData,
         {
           headers: { 'Content-Type': 'multipart/form-data' },
+          // Subidas pueden tardar más según red/dispositivo
+          timeout: 60000,
         }
       );
 
@@ -117,7 +123,12 @@ export default function CloseWorkOrderDialog({
       }
     } catch (err) {
       console.error('[ERROR] Upload failed:', err);
-      setUploadError(err.response?.data?.detail || 'Error al subir la foto');
+      const isTimeout = err.code === 'ECONNABORTED' || /timeout/i.test(err.message || '');
+      setUploadError(
+        isTimeout
+          ? 'Tiempo de espera excedido al subir. Intenta nuevamente.'
+          : (err.response?.data?.detail || 'Error al subir la foto')
+      );
     } finally {
       setUploading(false);
     }
@@ -179,13 +190,20 @@ export default function CloseWorkOrderDialog({
 
       console.log('[DEBUG] Closing WO with payload:', payload);
 
-      await api.patch(`/v2/work-orders/${workOrder.id}`, payload);
+      await api.patch(`/v2/work-orders/${workOrder.id}`, payload, {
+        timeout: 60000,
+      });
 
       onComplete?.();
       onClose?.();
     } catch (err) {
       console.error('[ERROR] Failed to close WO:', err);
-      setUploadError(err.response?.data?.detail || 'Error al completar la OT');
+      const isTimeout = err.code === 'ECONNABORTED' || /timeout/i.test(err.message || '');
+      setUploadError(
+        isTimeout
+          ? 'Tiempo de espera excedido al completar. Intenta nuevamente.'
+          : (err.response?.data?.detail || 'Error al completar la OT')
+      );
     } finally {
       setUploading(false);
     }
@@ -380,42 +398,46 @@ export default function CloseWorkOrderDialog({
               <div>
                 <h3 className="font-medium text-white mb-3">Evidencia Fotográfica</h3>
                 <div className="flex gap-2 mb-4">
-                  <label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileSelect}
-                      disabled={uploading}
-                      className="hidden"
-                    />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="border-zinc-700 hover:ring-1 hover:ring-emerald-500/40 hover:shadow-[0_0_10px_rgba(16,185,129,0.35)] bg-zinc-900/40 disabled:opacity-50"
-                      disabled={uploading}
-                    >
-                      <Paperclip size={16} className="text-emerald-400" />
-                    </Button>
-                  </label>
+                  {/* Inputs ocultos controlados por refs */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileSelect}
+                    disabled={uploading}
+                    className="hidden"
+                  />
+                  <input
+                    ref={cameraInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleCameraCapture}
+                    disabled={uploading}
+                    className="hidden"
+                  />
 
-                  <label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={handleCameraCapture}
-                      disabled={uploading}
-                      className="hidden"
-                    />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="border-zinc-700 hover:ring-1 hover:ring-emerald-500/40 hover:shadow-[0_0_10px_rgba(16,185,129,0.35)] bg-zinc-900/40 disabled:opacity-50"
-                      disabled={uploading}
-                    >
-                      <Camera size={16} className="text-emerald-400" />
-                    </Button>
-                  </label>
+                  <Button
+                    type="button"
+                    onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                    variant="outline"
+                    size="icon"
+                    className="border-zinc-700 hover:ring-1 hover:ring-emerald-500/40 hover:shadow-[0_0_10px_rgba(16,185,129,0.35)] bg-zinc-900/40 disabled:opacity-50"
+                    disabled={uploading}
+                  >
+                    <Paperclip size={16} className="text-emerald-400" />
+                  </Button>
+
+                  <Button
+                    type="button"
+                    onClick={() => cameraInputRef.current && cameraInputRef.current.click()}
+                    variant="outline"
+                    size="icon"
+                    className="border-zinc-700 hover:ring-1 hover:ring-emerald-500/40 hover:shadow-[0_0_10px_rgba(16,185,129,0.35)] bg-zinc-900/40 disabled:opacity-50"
+                    disabled={uploading}
+                  >
+                    <Camera size={16} className="text-emerald-400" />
+                  </Button>
                 </div>
 
                 {uploadError && (

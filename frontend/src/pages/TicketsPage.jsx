@@ -39,6 +39,15 @@ const priorityConfig = {
   low: { label: 'Baja', variant: 'default' },
 };
 
+// Tipo de Ticket (agrupación lógica)
+const typeConfig = {
+  technical: { label: 'Técnico', tone: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/40' },
+  installation: { label: 'Instalación', tone: 'bg-blue-500/10 text-blue-200 border-blue-500/40' },
+  withdrawal: { label: 'Retiro', tone: 'bg-zinc-600/30 text-zinc-100 border-zinc-500/30' },
+  relocation: { label: 'Traslado', tone: 'bg-purple-500/15 text-purple-200 border-purple-500/40' },
+  administrative: { label: 'Administrativo', tone: 'bg-amber-500/15 text-amber-200 border-amber-500/40' },
+};
+
 function StatusBadge({ status }) {
   const config = statusConfig[status] || statusConfig.pending;
   const variantClasses = {
@@ -295,6 +304,7 @@ export default function TicketsPage() {
                   </div>
                 </TableHead>
                 <TableHead className="text-zinc-400 font-semibold">Asunto</TableHead>
+                <TableHead className="w-[120px] text-zinc-400 font-semibold">Tipo</TableHead>
                 <TableHead className="w-[180px] text-zinc-400 font-semibold">Etiquetas</TableHead>
                 <TableHead 
                   className="w-[180px] text-zinc-400 font-semibold cursor-pointer hover:text-emerald-400 transition-colors"
@@ -356,6 +366,15 @@ export default function TicketsPage() {
                       <p className="text-sm font-medium text-white line-clamp-1">
                         {ticket.subject}
                       </p>
+                    </TableCell>
+                    <TableCell>
+                      {ticket.ticket_type ? (
+                        <Badge variant="outline" className={`text-xs ${typeConfig[ticket.ticket_type]?.tone || 'bg-zinc-800 text-zinc-300 border-zinc-700'}`}>
+                          {typeConfig[ticket.ticket_type]?.label || ticket.ticket_type}
+                        </Badge>
+                      ) : (
+                        <span className="text-sm text-zinc-500">N/D</span>
+                      )}
                     </TableCell>
                     <TableCell className="max-w-[180px]">
                       <div className="flex items-center gap-1 flex-wrap">

@@ -239,6 +239,61 @@ def _set_cached_customers(data):
     logger.info(f"💾 Cache de clientes actualizado ({len(data)} clientes)")
 
 
+def obtener_cliente_por_dni(dni: str):
+    """
+    Consulta cliente específico en ISPCube por DNI usando endpoint /api/customer.
+    Retorna datos completos del cliente + conexiones.
+    
+    Args:
+        dni: DNI/CUIT del cliente
+    
+    Returns:
+        dict con estructura: {
+            "customer": {...datos del cliente...},
+            "connections": [{...datos de conexiones...}]
+        }
+        o None si no existe
+    """
+    url = f"{ISPCUBE_BASEURL}/customer"
+    params = {"doc_number": dni}
+    
+    try:
+        resp = _request("GET", url, params=params)
+        cliente = resp.json()
+        
+        if cliente and isinstance(cliente, dict):
+            return {
+                "customer": cliente,
+                "connections": cliente.get("connections", [])
+            }
+        return None
+    except Exception as e:
+        logger.error(f"Error consultando cliente por DNI {dni}: {e}")
+        return None
+
+
+def obtener_cliente_por_id(customer_id: int):
+    """
+    Consulta cliente específico en ISPCube por ID usando endpoint /api/customer.
+    Retorna datos completos del cliente + conexiones.
+    """
+    url = f"{ISPCUBE_BASEURL}/customer"
+    params = {"customer_id": customer_id}
+
+    try:
+        resp = _request("GET", url, params=params)
+        cliente = resp.json()
+
+        if cliente and isinstance(cliente, dict):
+            return {
+                "customer": cliente,
+                "connections": cliente.get("connections", [])
+            }
+        return None
+    except Exception as e:
+        logger.error(f"Error consultando cliente por ID {customer_id}: {e}")
+        return None
+
 def buscar_conexiones(query: str, limit: int = 20):
     """
     Busca conexiones en ISPCube por nombre de cliente, dirección o username.

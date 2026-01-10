@@ -206,7 +206,7 @@ export default function WorkOrderExecutionPage() {
   const handleCloseWorkOrder = async () => {
     try {
       setIsSubmitting(true);
-      const updated = await workOrdersService.getWorkOrder(id);
+      const updated = await workOrdersService.getWorkOrderDetail(id);
       setWorkOrder(updated);
       setShowCloseDialog(false);
 
