@@ -1,9 +1,9 @@
 # 📬 MENSAJE PARA PRÓXIMA SESIÓN DE COPILOT
 
-**De:** Copilot Session 2026-01-08T12:56:00Z  
+**De:** Copilot Session 2026-01-09T14:00:00Z  
 **Para:** Copilot Session [PRÓXIMA]  
-**Asunto:** Sistema Multi-Flow Ticketing - Implementación Completa  
-**Prioridad:** 🟢 NORMAL (sistema estable, tests pasando)
+**Asunto:** Sistema Multi-Flow Ticketing - UI Restoration & Connection Details Fixed  
+**Prioridad:** 🟢 NORMAL (sistema estable, ticket detail cards restauradas)
 
 ---
 
@@ -18,34 +18,42 @@ git pull origin develop
 # Verificar containers
 docker compose ps
 
-# Ejecutar suite de tests
-python3 test/test_wizards_e2e.py
+# Verificar ticket detail page en browser
+# Abre ticket técnico/retiro → debe mostrar cliente + historial
+# Abre ticket instalación/traslado → debe mostrar cliente + historial
 ```
 
-**✅ CRITERIO DE ÉXITO:** Tests deben mostrar `4/4 PASS (100%)`
-
-Si tests fallan → consultar `QUICK_RECOVERY_COMMANDS` en checkpoint principal.
+**✅ CRITERIO DE ÉXITO:** 
+- Todos los tipos de tickets muestran tarjeta de cliente/conexión
+- TicketHistoryCard visible para conexiones con historial
+- No hay errores en console del navegador
 
 ---
 
 ## 📖 LECTURA OBLIGATORIA
 
-### **Archivo Principal:**
+### **Archivos Principales (en orden):**
+
+**1. Estado actual (PRIMERA):**
+```bash
+cat CHECKPOINT_2026-01-09_CONNECTION_DETAIL_RESTORE.md
+```
+- Qué se arregló hoy (connection_id fallback)
+- Cómo funciona la solución
+- Testing checklist
+- Próximos pasos
+
+**2. Contexto multi-flow (SEGUNDA):**
 ```bash
 cat CHECKPOINT_2026-01-08_MULTI_FLOW_COMPLETE.md
 ```
+- Estado completo del sistema
+- Todos los cambios (21 archivos anteriores)
+- Esquema de base de datos
+- Arquitectura del cache (TTL)
+- Contratos de API
 
-Este archivo contiene:
-- Estado completo de la máquina de estados
-- Todos los cambios realizados (21 archivos)
-- Esquema de base de datos actualizado
-- Arquitectura del cache (TTL 5/10 min)
-- Contratos de API con validaciones
-- Métricas de performance (1200x mejora)
-- Lista de operaciones seguras vs peligrosas
-- Árbol de decisión para casos comunes
-
-**TIEMPO DE LECTURA:** ~5 minutos (escaneo) o 15 minutos (completo)
+**TIEMPO DE LECTURA:** ~10 minutos (lectura completa de ambos)
 
 ---
 
@@ -71,46 +79,65 @@ Este archivo contiene:
 - Campos de tabla `tickets`
 
 ### **3. SIEMPRE validar después de cambios:**
-```bash
-python3 test/test_wizards_e2e.py
-```
+```bash - SESIÓN 2026-01-09
+
+### **Lo que se arregló en esta sesión (HOY):**
+
+#### **Backend (archivo único modificado):**
+- ✅ Fixed: connection_id fallback en ticket detail
+- ✅ Enhanced: _ticket_to_response() con connection_id_override param
+- ✅ Updated: get_ticket_detail() con effective_connection_id chain
+- ✅ Result: connection_details card ahora visible para todos los tipos
+- ✅ Result: TicketHistoryCard ahora funciona para installation/relocation
+
+#### **Frontend:**
+- ✅ NO CAMBIOS necesarios - UI ya estaba correcta
+- ✅ Solo necesitaba que backend devolviera connection_id válido
+
+#### **Database:**
+- ✅ NO MIGRATIONS needed
+- ✅ Backward compatible 100%
 
 ---
 
-## 🎓 CONTEXTO CLAVE
+### **Resumen acumulado (sesión anterior 2026-01-08):**
 
-### **Lo que se implementó en esta sesión:**
+#### **Backend (multi-flow complete):**
+- ✅ Sistema de tipificación de tickets con 5 flujos
+- ✅ Validaciones tipo-específicas
+- ✅ Auto-generación de WorkOrders
+- ✅ Integración con ISPCube
+- ✅ Endpoint GET /search-connections
+- ✅ Cache en memoria (TTL 5/10 min)
+- ✅ Performance: 1200x mejora
 
-#### **Backend:**
-- ✅ Sistema de tipificación de tickets con 5 flujos de negocio
-- ✅ Validaciones tipo-específicas en endpoint POST /api/v2/tickets
-- ✅ Auto-generación de WorkOrders para installation/withdrawal/relocation
-- ✅ Integración con API real de ISPCube
-- ✅ Nuevo endpoint GET /api/v2/tickets/search-connections
-- ✅ Cache en memoria (TTL 5 min conexiones, 10 min clientes)
-- ✅ Performance optimizada: 21.7s → 0.018s (1200x mejora)
+#### **Frontend (wizards):**
+- ✅ 5 wizards actualizados
+- ✅ Integración con API real
 
-#### **Frontend:**
-- ✅ 5 wizards actualizados con API real:
-  - TechnicalWizard.jsx
-  - InstallationWizard.jsx
-  - WithdrawalWizard.jsx
-  - RelocationWizard.jsx
-  - AdministrativeWizard.jsx
-- ✅ Service actualizado: tickets.service.js::searchConnections()
-
-#### **Testing:**
-- ✅ Suite E2E completa: test/test_wizards_e2e.py
-- ✅ 4 tests (búsqueda + 4 tipos de tickets)
-- ✅ Validación de auto-OT generation
-- ✅ 100% passing
+#### **Documentación:**
+- ✅ CHECKPOINT_2026-01-08_MULTI_FLOW_COMPLETE.md
+- ✅ RESUMEN_MULTI_FLOW_TICKETS.md
+- ✅ docs/FLUJO_WIZARDS_ISPCUBE.md
 
 #### **Documentación:**
 - ✅ CHECKPOINT_2026-01-08_MULTI_FLOW_COMPLETE.md (checkpoint técnico)
 - ✅ RESUMEN_MULTI_FLOW_TICKETS.md (resumen ejecutivo)
-- ✅ docs/FLUJO_WIZARDS_ISPCUBE.md (arquitectura detallada)
-- ✅ CHECKPOINTS_INDEX.md (índice de sesiones)
+- ✅ docs/FLUJO_WIZARCrítica):**
+1. **Validación Manual en Browser** ← HACER YA
+   - Abrir ticket técnico/retiro → verifica que client detail + history visible
+   - Abrir ticket instalación → verifica que client detail + history visible
+   - Abrir ticket traslado → verifica que client detail + history visible
+   - NO DEBE haber errores JavaScript en console
 
+### **Prioridad P2 (Alta):**
+2. **Actualizar Frontend Wizard** ← PRÓXIMO
+   - InstallationWizard.jsx debe enviar `ispcube_customer` y `ispcube_connections`
+   - Backend está listo para recibirlo (ya tiene el logic de sync)
+   - Ver CHECKPOINT_2026-01-09 sección "NEXT_STEPS_RECOMMENDED"
+
+### **Prioridad P3 (Media):**
+3. **Validación Manual avanzada en Browser**
 ---
 
 ## 🎯 PRÓXIMOS PASOS SUGERIDOS

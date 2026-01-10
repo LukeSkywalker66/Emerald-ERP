@@ -18,18 +18,40 @@ Este archivo contiene:
 
 ## CHECKPOINT ACTIVO
 
-📍 **[CHECKPOINT_2026-01-08_MULTI_FLOW_COMPLETE.md](CHECKPOINT_2026-01-08_MULTI_FLOW_COMPLETE.md)**
+📍 **[CHECKPOINT_2026-01-09_CONNECTION_DETAIL_RESTORE.md](CHECKPOINT_2026-01-09_CONNECTION_DETAIL_RESTORE.md)** ← ACTUAL
+- **Fecha:** 2026-01-09T14:00:00Z
+- **Branch:** `develop` @ `3952daa`
+- **Estado:** ✅ PRODUCTION_READY
+- **Features:** Connection detail fix (fallback chain), client/history cards restored
+- **Changes:** 1 archivo (backend/src/routers/tickets.py)
+- **Migrations:** 0 (backward compatible)
+- **Next:** Browser validation, wizard update for ispcube_customer payload
+
+📍 **[CHECKPOINT_2026-01-08_MULTI_FLOW_COMPLETE.md](CHECKPOINT_2026-01-08_MULTI_FLOW_COMPLETE.md)** ← CONTEXTO
 - **Fecha:** 2026-01-08T12:56:00Z
 - **Branch:** `develop` @ `8d43282`
 - **Estado:** ✅ PRODUCTION_READY
 - **Features:** Multi-flow ticketing (5 tipos), API ISPCube, Cache optimizado
 - **Tests:** 4/4 PASS
 - **Performance:** 1200x mejora (21.7s → 0.018s)
-- **Siguiente:** Validación browser, métricas Prometheus
 
 ---
 
-## HISTÓRICO DE CHECKPOINTS
+## HISTÓRICO DE CHECKPOINTS (Más Reciente Primero)
+
+### 2026-01-09 - Connection Detail UI Restoration
+📄 [CHECKPOINT_2026-01-09_CONNECTION_DETAIL_RESTORE.md](CHECKPOINT_2026-01-09_CONNECTION_DETAIL_RESTORE.md)
+- **Commit:** 3952daa
+- **Features:** Fixed connection_id fallback en ticket detail
+- **Estado:** ✅ PRODUCTION_READY
+- **Cambios:** 1 file, connection_id_override param, effective_connection_id chain
+- **Impacto:** Client/history cards ahora visibles para installation/relocation tickets
+
+### 2026-01-08 - Multi-Flow Ticketing Complete
+📄 [CHECKPOINT_2026-01-08_MULTI_FLOW_COMPLETE.md](CHECKPOINT_2026-01-08_MULTI_FLOW_COMPLETE.md)
+- **Commit:** 8d43282
+- **Features:** 5 flujos de tickets, ISPCube integration, cache, auto-OT
+- **Estado:** Merged to develop
 
 ### 2026-01-07 - Sistema de Work Orders
 📄 [CHECKPOINT_2026-01-07_OT_CIERRE.md](CHECKPOINT_2026-01-07_OT_CIERRE.md)

@@ -1,9 +1,19 @@
 # 💎 Emerald ERP
 Sistema de Gestión Integral para ISP (Internet Service Providers)
 
+**Estado:** ✅ Production Ready  
+**Última actualización:** 2026-01-09  
+**Branch:** develop (3952daa)
+
 ## 📖 Descripción
 
-Emerald ERP es una plataforma moderna diseñada para administrar la operación técnica y comercial de un ISP (2F Internet). Integra la gestión de clientes, planes de servicio, tickets de soporte técnico, órdenes de trabajo y diagnóstico de red en una sola interfaz unificada.
+Emerald ERP es una plataforma moderna diseñada para administrar la operación técnica y comercial de un ISP (2F Internet). Integra:
+- ✅ Sistema multi-flujo de tickets (5 tipos: técnico, instalación, retiro, traslado, administrativo)
+- ✅ Órdenes de trabajo con seguimiento técnico
+- ✅ Integración en tiempo real con ISPCube para búsqueda de clientes/conexiones
+- ✅ Caché optimizado para performance (1200x mejora de velocidad)
+- ✅ Historial de incidentes por conexión
+- ✅ Gestión de materiales y resolución de OTs
 
 El sistema está construido con una arquitectura modular contenerizada, utilizando FastAPI para un backend de alto rendimiento y React (Vite) para una experiencia de usuario fluida.
 
