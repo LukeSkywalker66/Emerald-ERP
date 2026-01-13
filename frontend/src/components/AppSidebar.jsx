@@ -1,7 +1,7 @@
 /**
  * AppSidebar - Navegación principal del sistema
- * Estructura plana orientada a operaciones diarias
- * Usa Shadcn UI Sidebar components
+ * Estructura modular con secciones temáticas
+ * Usa Shadcn UI Sidebar components + diseño Emerald profesional
  */
 
 import React from 'react';
@@ -16,6 +16,11 @@ import {
   Users,
   UserCog,
   Settings,
+  BarChart3,
+  Building2,
+  Package,
+  ArrowLeftRight,
+  AlertCircle,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -67,6 +72,47 @@ const menuSections = [
     ],
   },
   {
+    label: 'Inventario',
+    items: [
+      {
+        title: 'Dashboard',
+        icon: BarChart3,
+        href: '/app/inventory',
+        description: 'Métricas de stock',
+      },
+      {
+        title: 'Almacenes',
+        icon: Building2,
+        href: '/app/inventory/warehouses',
+        description: 'Gestión de depósitos',
+      },
+      {
+        title: 'Catálogo',
+        icon: Package,
+        href: '/app/inventory/products',
+        description: 'Base de productos',
+      },
+      {
+        title: 'Operaciones',
+        icon: ArrowLeftRight,
+        href: '/app/inventory/transfer',
+        description: 'Transferencias y ajustes',
+      },
+      {
+        title: 'Auditoría',
+        icon: ClipboardList,
+        href: '/app/inventory/movements',
+        description: 'Historial de movimientos',
+      },
+      {
+        title: 'Alertas',
+        icon: AlertCircle,
+        href: '/app/inventory/alerts',
+        description: 'Stock crítico',
+      },
+    ],
+  },
+  {
     label: 'Red y Clientes',
     items: [
       {
@@ -84,8 +130,8 @@ const menuSections = [
       {
         title: 'Clientes',
         icon: Users,
-        href: '/app/customers',
-        description: 'Datos comerciales',
+        href: '/app/clients',
+        description: 'Padrón de clientes',
       },
     ],
   },
@@ -93,94 +139,94 @@ const menuSections = [
     label: 'Sistema',
     items: [
       {
-        title: 'Usuarios',
-        icon: UserCog,
-        href: '/app/users',
-        description: 'Gestión de usuarios',
-      },
-      {
         title: 'Configuración',
         icon: Settings,
         href: '/app/settings',
-        description: 'Ajustes generales',
+        description: 'Opciones del sistema',
+      },
+      {
+        title: 'Usuarios',
+        icon: UserCog,
+        href: '/app/users',
+        description: 'Gestión de cuentas',
       },
     ],
   },
 ];
 
-export default function AppSidebar() {
-  const location = useLocation();
+export function AppSidebar() {
+  const { pathname } = useLocation();
 
-  /**
-   * Determina si un item está activo
-   * Exact match para Dashboard, prefix match para otros
-   */
   const isItemActive = (href) => {
-    if (href === '/app') {
-      return location.pathname === '/app';
-    }
-    return location.pathname.startsWith(href);
+    return pathname.startsWith(href);
   };
 
   return (
-    <Sidebar className="border-r border-zinc-800 bg-zinc-950 w-52">
+    <Sidebar className="bg-gradient-to-b from-zinc-950 to-zinc-900/80 w-64">
       {/* Header con Logo */}
-      <SidebarHeader className="border-b border-zinc-800/50 px-4 py-4">
-        <Link to="/app" className="flex items-center gap-2 group">
-          <EmeraldLogo className="scale-75" withText={false} />
+      <SidebarHeader className="border-b border-zinc-800/50 px-4 py-4 bg-gradient-to-r from-zinc-950/50 to-transparent">
+        <Link to="/app" className="flex items-center gap-3 group">
+          <div className="relative">
+            <div className="absolute inset-0 bg-emerald-500/20 blur-md rounded-lg group-hover:bg-emerald-500/30 transition-all" />
+            <EmeraldLogo className="scale-75 relative" withText={false} />
+          </div>
           <div className="flex flex-col">
-            <span className="text-xs font-bold text-white tracking-tight">
+            <span className="text-sm font-bold text-white tracking-tight group-hover:text-emerald-400 transition-colors">
               Emerald
             </span>
-            <span className="text-xs text-emerald-400/80 font-medium">
-              ERP
+            <span className="text-xs text-emerald-400/70 font-semibold group-hover:text-emerald-400 transition-colors">
+              ERP v2.1
             </span>
           </div>
         </Link>
       </SidebarHeader>
 
       {/* Main Navigation */}
-      <SidebarContent className="px-2 py-3">
+      <SidebarContent className="px-3 py-4 space-y-2">
         {menuSections.map((section) => (
-          <SidebarGroup key={section.label} className="mb-4">
-            <SidebarGroupLabel className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 px-2">
+          <SidebarGroup key={section.label} className="py-2">
+            <SidebarGroupLabel className="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-3 px-3 opacity-70 hover:opacity-100 transition-opacity">
               {section.label}
             </SidebarGroupLabel>
             
-            <SidebarMenu>
+            <SidebarMenu className="space-y-1">
               {section.items.map((item) => {
                 const Icon = item.icon;
                 const active = isItemActive(item.href);
 
                 return (
                   <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={active}
-                      tooltip={item.description}
-                      className={`
-                        relative px-2 py-2 rounded-lg transition-all flex flex-col items-start
-                        ${
-                          active
-                            ? 'bg-emerald-500/10 text-emerald-300 border-l-2 border-emerald-500'
-                            : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'
-                        }
-                      `}
-                    >
-                      <Link to={item.href} className="flex flex-col items-start w-full gap-1">
-                        <div className="flex items-center gap-2 w-full">
-                          <Icon
-                            size={16}
-                            className={active ? 'text-emerald-400' : 'text-zinc-500'}
-                          />
-                          <span className="text-xs font-medium">
-                            {item.title}
-                          </span>
+                    <SidebarMenuButton asChild>
+                      <Link
+                        to={item.href}
+                        title={item.description}
+                        className={`
+                          relative group flex items-center gap-3 px-3 py-2.5 rounded-lg
+                          transition-all duration-200 cursor-pointer
+                          ${
+                            active
+                              ? 'bg-emerald-500/15 text-emerald-300 before:content-[""] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:bg-gradient-to-b before:from-emerald-400 before:to-emerald-500 before:rounded-r-sm'
+                              : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100'
+                          }
+                        `}
+                      >
+                        {/* Icono con efecto */}
+                        <div className={`relative transition-all ${active ? 'text-emerald-400' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+                          <Icon size={18} />
+                          {/* Punto rojo para alertas (solo en Alertas) */}
+                          {item.href === '/app/inventory/alerts' && (
+                            <div className="absolute top-0 right-0 w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+                          )}
                         </div>
-                        {item.badge && (
-                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 ml-6">
-                            {item.badge}
-                          </span>
+
+                        {/* Texto con subrayado en hover */}
+                        <span className={`text-sm font-medium flex-1 group-hover:text-zinc-50 transition-colors ${active ? 'font-semibold' : ''}`}>
+                          {item.title}
+                        </span>
+
+                        {/* Indicador de chevron en activo */}
+                        {active && (
+                          <div className="w-1 h-1 rounded-full bg-emerald-400 ml-auto" />
                         )}
                       </Link>
                     </SidebarMenuButton>
@@ -193,12 +239,14 @@ export default function AppSidebar() {
       </SidebarContent>
 
       {/* Footer con info de versión */}
-      <SidebarFooter className="border-t border-zinc-800/50 px-4 py-3">
-        <div className="text-xs text-zinc-600">
-          <p className="font-mono">v2.1.0</p>
-          <p className="text-zinc-700 mt-0.5">Build 2026.01.06</p>
+      <SidebarFooter className="border-t border-zinc-800/50 px-4 py-3 bg-gradient-to-r from-transparent to-emerald-500/5">
+        <div className="text-xs text-zinc-500">
+          <p className="font-mono text-zinc-600">v2.1.0</p>
+          <p className="text-zinc-600/70 mt-0.5 text-xs">Build 2026.01.13</p>
         </div>
       </SidebarFooter>
     </Sidebar>
   );
 }
+
+export default AppSidebar;

@@ -23,6 +23,18 @@ from .tickets import (
 	ticket_tags_association,
 )
 from .ticket_attachments import TicketAttachment
+from .inventory import (
+	# Gestión de Inventario Operativo
+	Warehouse,
+	WarehouseType,
+	Product,
+	ProductType,
+	StockBulk,
+	SerialItem,
+	SerialItemStatus,
+	StockMovement,
+	MovementType,
+)
 from .beholder import (
 	# Infraestructura
 	Subscriber,

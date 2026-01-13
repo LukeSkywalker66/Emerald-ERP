@@ -19,6 +19,16 @@ import SettingsPage from './pages/SettingsPage';
 import NotFoundPage from './pages/NotFoundPage';
 import LoadingScreen from './components/ui/LoadingScreen';
 
+// Inventory Module Pages
+import InventoryDashboard from './pages/inventory/InventoryDashboard';
+import WarehouseList from './pages/inventory/WarehouseList';
+import WarehouseDetail from './pages/inventory/WarehouseDetail';
+import ProductCatalog from './pages/inventory/ProductCatalog';
+import StockTransferWizard from './pages/inventory/StockTransferWizard';
+import StockAdjustments from './pages/inventory/StockAdjustments';
+import MovementsHistory from './pages/inventory/MovementsHistory';
+import StockAlerts from './pages/inventory/StockAlerts';
+
 const PrivateRoute = ({ children }) => {
   const { isAuthenticated } = useAuth();
   return isAuthenticated ? children : <Navigate to="/login" replace />;
@@ -48,6 +58,17 @@ const AppRoutes = () => (
         <Route path="customers" element={<CustomersPage />} />
         <Route path="clientes" element={<ClientesPage />} />
         <Route path="inventario" element={<InventarioPage />} />
+        
+        {/* Inventory Module Routes */}
+        <Route path="inventory" element={<InventoryDashboard />} />
+        <Route path="inventory/warehouses" element={<WarehouseList />} />
+        <Route path="inventory/warehouses/:id" element={<WarehouseDetail />} />
+        <Route path="inventory/products" element={<ProductCatalog />} />
+        <Route path="inventory/transfer" element={<StockTransferWizard />} />
+        <Route path="inventory/adjustments" element={<StockAdjustments />} />
+        <Route path="inventory/movements" element={<MovementsHistory />} />
+        <Route path="inventory/alerts" element={<StockAlerts />} />
+        
         <Route path="users" element={<UsersPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>

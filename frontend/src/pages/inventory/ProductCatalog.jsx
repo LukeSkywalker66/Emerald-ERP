@@ -1,0 +1,510 @@
+import React, { useEffect, useState } from 'react';
+import {
+  Search,
+  Plus,
+  AlertCircle,
+  Loader,
+  Package,
+  Droplets,
+  QrCode,
+  X,
+  Trash2
+} from 'lucide-react';
+import { getProducts, createProduct } from '@/services/inventory.service';
+
+export default function ProductCatalog() {
+  const [products, setProducts] = useState([]);
+  const [filteredProducts, setFilteredProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Search/Filter state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [typeFilter, setTypeFilter] = useState('ALL');
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
+
+  // Modal state
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState(null);
+
+  // Form state
+  const [formData, setFormData] = useState({
+    name: '',
+    sku: '',
+    type: 'BULK',
+    category: 'Cableado',
+    description: '',
+    min_stock_alert: 50
+  });
+
+  useEffect(() => {
+    loadProducts();
+  }, []);
+
+  useEffect(() => {
+    applyFilters();
+  }, [products, searchTerm, typeFilter, categoryFilter]);
+
+  const loadProducts = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const data = await getProducts();
+      setProducts(data);
+    } catch (err) {
+      console.error('Error loading products:', err);
+      setError('No se pudieron cargar los productos');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const applyFilters = () => {
+    let filtered = [...products];
+
+    // Filter by type
+    if (typeFilter !== 'ALL') {
+      filtered = filtered.filter(p => p.type === typeFilter);
+    }
+
+    // Filter by category
+    if (categoryFilter !== 'ALL') {
+      filtered = filtered.filter(p => p.category === categoryFilter);
+    }
+
+    // Search by name or SKU
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(p =>
+        p.name.toLowerCase().includes(term) ||
+        p.sku.toLowerCase().includes(term)
+      );
+    }
+
+    setFilteredProducts(filtered);
+  };
+
+  const handleCreateProduct = async (e) => {
+    e.preventDefault();
+    setCreating(true);
+    setCreateError(null);
+
+    try {
+      // Validations
+      if (!formData.name.trim()) {
+        throw new Error('El nombre es obligatorio');
+      }
+      if (!formData.sku.trim()) {
+        throw new Error('El SKU es obligatorio');
+      }
+
+      // Check SKU uniqueness
+      if (products.some(p => p.sku.toUpperCase() === formData.sku.toUpperCase())) {
+        throw new Error('El SKU ya existe en el catálogo');
+      }
+
+      const payload = {
+        name: formData.name.trim(),
+        sku: formData.sku.trim().toUpperCase(),
+        type: formData.type,
+        category: formData.category || null,
+        description: formData.description.trim() || null,
+        min_stock_alert: parseInt(formData.min_stock_alert) || 0
+      };
+
+      await createProduct(payload);
+
+      // Reload products
+      await loadProducts();
+
+      // Close modal and reset form
+      setShowCreateModal(false);
+      setFormData({
+        name: '',
+        sku: '',
+        type: 'BULK',
+        category: 'Cableado',
+        description: '',
+        min_stock_alert: 50
+      });
+    } catch (err) {
+      console.error('Error creating product:', err);
+      setCreateError(err.response?.data?.detail || err.message || 'Error al crear producto');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="flex flex-col items-center space-y-4">
+          <Loader className="w-12 h-12 text-emerald-500 animate-spin" />
+          <p className="text-zinc-400 text-sm">Cargando catálogo...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 p-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-emerald-400">Catálogo de Productos</h1>
+          <p className="text-zinc-400 mt-1">
+            Gestión del inventario de cables, ONUs y componentes
+          </p>
+        </div>
+
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center space-x-2"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Nuevo Producto</span>
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Search */}
+          <div className="md:col-span-2 relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
+            <input
+              type="text"
+              placeholder="Buscar por nombre o SKU..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
+            />
+          </div>
+
+          {/* Type Filter */}
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
+          >
+            <option value="ALL">Todos los Tipos</option>
+            <option value="BULK">A Granel</option>
+            <option value="SERIALIZED">Serializados</option>
+          </select>
+
+          {/* Category Filter */}
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
+          >
+            <option value="ALL">Todas las Categorías</option>
+            {categories.map(cat => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Error State */}
+      {error && (
+        <div className="bg-red-900/20 border border-red-900/50 rounded-lg p-4 flex items-start space-x-3">
+          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-red-300 font-medium">Error</p>
+            <p className="text-red-400/80 text-sm mt-1">{error}</p>
+          </div>
+          <button
+            onClick={loadProducts}
+            className="px-3 py-1 bg-red-900/30 hover:bg-red-900/50 text-red-300 rounded text-sm transition-colors"
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
+
+      {/* Products Table */}
+      {filteredProducts.length === 0 ? (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-12 text-center">
+          <Package className="w-16 h-16 text-zinc-700 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-zinc-400 mb-2">
+            {searchTerm || typeFilter !== 'ALL' || categoryFilter !== 'ALL'
+              ? 'Sin resultados'
+              : 'Sin productos'}
+          </h3>
+          <p className="text-zinc-500 text-sm">
+            {searchTerm || typeFilter !== 'ALL' || categoryFilter !== 'ALL'
+              ? 'No se encontraron productos con los filtros aplicados'
+              : 'Crea tu primer producto para comenzar'}
+          </p>
+        </div>
+      ) : (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+          {/* Table Header */}
+          <div className="bg-zinc-800/50 border-b border-zinc-800 grid grid-cols-12 gap-4 p-4 text-xs font-semibold text-zinc-400 uppercase tracking-wide">
+            <div className="col-span-4">Producto</div>
+            <div className="col-span-2">SKU</div>
+            <div className="col-span-2">Tipo</div>
+            <div className="col-span-2">Categoría</div>
+            <div className="col-span-1">Mín Stock</div>
+            <div className="col-span-1">Acción</div>
+          </div>
+
+          {/* Table Rows */}
+          <div className="divide-y divide-zinc-800">
+            {filteredProducts.map((product) => (
+              <div
+                key={product.id}
+                className="grid grid-cols-12 gap-4 p-4 hover:bg-zinc-800/50 transition-colors items-center"
+              >
+                {/* Nombre */}
+                <div className="col-span-4">
+                  <div className="flex items-center space-x-2">
+                    {product.type === 'BULK' ? (
+                      <Droplets className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                    ) : (
+                      <QrCode className="w-4 h-4 text-purple-400 flex-shrink-0" />
+                    )}
+                    <div>
+                      <p className="text-white font-medium">{product.name}</p>
+                      {product.description && (
+                        <p className="text-zinc-500 text-xs mt-0.5 truncate">
+                          {product.description}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* SKU */}
+                <div className="col-span-2">
+                  <code className="text-zinc-300 text-sm bg-zinc-800 px-2 py-1 rounded">
+                    {product.sku}
+                  </code>
+                </div>
+
+                {/* Type */}
+                <div className="col-span-2">
+                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${
+                    product.type === 'BULK'
+                      ? 'bg-blue-900/30 text-blue-300 border-blue-800'
+                      : 'bg-purple-900/30 text-purple-300 border-purple-800'
+                  }`}>
+                    {product.type === 'BULK' ? 'A GRANEL' : 'SERIALIZADO'}
+                  </span>
+                </div>
+
+                {/* Category */}
+                <div className="col-span-2">
+                  <span className="text-zinc-400 text-sm">
+                    {product.category || '-'}
+                  </span>
+                </div>
+
+                {/* Min Stock Alert */}
+                <div className="col-span-1">
+                  <span className="text-zinc-300 font-medium">{product.min_stock_alert}</span>
+                </div>
+
+                {/* Actions */}
+                <div className="col-span-1 flex items-center justify-end space-x-2">
+                  <button
+                    className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors"
+                    title="Eliminar"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Stats Footer */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-zinc-400">
+            Mostrando <span className="text-white font-medium">{filteredProducts.length}</span> de <span className="text-white font-medium">{products.length}</span> productos
+          </span>
+          <div className="flex items-center space-x-4 text-zinc-500">
+            <span>{products.filter(p => p.type === 'BULK').length} a granel</span>
+            <span>•</span>
+            <span>{products.filter(p => p.type === 'SERIALIZED').length} serializados</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Create Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-lg max-w-lg w-full p-6 shadow-2xl">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-emerald-400">Nuevo Producto</h2>
+              <button
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setCreateError(null);
+                  setFormData({
+                    name: '',
+                    sku: '',
+                    type: 'BULK',
+                    category: 'Cableado',
+                    description: '',
+                    min_stock_alert: 50
+                  });
+                }}
+                className="text-zinc-400 hover:text-white transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Error Alert */}
+            {createError && (
+              <div className="mb-4 bg-red-900/20 border border-red-900/50 rounded-lg p-3 flex items-start space-x-2">
+                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <p className="text-red-300 text-sm">{createError}</p>
+              </div>
+            )}
+
+            {/* Form */}
+            <form onSubmit={handleCreateProduct} className="space-y-4">
+              {/* Name */}
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-2">
+                  Nombre del Producto *
+                </label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="Ej: Cable UTP Cat6 305m"
+                  className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
+                  required
+                />
+              </div>
+
+              {/* SKU */}
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-2">
+                  SKU (Código Único) *
+                </label>
+                <input
+                  type="text"
+                  value={formData.sku}
+                  onChange={(e) => setFormData({ ...formData, sku: e.target.value.toUpperCase() })}
+                  placeholder="Ej: CAB-UTP-CAT6-305"
+                  className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors font-mono"
+                  required
+                />
+              </div>
+
+              {/* Type */}
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-2">
+                  Tipo de Producto *
+                </label>
+                <select
+                  value={formData.type}
+                  onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                  className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
+                >
+                  <option value="BULK">A Granel (cable, conectores, etc.)</option>
+                  <option value="SERIALIZED">Serializado (ONUs, routers, etc.)</option>
+                </select>
+              </div>
+
+              {/* Category */}
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-2">
+                  Categoría
+                </label>
+                <input
+                  type="text"
+                  value={formData.category}
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  placeholder="Ej: Cableado, ONUs, Conectores"
+                  className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-2">
+                  Descripción
+                </label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Detalles del producto, especificaciones, proveedor..."
+                  rows="3"
+                  className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors resize-none"
+                />
+              </div>
+
+              {/* Min Stock Alert */}
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-2">
+                  Stock Mínimo para Alerta
+                </label>
+                <input
+                  type="number"
+                  value={formData.min_stock_alert}
+                  onChange={(e) => setFormData({ ...formData, min_stock_alert: e.target.value })}
+                  placeholder="Ej: 50"
+                  min="0"
+                  className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
+                />
+              </div>
+
+              {/* Buttons */}
+              <div className="flex items-center space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreateModal(false);
+                    setCreateError(null);
+                    setFormData({
+                      name: '',
+                      sku: '',
+                      type: 'BULK',
+                      category: 'Cableado',
+                      description: '',
+                      min_stock_alert: 50
+                    });
+                  }}
+                  className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={creating}
+                  className="flex-1 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                >
+                  {creating ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>Creando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      <span>Crear Producto</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
