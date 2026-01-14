@@ -6,7 +6,18 @@ Documentación completa de todos los endpoints disponibles en la API de Emerald 
 
 ---
 
-## 🔐 Autenticación
+## � Índice de Módulos
+
+| Módulo | Descripción | Endpoints | Estado |
+|--------|-------------|-----------|--------|
+| 🔐 [Autenticación](#autenticación) | Sistema de API Keys | 6 | ✅ |
+| 📋 [Tickets (CRM)](#tickets-crm) | Gestión de soporte y órdenes de trabajo | 12+ | ✅ |
+| 📦 [Inventory](#inventory-gestión-de-stock) | Gestión de almacenes y stock | 8 | ✅ **NUEVO** |
+| 🌐 Beholder (Legacy) | Sistema de diagnóstico | Múltiples | ⚠️ |
+
+---
+
+## �🔐 Autenticación
 
 ### Sistema de API Keys (NUEVO - 30/12/2025)
 
@@ -897,7 +908,563 @@ Cerrar un ticket (marcar como resuelto).
 
 ---
 
-## 📚 Próximos Pasos
+## � Inventory (Gestión de Stock)
+
+**Nuevo módulo (v2.1.0 - 13/01/2026)** para gestión centralizada de inventario.
+
+Soporta:
+- ✅ Almacenes múltiples (centrales, móviles, virtuales)
+- ✅ Productos a granel y serializados
+- ✅ Transferencias entre depósitos
+- ✅ Auditoría completa de movimientos
+- ✅ Alertas de stock mínimo
+
+### **Conceptos Clave**
+
+#### Tipos de Almacén
+| Tipo | Descripción | user_id |
+|------|-------------|---------|
+| **CENTRAL** | Depósito principal | No (null) |
+| **MOBILE** | Camioneta de técnico | Sí (ID técnico) |
+| **VIRTUAL** | Ubicación lógica (bajas, perdidos, clientes) | No (null) |
+
+#### Tipos de Producto
+| Tipo | Descripción | Tracking |
+|------|-------------|----------|
+| **BULK** | Materiales a granel (cable, conectores) | Cantidad numérica |
+| **SERIALIZED** | Equipos únicos (ONUs, routers) | Serial number único |
+
+#### Tipos de Movimiento
+- **PURCHASE**: Compra/ingreso de stock
+- **TRANSFER**: Traspaso entre depósitos
+- **CONSUMPTION**: Uso en orden de trabajo
+- **RECOVERY**: Recupero de campo
+- **ADJUSTMENT**: Ajuste manual de inventario
+
+---
+
+### GET /api/inventory/warehouses
+Obtener lista de todos los almacenes.
+
+**Autenticación:** Requerida  
+**Método:** GET  
+**URL:** `/inventory/warehouses`
+
+**Parámetros Query Opcionales:**
+```
+?warehouse_type=CENTRAL      # Filtrar por tipo
+?user_id=5                   # Filtrar por técnico asignado (solo MOBILE)
+```
+
+**Response (200):**
+```json
+[
+  {
+    "id": 1,
+    "name": "Depósito Central",
+    "type": "CENTRAL",
+    "user_id": null,
+    "user_name": null,
+    "created_at": "2026-01-01T10:00:00Z",
+    "updated_at": "2026-01-13T14:30:00Z"
+  },
+  {
+    "id": 2,
+    "name": "Camioneta Técnico A",
+    "type": "MOBILE",
+    "user_id": 5,
+    "user_name": "Carlos García",
+    "created_at": "2026-01-05T09:15:00Z",
+    "updated_at": "2026-01-13T09:45:00Z"
+  },
+  {
+    "id": 3,
+    "name": "Equipos en Campo",
+    "type": "VIRTUAL",
+    "user_id": null,
+    "user_name": null,
+    "created_at": "2026-01-10T11:20:00Z",
+    "updated_at": "2026-01-13T11:20:00Z"
+  }
+]
+```
+
+**Códigos de Error:**
+- `401 Unauthorized`: API Key inválida
+- `400 Bad Request`: Parámetro inválido
+
+---
+
+### POST /api/inventory/warehouses
+Crear un nuevo almacén.
+
+**Autenticación:** Requerida  
+**Método:** POST  
+**URL:** `/inventory/warehouses`
+
+**Request Body:**
+```json
+{
+  "name": "Sucursal La Plata",
+  "type": "CENTRAL"
+}
+```
+
+O para almacén móvil:
+```json
+{
+  "name": "Camioneta Técnico B",
+  "type": "MOBILE",
+  "user_id": 6
+}
+```
+
+**Response (201):**
+```json
+{
+  "id": 4,
+  "name": "Sucursal La Plata",
+  "type": "CENTRAL",
+  "user_id": null,
+  "user_name": null,
+  "created_at": "2026-01-13T15:30:00Z",
+  "updated_at": "2026-01-13T15:30:00Z"
+}
+```
+
+**Validaciones:**
+- Tipo MOBILE **requiere** user_id
+- Tipo CENTRAL/VIRTUAL **no pueden** tener user_id
+- user_id debe existir en tabla users
+
+**Códigos de Error:**
+- `400 Bad Request`: Validación fallida
+- `404 Not Found`: user_id no existe
+
+---
+
+### PUT /api/inventory/warehouses/{id}
+Actualizar un almacén existente.
+
+**Autenticación:** Requerida  
+**Método:** PUT  
+**URL:** `/inventory/warehouses/1`
+
+**Request Body** (todos campos opcionales):
+```json
+{
+  "name": "Depósito Central Actualizado",
+  "type": "CENTRAL",
+  "user_id": null
+}
+```
+
+**Response (200):**
+```json
+{
+  "id": 1,
+  "name": "Depósito Central Actualizado",
+  "type": "CENTRAL",
+  "user_id": null,
+  "user_name": null,
+  "created_at": "2026-01-01T10:00:00Z",
+  "updated_at": "2026-01-13T15:35:00Z"
+}
+```
+
+**Códigos de Error:**
+- `404 Not Found`: Almacén no existe
+- `400 Bad Request`: Validación fallida
+
+---
+
+### DELETE /api/inventory/warehouses/{id}
+Eliminar un almacén.
+
+**IMPORTANTE:** No se puede eliminar si tiene:
+- Stock BULK con cantidad > 0
+- Serial items activos
+- Movimientos registrados en historial
+
+**Autenticación:** Requerida  
+**Método:** DELETE  
+**URL:** `/inventory/warehouses/99`
+
+**Response (204):**
+```
+Sin contenido (éxito)
+```
+
+**Response (409) - Conflict:**
+```json
+{
+  "detail": "No se puede eliminar: El almacén tiene 5 producto(s) con stock BULK. Transfiera o ajuste el stock antes de eliminar."
+}
+```
+
+Otros mensajes posibles:
+- "...tiene X item(s) serializados activos..."
+- "...tiene X movimiento(s) registrado(s) en el historial..."
+
+**Códigos de Error:**
+- `404 Not Found`: Almacén no existe
+- `409 Conflict`: Tiene datos asociados
+
+---
+
+### GET /api/inventory/warehouses/{id}/stock
+Obtener stock completo de un almacén.
+
+**Autenticación:** Requerida  
+**Método:** GET  
+**URL:** `/inventory/warehouses/1/stock`
+
+**Response (200):**
+```json
+{
+  "warehouse_id": 1,
+  "warehouse_name": "Depósito Central",
+  "warehouse_type": "CENTRAL",
+  "items": [
+    {
+      "product_id": 10,
+      "product_name": "Cable UTP Cat6 305m",
+      "product_sku": "CAB-UTP-CAT6-305",
+      "product_type": "BULK",
+      "category": "Cableado",
+      "quantity": 45.5,
+      "serial_items": null,
+      "serial_count": null
+    },
+    {
+      "product_id": 20,
+      "product_name": "ONU GPON ZTE",
+      "product_sku": "ONU-ZTE-F660",
+      "product_type": "SERIALIZED",
+      "category": "ONUs",
+      "quantity": null,
+      "serial_items": [
+        {
+          "id": 101,
+          "serial_number": "GPON1A2B3C4D",
+          "product_id": 20,
+          "warehouse_id": 1,
+          "status": "NEW",
+          "ticket_related_id": null,
+          "product_name": "ONU GPON ZTE",
+          "product_sku": "ONU-ZTE-F660",
+          "warehouse_name": "Depósito Central"
+        }
+      ],
+      "serial_count": 1
+    }
+  ]
+}
+```
+
+---
+
+### GET /api/inventory/products
+Obtener catálogo de productos.
+
+**Autenticación:** Requerida  
+**Método:** GET  
+**URL:** `/inventory/products`
+
+**Parámetros Query Opcionales:**
+```
+?product_type=BULK           # BULK o SERIALIZED
+?category=Cableado           # Filtrar por categoría
+?search=cable                # Buscar por nombre o SKU
+```
+
+**Response (200):**
+```json
+[
+  {
+    "id": 10,
+    "name": "Cable UTP Cat6 305m",
+    "sku": "CAB-UTP-CAT6-305",
+    "type": "BULK",
+    "category": "Cableado",
+    "min_stock_alert": 10,
+    "description": "Cable de red de 305 metros, Cat6, color gris",
+    "created_at": "2026-01-01T10:00:00Z",
+    "updated_at": "2026-01-13T14:00:00Z"
+  },
+  {
+    "id": 20,
+    "name": "ONU GPON ZTE",
+    "sku": "ONU-ZTE-F660",
+    "type": "SERIALIZED",
+    "category": "ONUs",
+    "min_stock_alert": 5,
+    "description": "ONU GPON ZTE F660 modelo V5.1",
+    "created_at": "2026-01-05T09:00:00Z",
+    "updated_at": "2026-01-13T12:30:00Z"
+  }
+]
+```
+
+---
+
+### POST /api/inventory/products
+Crear un nuevo producto.
+
+**Autenticación:** Requerida  
+**Método:** POST  
+**URL:** `/inventory/products`
+
+**Request Body:**
+```json
+{
+  "name": "Router GPON Huawei",
+  "sku": "ROUTER-HUAWEI-HG8245H",
+  "type": "SERIALIZED",
+  "category": "Routers",
+  "min_stock_alert": 3,
+  "description": "Router GPON Huawei HG8245H, 4 puertos Gigabit"
+}
+```
+
+**Response (201):**
+```json
+{
+  "id": 30,
+  "name": "Router GPON Huawei",
+  "sku": "ROUTER-HUAWEI-HG8245H",
+  "type": "SERIALIZED",
+  "category": "Routers",
+  "min_stock_alert": 3,
+  "description": "Router GPON Huawei HG8245H, 4 puertos Gigabit",
+  "created_at": "2026-01-13T15:40:00Z",
+  "updated_at": "2026-01-13T15:40:00Z"
+}
+```
+
+**Validaciones:**
+- SKU debe ser único
+- SKU se convierte automáticamente a UPPERCASE
+- type debe ser BULK o SERIALIZED
+
+**Códigos de Error:**
+- `409 Conflict`: SKU ya existe
+
+---
+
+### POST /api/inventory/transfer
+Transferir stock entre almacenes.
+
+**Autenticación:** Requerida  
+**Método:** POST  
+**URL:** `/inventory/transfer`
+
+#### Caso 1: Transferencia de Producto BULK
+
+**Request Body:**
+```json
+{
+  "product_id": 10,
+  "from_warehouse_id": 1,
+  "to_warehouse_id": 2,
+  "quantity": 5.5,
+  "reference": "Solicitud de técnico",
+  "notes": "Cable para instalación en zona norte"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "movements_created": [100],
+  "message": "Transferencia exitosa: 1 movimiento(s) registrado(s)"
+}
+```
+
+#### Caso 2: Transferencia de Producto SERIALIZED
+
+**Request Body:**
+```json
+{
+  "product_id": 20,
+  "from_warehouse_id": 1,
+  "to_warehouse_id": 2,
+  "serial_item_ids": [101, 102],
+  "reference": "Envío a técnico Carlos",
+  "notes": "ONUs para instalaciones programadas"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "movements_created": [101, 102],
+  "message": "Transferencia exitosa: 2 movimiento(s) registrado(s)"
+}
+```
+
+**Validaciones:**
+- Producto BULK requiere `quantity` > 0
+- Producto SERIALIZED requiere `serial_item_ids` (array no vacío)
+- Origen ≠ Destino
+- Stock suficiente en origen
+- Seriales existen y están en warehouse origen
+
+**Códigos de Error:**
+- `400 Bad Request`: Validación fallida
+- `404 Not Found`: Producto o warehouse no existe
+
+---
+
+### POST /api/inventory/adjustments
+Ajuste de inventario (compras, ingresos, correcciones).
+
+**Autenticación:** Requerida  
+**Método:** POST  
+**URL:** `/inventory/adjustments`
+
+**Request Body:**
+```json
+{
+  "product_id": 10,
+  "warehouse_id": 1,
+  "quantity": 50,
+  "movement_type": "PURCHASE",
+  "reference": "Factura #4523 - Proveedor XYZ",
+  "notes": "Cable UTP comprado para reposición de stock"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "movement_id": 105,
+  "stock_bulk_id": 42,
+  "previous_quantity": 45.5,
+  "new_quantity": 95.5,
+  "message": "Stock ajustado exitosamente. 45.5 → 95.5 (+50)"
+}
+```
+
+**movement_type válidos:**
+- `PURCHASE`: Compra/ingreso
+- `ADJUSTMENT`: Ajuste manual
+
+**Códigos de Error:**
+- `400 Bad Request`: Cantidad inválida o product_type ≠ BULK
+- `404 Not Found`: Producto o warehouse no existe
+
+---
+
+### GET /api/inventory/movements
+Historial de movimientos de stock (auditoría).
+
+**Autenticación:** Requerida  
+**Método:** GET  
+**URL:** `/inventory/movements`
+
+**Parámetros Query Opcionales:**
+```
+?product_id=10                    # Filtrar por producto
+?warehouse_id=1                   # Filtrar por warehouse (origen o destino)
+?movement_type=TRANSFER           # PURCHASE, TRANSFER, CONSUMPTION, RECOVERY, ADJUSTMENT
+?limit=50                         # Resultados por página (default: 50, máx: 500)
+?offset=0                         # Pagination offset
+```
+
+**Response (200):**
+```json
+[
+  {
+    "id": 100,
+    "date": "2026-01-13T15:00:00Z",
+    "product_id": 10,
+    "product_name": "Cable UTP Cat6 305m",
+    "product_sku": "CAB-UTP-CAT6-305",
+    "from_warehouse_id": 1,
+    "from_warehouse_name": "Depósito Central",
+    "to_warehouse_id": 2,
+    "to_warehouse_name": "Camioneta Técnico A",
+    "quantity": 5.5,
+    "serial_item_id": null,
+    "serial_number": null,
+    "movement_type": "TRANSFER",
+    "reference": "Solicitud de técnico",
+    "user_id": 5,
+    "user_name": "Carlos García",
+    "notes": "Cable para instalación en zona norte"
+  },
+  {
+    "id": 101,
+    "date": "2026-01-13T14:30:00Z",
+    "product_id": 20,
+    "product_name": "ONU GPON ZTE",
+    "product_sku": "ONU-ZTE-F660",
+    "from_warehouse_id": 1,
+    "from_warehouse_name": "Depósito Central",
+    "to_warehouse_id": 2,
+    "to_warehouse_name": "Camioneta Técnico A",
+    "quantity": null,
+    "serial_item_id": 101,
+    "serial_number": "GPON1A2B3C4D",
+    "movement_type": "TRANSFER",
+    "reference": "Envío a técnico",
+    "user_id": 3,
+    "user_name": "Admin Sistema",
+    "notes": "ONU para instalación"
+  }
+]
+```
+
+**Nota:** Ordenado por fecha descendente (más recientes primero)
+
+---
+
+### GET /api/inventory/alerts
+Alertas de stock crítico.
+
+**Autenticación:** Requerida  
+**Método:** GET  
+**URL:** `/inventory/alerts`
+
+Retorna productos con stock por debajo del mínimo configurado.
+
+**Response (200):**
+```json
+[
+  {
+    "product_id": 10,
+    "product_name": "Cable UTP Cat6 305m",
+    "product_sku": "CAB-UTP-CAT6-305",
+    "category": "Cableado",
+    "current_stock": 5,
+    "min_stock_alert": 10,
+    "deficit": 5,
+    "warehouse_id": 1,
+    "warehouse_name": "Depósito Central",
+    "alert_level": "critical"
+  },
+  {
+    "product_id": 20,
+    "product_name": "ONU GPON ZTE",
+    "product_sku": "ONU-ZTE-F660",
+    "category": "ONUs",
+    "current_stock": 2,
+    "min_stock_alert": 5,
+    "deficit": 3,
+    "warehouse_id": 1,
+    "warehouse_name": "Depósito Central",
+    "alert_level": "critical"
+  }
+]
+```
+
+---
+
+## �📚 Próximos Pasos
 
 - Revisar [docs/SEGURIDAD.md](../docs/SEGURIDAD.md) para autenticación detallada
 - Consultar [docs/INTEGRACIONES.md](../docs/INTEGRACIONES.md) para entender origen de datos
@@ -907,3 +1474,28 @@ Cerrar un ticket (marcar como resuelto).
 
 **Última actualización:** 02 de enero de 2026  
 **Versión de API:** 1.0.0
+
+---
+
+## 🔄 Changelog de API
+
+### v2.1.0 - 13 de Enero de 2026
+- ✨ **NUEVO**: Módulo Inventory completo
+  - 5 nuevas tablas (warehouses, products, stock_bulk, serial_items, stock_movements)
+  - 8 endpoints para gestión de stock
+  - Soporte para productos a granel y serializados
+  - Sistema de auditoría de movimientos
+  - Alertas de stock mínimo
+
+### v2.0.0 - 02 de Enero de 2026
+- Refactor completo del sistema de Tickets
+- Nuevos campos: priority, category, tags
+- Sistema de Eventos (ticket_events) 
+- Órdenes de Trabajo (work_orders)
+- API Keys con auditoría
+
+---
+
+**Última actualización:** 13 de enero de 2026  
+**Versión de API:** 2.1.0  
+**Mantenedor:** Tech Team Emerald ERP

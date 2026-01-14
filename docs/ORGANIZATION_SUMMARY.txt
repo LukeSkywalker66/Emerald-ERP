@@ -1,0 +1,133 @@
+================================================================================
+  📦 ESTADO DE ORGANIZACIÓN DE DOCUMENTOS - Emerald ERP
+================================================================================
+Fecha: 13 de enero de 2026
+Acción: Limpieza y archivado de documentación obsoleta
+
+================================================================================
+✅ ARCHIVOS ACTIVOS EN RAÍZ (Documentación Vigente)
+================================================================================
+
+📌 PARA NUEVA SESIÓN:
+  → LEER_PRIMERO_PROXIMA_SESION.md  ⭐ COMIENZA AQUÍ
+  → GUIA_DOCUMENTACION.md            ⭐ NUEVA - Mapa de docs
+  → CHECKPOINTS_INDEX.md             Índice de sesiones
+
+📚 REFERENCIA TÉCNICA:
+  → README.md                        Overview del proyecto
+  → QUICK_START.md                   Guía para levantar proyecto
+  → ARCHITECTURE_DECISIONS.md        Decisiones de diseño vigentes
+  → ROADMAP.md                       Roadmap del proyecto
+
+📝 FEATURES RECIENTES (13 de Enero - Session Actual):
+  → PRODUCT_CATALOG_CRUD_COMPLETE.md      Product CRUD documentation
+  → PRODUCT_CRUD_VISUAL_GUIDE.md          Product CRUD UI mockups
+  → IMPLEMENTATION_SUMMARY_PRODUCT_CRUD.md Product CRUD summary
+
+📄 LEGACY (Mantener para referencia):
+  → LEER_PRIMERO.md                  Guía antigua (usar LEER_PRIMERO_PROXIMA_SESION)
+
+================================================================================
+📦 ARCHIVOS ARCHIVADOS (_ARCHIVOS_OBSOLETOS)
+================================================================================
+
+CHECKPOINTS ANTIGUOS (Sesiones Cerradas):
+  ✓ CHECKPOINT_13ENE2026.md
+  ✓ CHECKPOINT_2026-01-09_CONNECTION_DETAIL_RESTORE.md
+  ✓ CHECKPOINT_2026-01-08_MULTI_FLOW_COMPLETE.md
+  ✓ CHECKPOINT_2026-01-07_OT_CIERRE.md
+  ✓ CHECKPOINT-2026-01-06.md
+  ✓ CHECKPOINT_2026-01-05.md
+
+RESÚMENES DE SESIONES:
+  ✓ RESUMEN_SESION_13ENE2026.md
+  ✓ RESUMEN_SESION_2026-01-09.md
+  ✓ RESUMEN_MULTI_FLOW_TICKETS.md
+
+FEATURES COMPLETADAS:
+  ✓ WORK_ORDER_EXECUTION_IMPLEMENTATION.md
+  ✓ WORK_ORDER_EXECUTION_QUICK_START.md
+  ✓ WORK_ORDER_EXECUTION_UI_MOCKUP.md
+  ✓ SIDEBAR_REFACTORING_SUMMARY.md
+
+DOCUMENTOS HISTÓRICOS:
+  ✓ ESTADO_ACTUAL_2026-01-09.md
+  ✓ DOCUMENTACION_DISPONIBLE.md
+  ✓ GUIA_EJECUTAR_INVENTORY_TEST.md
+  ✓ COPY_PASTE_TEST_COMMANDS.md
+
+README: _ARCHIVOS_OBSOLETOS/README.md
+
+================================================================================
+📁 ESTRUCTURA EN /docs (Documentación Técnica)
+================================================================================
+
+MÓDULOS ACTIVOS:
+  ✓ MODULO_INVENTARIO.md              ← MÓDULO ACTUAL
+  ✓ PLAN_FRONTEND_INVENTARIO.md
+  ✓ SPRINT_1_FRONTEND_INVENTORY.md
+
+INFRAESTRUCTURA:
+  ✓ API_REFERENCE.md                  ⭐ ACTUALIZADA (13 enero)
+  ✓ AUTH_SYSTEM.md
+  ✓ BASE_DATOS.md
+  ✓ DEPLOYMENT.md
+  ✓ DESARROLLO_LOCAL.md
+  ✓ ENTORNOS.md
+
+FEATURES & INTEGRACIONES:
+  ✓ ARQUITECTURA_TICKETS_V2.md
+  ✓ FEATURE_TIMELINE_LIVE_STATUS.md
+  ✓ FLUJO_WIZARDS_ISPCUBE.md
+  ✓ ISPCUBE_API_REFERENCE.md
+  ✓ INTEGRACIONES.md
+  ✓ MANUAL_SYNC.md
+  ✓ AUDIT_RATE_LIMIT.md
+  ✓ SEGURIDAD.md
+
+ARCHIVOS ARCHIVADOS (/docs/_ARCHIVOS_OBSOLETOS):
+  ✓ CHECKPOINT_2026-01-07_OT_CIERRE.md
+  ✓ CHECKPOINT_2026-01-08_RENAME_TICKETS_V2.md
+  ✓ hand-off-2026-01-09.md
+
+================================================================================
+🎯 CÓMO USAR ESTA ORGANIZACIÓN
+================================================================================
+
+NUEVA SESIÓN:
+  1. Lee: LEER_PRIMERO_PROXIMA_SESION.md
+  2. Consulta: GUIA_DOCUMENTACION.md
+  3. Profundiza: Documentación en /docs/ según necesidad
+
+BÚSQUEDA DE DOCUMENTACIÓN:
+  → Módulo nuevo: /docs/MODULO_*.md
+  → API: /docs/API_REFERENCE.md
+  → Decisiones: ARCHITECTURE_DECISIONS.md
+  → Features completadas: _ARCHIVOS_OBSOLETOS/README.md
+
+NO USAR (ARCHIVADO):
+  → Checkpoints de sesiones 6-9 enero
+  → Resúmenes de sesiones viejas
+  → Documentación de Work Orders (completado)
+
+================================================================================
+✅ BENEFICIOS DE ESTA ORGANIZACIÓN
+================================================================================
+
+✓ Raíz limpia y legible (8 archivos activos vs 35 antes)
+✓ Rápida orientación para nuevas sesiones de Copilot
+✓ Histórico preservado (no eliminado, solo archivado)
+✓ Fácil auditoría (qué se completó, cuándo, cómo)
+✓ Reducción de confusión (qué está vigente vs histórico)
+✓ Mejor mantenimiento (se pueden mover nuevos archivos fácilmente)
+
+================================================================================
+📝 PRÓXIMA SESIÓN
+================================================================================
+
+Al terminar, actualiza:
+  1. LEER_PRIMERO_PROXIMA_SESION.md (estado actual)
+  2. Archiva documentos completados a _ARCHIVOS_OBSOLETOS/
+  3. Crea nuevos .md en raíz si son vigentes
+
+================================================================================

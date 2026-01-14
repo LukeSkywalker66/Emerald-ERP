@@ -35,6 +35,25 @@ export const getWarehouses = async (filters = {}) => {
 };
 
 /**
+ * Obtener el warehouse MOBILE asignado a un técnico específico.
+ * Filtro client-side usando el user_id porque la API devuelve todos los MOBILE.
+ * @param {number} userId - ID del usuario técnico logueado
+ * @returns {Promise<Object|null>} Warehouse o null si no existe
+ */
+export const getMyWarehouse = async (userId) => {
+  if (!userId) return null;
+
+  try {
+    // Compatibilidad: algunos endpoints usan "type" y otros "warehouse_type"
+    const warehouses = await getWarehouses({ type: 'MOBILE', warehouse_type: 'MOBILE' });
+    return warehouses.find((warehouse) => warehouse.user_id === userId) || null;
+  } catch (error) {
+    console.error('❌ Error fetching technician warehouse:', error);
+    throw error;
+  }
+};
+
+/**
  * Crear nuevo warehouse
  * @param {Object} payload - { name, type, user_id? }
  * @returns {Promise<Object>} Warehouse creado
@@ -45,6 +64,37 @@ export const createWarehouse = async (payload) => {
     return data;
   } catch (error) {
     console.error('❌ Error creating warehouse:', error);
+    throw error;
+  }
+};
+
+/**
+ * Actualizar warehouse existente
+ * @param {number} warehouseId - ID del warehouse
+ * @param {Object} payload - { name?, type?, user_id? }
+ * @returns {Promise<Object>} Warehouse actualizado
+ */
+export const updateWarehouse = async (warehouseId, payload) => {
+  try {
+    const { data } = await api.put(`${BASE_URL}/warehouses/${warehouseId}`, payload);
+    return data;
+  } catch (error) {
+    console.error(`❌ Error updating warehouse ${warehouseId}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Eliminar warehouse
+ * @param {number} warehouseId - ID del warehouse
+ * @returns {Promise<void>}
+ * @throws {Error} Si tiene stock o movimientos asociados (409 Conflict)
+ */
+export const deleteWarehouse = async (warehouseId) => {
+  try {
+    await api.delete(`${BASE_URL}/warehouses/${warehouseId}`);
+  } catch (error) {
+    console.error(`❌ Error deleting warehouse ${warehouseId}:`, error);
     throw error;
   }
 };
@@ -73,12 +123,22 @@ export const getWarehouseStock = async (warehouseId) => {
  * @param {Object} filters - { product_type?, category?, search? }
  * @returns {Promise<Array>} Array de productos
  */
+/**
+ * Obtener catálogo de productos con filtros server-side (NASA-level optimization)
+ * @param {Object} filters - { type: 'BULK'|'SERIALIZED', category: string, search: string }
+ * @returns {Promise<Array>} Array de productos
+ */
 export const getProducts = async (filters = {}) => {
   try {
+    // Los parámetros se pasan como query string (?type=BULK&category=Cableado)
+    // axios/api lo maneja automáticamente con { params: filters }
     const { data } = await api.get(`${BASE_URL}/products`, { params: filters });
+    console.log('✅ Products fetched with filters:', filters, 'Result count:', data?.length);
     return data || [];
   } catch (error) {
     console.error('❌ Error fetching products:', error);
+    console.error('  Filters sent:', filters);
+    console.error('  URL:', `${BASE_URL}/products`);
     throw error;
   }
 };
@@ -94,6 +154,38 @@ export const createProduct = async (payload) => {
     return data;
   } catch (error) {
     console.error('❌ Error creating product:', error);
+    throw error;
+  }
+};
+
+/**
+ * Actualizar producto existente
+ * @param {number} productId - ID del producto
+ * @param {Object} payload - { name?, sku?, category?, description?, min_stock_alert? }
+ * @returns {Promise<Object>} Producto actualizado
+ * @note El campo "type" es inmutable y se ignora si viene en el request
+ */
+export const updateProduct = async (productId, payload) => {
+  try {
+    const { data } = await api.put(`${BASE_URL}/products/${productId}`, payload);
+    return data;
+  } catch (error) {
+    console.error(`❌ Error updating product ${productId}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Eliminar producto del catálogo
+ * @param {number} productId - ID del producto
+ * @returns {Promise<void>}
+ * @throws {Error} Si tiene stock o movimientos asociados (409 Conflict)
+ */
+export const deleteProduct = async (productId) => {
+  try {
+    await api.delete(`${BASE_URL}/products/${productId}`);
+  } catch (error) {
+    console.error(`❌ Error deleting product ${productId}:`, error);
     throw error;
   }
 };
@@ -273,6 +365,7 @@ export default {
   getWarehouses,
   createWarehouse,
   getWarehouseStock,
+  getMyWarehouse,
   
   // Products
   getProducts,

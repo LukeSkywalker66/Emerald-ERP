@@ -127,6 +127,155 @@ def create_warehouse(
     )
 
 
+@router.put("/warehouses/{warehouse_id}", response_model=WarehouseResponse)
+def update_warehouse(
+    warehouse_id: int,
+    payload: WarehouseUpdate,
+    db: Session = Depends(get_db)
+):
+    """
+    Actualizar un warehouse existente.
+    
+    Permite modificar:
+    - Nombre del warehouse
+    - Tipo (con validaciones)
+    - Usuario asignado (solo para MOBILE)
+    
+    **Validaciones:**
+    - Si cambia a MOBILE, requiere user_id
+    - Si cambia a CENTRAL/VIRTUAL, user_id debe ser null
+    """
+    warehouse = db.get(Warehouse, warehouse_id)
+    if not warehouse:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Warehouse con id {warehouse_id} no encontrado"
+        )
+    
+    # Obtener datos del payload (solo campos que vienen en el request)
+    update_data = payload.model_dump(exclude_unset=True)
+    
+    # Determinar tipo final (si se está cambiando o mantener actual)
+    final_type = update_data.get('type', warehouse.type)
+    final_user_id = update_data.get('user_id', warehouse.user_id)
+    
+    # Validar: MOBILE requiere user_id
+    if final_type == WarehouseType.MOBILE and final_user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Warehouses tipo MOBILE requieren user_id (técnico asignado)"
+        )
+    
+    # Validar: CENTRAL/VIRTUAL no deben tener user_id
+    if final_type in [WarehouseType.CENTRAL, WarehouseType.VIRTUAL] and final_user_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Warehouses tipo {final_type.value} no pueden tener user_id asignado"
+        )
+    
+    # Validar que user_id existe si se especifica
+    if 'user_id' in update_data and update_data['user_id'] is not None:
+        user = db.get(User, update_data['user_id'])
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Usuario con id {update_data['user_id']} no encontrado"
+            )
+    
+    # Aplicar actualizaciones
+    for field, value in update_data.items():
+        setattr(warehouse, field, value)
+    
+    db.commit()
+    db.refresh(warehouse)
+    db.refresh(warehouse, attribute_names=["user"])
+    
+    return WarehouseResponse(
+        **warehouse.__dict__,
+        user_name=_safe_user_name(warehouse.user)
+    )
+
+
+@router.delete("/warehouses/{warehouse_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_warehouse(
+    warehouse_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Eliminar un warehouse.
+    
+    **VALIDACIONES CRÍTICAS:**
+    - No se puede eliminar si tiene stock bulk (quantity > 0)
+    - No se puede eliminar si tiene serial items asignados
+    - No se puede eliminar si tiene movimientos registrados
+    
+    **Retorna:**
+    - 204 No Content si se elimina exitosamente
+    - 404 si el warehouse no existe
+    - 409 Conflict si tiene datos asociados
+    """
+    warehouse = db.get(Warehouse, warehouse_id)
+    if not warehouse:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Warehouse con id {warehouse_id} no encontrado"
+        )
+    
+    # Validación 1: Verificar stock bulk
+    bulk_count = db.execute(
+        select(StockBulk).where(
+            and_(
+                StockBulk.warehouse_id == warehouse_id,
+                StockBulk.quantity > 0
+            )
+        )
+    ).scalars().all()
+    
+    if bulk_count:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se puede eliminar: El almacén tiene {len(bulk_count)} producto(s) con stock BULK. Transfiera o ajuste el stock antes de eliminar."
+        )
+    
+    # Validación 2: Verificar serial items
+    serial_count = db.execute(
+        select(SerialItem).where(
+            and_(
+                SerialItem.warehouse_id == warehouse_id,
+                SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.USED])
+            )
+        )
+    ).scalars().all()
+    
+    if serial_count:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se puede eliminar: El almacén tiene {len(serial_count)} item(s) serializados activos. Transfiera o dé de baja los items antes de eliminar."
+        )
+    
+    # Validación 3: Verificar movimientos (origen o destino)
+    movements_count = db.execute(
+        select(StockMovement).where(
+            or_(
+                StockMovement.from_warehouse_id == warehouse_id,
+                StockMovement.to_warehouse_id == warehouse_id
+            )
+        )
+    ).scalars().all()
+    
+    if movements_count:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se puede eliminar: El almacén tiene {len(movements_count)} movimiento(s) registrado(s) en el historial. No se puede eliminar un almacén con historial de auditoría."
+        )
+    
+    # Si pasa todas las validaciones, proceder a eliminar
+    db.delete(warehouse)
+    db.commit()
+    
+    # No return (204 No Content)
+
+
 @router.get("/warehouses/{warehouse_id}/stock", response_model=WarehouseStockResponse)
 def get_warehouse_stock(
     warehouse_id: int,
@@ -231,18 +380,23 @@ def get_warehouse_stock(
 
 @router.get("/products", response_model=List[ProductResponse])
 def list_products(
-    product_type: Optional[ProductType] = Query(None, description="Filtrar por tipo"),
+    type: Optional[ProductType] = Query(None, description="Filtrar por tipo (BULK o SERIALIZED)"),
     category: Optional[str] = Query(None, description="Filtrar por categoría"),
     search: Optional[str] = Query(None, description="Buscar por nombre o SKU"),
     db: Session = Depends(get_db)
 ):
     """
-    Listar productos con filtros opcionales.
+    Listar productos con filtros opcionales (Server-Side Filtering).
+    
+    **Parámetros Query:**
+    - type: BULK o SERIALIZED (opcional)
+    - category: Categoría del producto (opcional)
+    - search: Buscar en nombre o SKU (opcional)
     """
     stmt = select(Product)
     
-    if product_type:
-        stmt = stmt.where(Product.type == product_type)
+    if type:
+        stmt = stmt.where(Product.type == type)
     
     if category:
         stmt = stmt.where(Product.category == category)
@@ -289,6 +443,137 @@ def create_product(
     db.refresh(product)
     
     return ProductResponse(**product.__dict__)
+
+
+@router.put("/products/{product_id}", response_model=ProductResponse)
+def update_product(
+    product_id: int,
+    payload: ProductUpdate,
+    db: Session = Depends(get_db)
+):
+    """
+    Actualizar un producto existente.
+    
+    **Campos editables:**
+    - name, sku (validar unicidad si cambia), category, description, min_stock_alert
+    
+    **CRÍTICO - type es INMUTABLE:**
+    - No se puede cambiar ProductType una vez creado
+    - Si el request intenta cambiarlo, se ignora
+    - El tipo es permanente para garantizar integridad de datos
+    """
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Producto con id {product_id} no encontrado"
+        )
+    
+    # Obtener datos del payload (solo campos que vienen en el request)
+    update_data = payload.model_dump(exclude_unset=True)
+    
+    # CRÍTICO: Prevenir cambio de type
+    if 'type' in update_data:
+        del update_data['type']  # Ignorar type si viene en el request
+    
+    # Validar SKU único si se está cambiando
+    if 'sku' in update_data and update_data['sku'] != product.sku:
+        existing = db.execute(
+            select(Product).where(Product.sku == update_data['sku'])
+        ).scalar_one_or_none()
+        
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Producto con SKU '{update_data['sku']}' ya existe"
+            )
+    
+    # Aplicar actualizaciones
+    for field, value in update_data.items():
+        setattr(product, field, value)
+    
+    db.commit()
+    db.refresh(product)
+    
+    return ProductResponse(**product.__dict__)
+
+
+@router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_product(
+    product_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Eliminar un producto del catálogo.
+    
+    **VALIDACIONES CRÍTICAS:**
+    - No se puede eliminar si tiene stock actual (stock_bulk.quantity > 0 O serial_items activos)
+    - No se puede eliminar si tiene movimientos históricos en stock_movements
+    
+    La razón: Mantener integridad de auditoría y trazabilidad.
+    
+    **Retorna:**
+    - 204 No Content si se elimina exitosamente
+    - 404 si el producto no existe
+    - 409 Conflict si tiene datos asociados
+    """
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Producto con id {product_id} no encontrado"
+        )
+    
+    # Validación 1: Verificar stock bulk
+    bulk_count = db.execute(
+        select(StockBulk).where(
+            and_(
+                StockBulk.product_id == product_id,
+                StockBulk.quantity > 0
+            )
+        )
+    ).scalars().all()
+    
+    if bulk_count:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se puede eliminar: El producto tiene stock BULK disponible en {len(bulk_count)} almacén(es). Transfiera o consume el stock antes de eliminar."
+        )
+    
+    # Validación 2: Verificar serial items activos
+    serial_count = db.execute(
+        select(SerialItem).where(
+            and_(
+                SerialItem.product_id == product_id,
+                SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.USED])
+            )
+        )
+    ).scalars().all()
+    
+    if serial_count:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se puede eliminar: El producto tiene {len(serial_count)} item(s) serializados activos. Transfiera o dé de baja los items antes de eliminar."
+        )
+    
+    # Validación 3: Verificar movimientos históricos
+    movements_count = db.execute(
+        select(StockMovement).where(
+            StockMovement.product_id == product_id
+        )
+    ).scalars().all()
+    
+    if movements_count:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se puede eliminar: El producto tiene {len(movements_count)} movimiento(s) registrado(s) en el historial. No se pueden eliminar productos con historial de auditoría."
+        )
+    
+    # Si pasa todas las validaciones, proceder a eliminar
+    db.delete(product)
+    db.commit()
+    
+    # No return (204 No Content)
 
 
 # ============================================

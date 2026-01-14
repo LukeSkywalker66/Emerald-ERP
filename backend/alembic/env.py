@@ -13,11 +13,15 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 # 2. Importar AMBAS bases de datos (vieja y nueva arquitectura)
 # Base vieja (para mantener tablas existentes)
 from src.database import Base as OldBase
-from src.models import *  # Modelos antiguos (Ticket, Service, Client, etc.)
 
 # Base nueva (para agregar usuarios y roles)
 from src.database.base import Base as NewBase
 from src.models.user import Role, User  # Modelos nuevos
+from src.models.inventory import *  # Modelos de Inventory
+try:
+    from src.models.tickets import *  # Modelos de Tickets (nueva arquitectura)
+except ImportError:
+    pass
 
 # Combinar metadata de ambas bases
 # Usando create_map=False evita warnings sobre tablas duplicadas

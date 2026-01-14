@@ -31,6 +31,8 @@ import {
 } from '@/components/ui/dialog';
 import workOrdersService from '@/services/workOrders.service';
 import beholderService from '@/services/beholder.service';
+import * as inventoryService from '@/services/inventory.service';
+import { useAuth } from '@/context/AuthContext';
 import CloseWorkOrderDialog from '@/components/work-orders/CloseWorkOrderDialog';
 import WorkOrderCompletedSummary from '@/components/work-orders/WorkOrderCompletedSummary';
 
@@ -94,6 +96,7 @@ function MaterialItem({ item, onRemove }) {
 export default function WorkOrderExecutionPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   // State
   const [workOrder, setWorkOrder] = useState(null);
@@ -104,6 +107,19 @@ export default function WorkOrderExecutionPage() {
   const [showMaterialDialog, setShowMaterialDialog] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
 
+  // Warehouse (inventario del técnico)
+  const [currentWarehouse, setCurrentWarehouse] = useState(null);
+  const [warehouseLoading, setWarehouseLoading] = useState(false);
+  const [warehouseError, setWarehouseError] = useState(null);
+
+  // Inventario (productos, stock, seriales)
+  const [products, setProducts] = useState([]);
+  const [warehouseStock, setWarehouseStock] = useState(null);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [availableSerials, setAvailableSerials] = useState([]);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [inventoryError, setInventoryError] = useState(null);
+
   // Material form
   const [materialForm, setMaterialForm] = useState({
     product_id: '',
@@ -112,11 +128,11 @@ export default function WorkOrderExecutionPage() {
     notes: '',
   });
 
-  // Completion form
-  const [completionForm, setCompletionForm] = useState({
-    resolution_type: 'success',
-    resolution_notes: '',
-  });
+  // Completion form - Note: logic handled in CloseWorkOrderDialog
+  // const [completionForm, setCompletionForm] = useState({
+  //   resolution_type: 'success',
+  //   resolution_notes: '',
+  // });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -145,6 +161,77 @@ export default function WorkOrderExecutionPage() {
     }
   };
 
+  // Cargar warehouse + productos + stock cuando se abre el modal
+  useEffect(() => {
+    if (!showMaterialDialog || !user?.id) {
+      console.log('⏭️ Skipping inventory load:', { showMaterialDialog, userId: user?.id });
+      return;
+    }
+
+    let isCancelled = false;
+
+    const loadInventoryData = async () => {
+      try {
+        console.log('🔄 Iniciando carga de inventario para user:', user.id, user.full_name);
+        
+        // Cargar warehouse del técnico
+        setWarehouseLoading(true);
+        setWarehouseError(null);
+        setInventoryLoading(true);
+        setInventoryError(null);
+
+        const myWarehouse = await inventoryService.getMyWarehouse(user.id);
+        console.log('📦 Warehouse obtenido:', myWarehouse);
+        if (isCancelled) return;
+
+        setCurrentWarehouse(myWarehouse || null);
+
+        if (!myWarehouse) {
+          console.warn('❌ No warehouse found for user:', user.id);
+          setWarehouseError('No tienes una camioneta asignada. Contacta a coordinación.');
+          setWarehouseLoading(false);
+          setInventoryLoading(false);
+          return;
+        }
+
+        // Cargar productos disponibles en el sistema
+        const productsData = await inventoryService.getProducts();
+        console.log('📦 Productos obtenidos:', productsData?.length, productsData);
+        if (isCancelled) return;
+        setProducts(productsData || []);
+
+        // Cargar stock del warehouse del técnico
+        const stockData = await inventoryService.getWarehouseStock(myWarehouse.id);
+        console.log('💾 Stock obtenido:', stockData);
+        if (isCancelled) return;
+        setWarehouseStock(stockData);
+
+        console.log(`✅ Inventario cargado para técnico ${user.full_name}:`, {
+          warehouse: myWarehouse,
+          productsCount: productsData?.length,
+          stockItems: stockData?.items?.length,
+        });
+      } catch (err) {
+        if (isCancelled) return;
+        console.error('Error cargando inventario:', err);
+        setInventoryError(err.message || 'Error al cargar el inventario. Intenta nuevamente.');
+        setCurrentWarehouse(null);
+        setWarehouseError(null);
+      } finally {
+        if (!isCancelled) {
+          setWarehouseLoading(false);
+          setInventoryLoading(false);
+        }
+      }
+    };
+
+    loadInventoryData();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [showMaterialDialog, user?.id]);
+
   const handleStartWork = async () => {
     try {
       setIsSubmitting(true);
@@ -160,9 +247,70 @@ export default function WorkOrderExecutionPage() {
     }
   };
 
+  // Manejar cambio de producto: detectar BULK vs SERIALIZED y cargar seriales disponibles
+  const handleProductChange = (productId) => {
+    const product = products.find((p) => p.id === parseInt(productId));
+    setSelectedProduct(product);
+
+    setMaterialForm((prev) => ({
+      ...prev,
+      product_id: productId,
+      quantity: 1,
+      serial_number: '',
+    }));
+
+    // Si es SERIALIZED, cargar seriales disponibles en el warehouse del técnico
+    if (product && product.type === 'SERIALIZED' && warehouseStock) {
+      const stockItem = warehouseStock.items?.find((item) => item.product_id === product.id);
+      setAvailableSerials(stockItem?.serial_items || []);
+      console.log(`🔢 Seriales disponibles para ${product.name}:`, stockItem?.serial_items);
+    } else {
+      setAvailableSerials([]);
+    }
+  };
+
+  // Calcular cantidad máxima disponible según tipo de producto
+  const getMaxQuantity = () => {
+    if (!selectedProduct || !warehouseStock) return 0;
+
+    if (selectedProduct.type === 'BULK') {
+      const stockItem = warehouseStock.items?.find(
+        (item) => item.product_id === selectedProduct.id
+      );
+      return stockItem?.quantity || 0;
+    }
+
+    // Para SERIALIZED, el máximo es la cantidad de seriales disponibles
+    return availableSerials.length;
+  };
+
+  // Validar si el formulario tiene datos suficientes para agregar material
+  const isAddMaterialValid = () => {
+    if (!materialForm.product_id) return false;
+    if (!selectedProduct) return false;
+    if (!currentWarehouse) return false;
+
+    if (selectedProduct.type === 'BULK') {
+      const maxQty = getMaxQuantity();
+      const qty = parseInt(materialForm.quantity) || 0;
+      return qty > 0 && qty <= maxQty;
+    }
+
+    if (selectedProduct.type === 'SERIALIZED') {
+      return !!materialForm.serial_number;
+    }
+
+    return false;
+  };
+
   const handleAddMaterial = async () => {
-    if (!materialForm.product_id) {
-      alert('Selecciona un producto');
+    if (!isAddMaterialValid()) {
+      alert('Verifica los datos del material (cantidad o serial)');
+      return;
+    }
+
+    if (!currentWarehouse) {
+      alert('No tienes una camioneta asignada. Contacta a coordinación.');
       return;
     }
 
@@ -170,9 +318,10 @@ export default function WorkOrderExecutionPage() {
       setIsSubmitting(true);
       const item = await workOrdersService.addWorkOrderItem(id, {
         product_id: parseInt(materialForm.product_id),
-        quantity: parseInt(materialForm.quantity) || 1,
-        serial_number: materialForm.serial_number || null,
+        quantity: selectedProduct.type === 'BULK' ? parseInt(materialForm.quantity) : 1,
+        serial_number: selectedProduct.type === 'SERIALIZED' ? materialForm.serial_number : null,
         notes: materialForm.notes || null,
+        warehouse_id: currentWarehouse.id,
       });
 
       setWorkOrder((prev) => ({
@@ -180,7 +329,15 @@ export default function WorkOrderExecutionPage() {
         items: [...(prev.items || []), item],
       }));
 
+      // Recargar stock después de agregar material
+      if (currentWarehouse) {
+        const updatedStock = await inventoryService.getWarehouseStock(currentWarehouse.id);
+        setWarehouseStock(updatedStock);
+      }
+
       setMaterialForm({ product_id: '', quantity: 1, serial_number: '', notes: '' });
+      setSelectedProduct(null);
+      setAvailableSerials([]);
       setShowMaterialDialog(false);
     } catch (err) {
       alert('Error al agregar material: ' + err.message);
@@ -615,64 +772,170 @@ export default function WorkOrderExecutionPage() {
 
       {/* Material Dialog */}
       <Dialog open={showMaterialDialog} onOpenChange={setShowMaterialDialog}>
-        <DialogContent className="bg-zinc-900 border-zinc-800">
+        <DialogContent className="bg-zinc-900 border-zinc-800 max-w-md">
           <DialogHeader>
             <DialogTitle className="text-white">Agregar Material</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-3 py-4">
-            <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-2">
-                Producto ID (temporal)
-              </label>
-              <input
-                type="number"
-                value={materialForm.product_id}
-                onChange={(e) => setMaterialForm((prev) => ({ ...prev, product_id: e.target.value }))}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm"
-                placeholder="Ej: 123"
-              />
-            </div>
+            {/* Loading indicator */}
+            {(warehouseLoading || inventoryLoading) && (
+              <div className="text-sm text-zinc-400 flex items-center gap-2">
+                <div className="animate-spin w-4 h-4 border-2 border-emerald-400 border-t-transparent rounded-full" />
+                Cargando inventario...
+              </div>
+            )}
 
-            <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-2">
-                Cantidad
-              </label>
-              <input
-                type="number"
-                min="1"
-                value={materialForm.quantity}
-                onChange={(e) => setMaterialForm((prev) => ({ ...prev, quantity: e.target.value }))}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm"
-              />
-            </div>
+            {/* Error messages */}
+            {warehouseError && (
+              <div className="bg-rose-950/50 border border-rose-800 text-rose-200 text-sm rounded-lg p-3 min-h-16 flex items-center">
+                <div>
+                  <p className="font-semibold">⚠️ Error de Warehouse</p>
+                  <p className="text-xs mt-1">{warehouseError}</p>
+                </div>
+              </div>
+            )}
 
-            <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-2">
-                Serial Number (opcional)
-              </label>
-              <input
-                type="text"
-                value={materialForm.serial_number}
-                onChange={(e) => setMaterialForm((prev) => ({ ...prev, serial_number: e.target.value }))}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm"
-                placeholder="Ej: SN123456"
-              />
-            </div>
+            {inventoryError && (
+              <div className="bg-amber-950/50 border border-amber-800 text-amber-200 text-sm rounded-lg p-3 min-h-16 flex items-center">
+                <div>
+                  <p className="font-semibold">⚠️ Error de Inventario</p>
+                  <p className="text-xs mt-1">{inventoryError}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Warehouse confirmation */}
+            {!warehouseLoading && currentWarehouse && (
+              <div className="bg-emerald-950/30 border border-emerald-800/50 text-emerald-200 text-xs rounded-lg p-3">
+                📦 Stock de: <span className="font-semibold text-emerald-300">{currentWarehouse.name}</span>
+              </div>
+            )}
+
+            {/* Producto - Dropdown real */}
+            {!inventoryLoading && currentWarehouse && (
+              <div>
+                <label className="text-xs font-medium text-zinc-300 block mb-2">
+                  Producto *
+                </label>
+                {products.length > 0 ? (
+                  <select
+                    value={materialForm.product_id}
+                    onChange={(e) => handleProductChange(e.target.value)}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="">Selecciona un producto...</option>
+                    {products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.name} ({product.sku}) - {product.type === 'BULK' ? '📦' : '🔢'}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="text-xs text-zinc-500 p-2">No hay productos disponibles</div>
+                )}
+              </div>
+            )}
+
+            {/* Info del producto seleccionado */}
+            {selectedProduct && (
+              <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-3">
+                <p className="text-xs text-zinc-400">
+                  Tipo:{' '}
+                  <span className="text-emerald-400 font-medium">
+                    {selectedProduct.type === 'BULK' ? '📦 A Granel' : '🔢 Serializado'}
+                  </span>
+                </p>
+                {selectedProduct.category && (
+                  <p className="text-xs text-zinc-400 mt-1">Categoría: {selectedProduct.category}</p>
+                )}
+              </div>
+            )}
+
+            {/* Cantidad (solo para BULK) */}
+            {selectedProduct && selectedProduct.type === 'BULK' && (
+              <div>
+                <label className="text-xs font-medium text-zinc-300 block mb-2">
+                  Cantidad *
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max={getMaxQuantity()}
+                  value={materialForm.quantity}
+                  onChange={(e) => setMaterialForm((prev) => ({ ...prev, quantity: e.target.value }))}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                />
+                <p className="text-xs text-zinc-500 mt-1">
+                  Stock disponible: <span className="text-emerald-400 font-medium">{getMaxQuantity()} unidades</span>
+                </p>
+              </div>
+            )}
+
+            {/* Serial Number (solo para SERIALIZED) */}
+            {selectedProduct && selectedProduct.type === 'SERIALIZED' && (
+              <div>
+                <label className="text-xs font-medium text-zinc-300 block mb-2">
+                  Número de Serie *
+                </label>
+                {availableSerials.length > 0 ? (
+                  <select
+                    value={materialForm.serial_number}
+                    onChange={(e) => setMaterialForm((prev) => ({ ...prev, serial_number: e.target.value }))}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="">Selecciona un serial...</option>
+                    {availableSerials.map((serial) => (
+                      <option key={serial.id} value={serial.serial_number}>
+                        {serial.serial_number} - {serial.status}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="p-3 bg-amber-900/20 border border-amber-700/50 rounded-lg text-amber-200 text-xs">
+                    ⚠️ No hay seriales disponibles en tu inventario para este producto
+                  </div>
+                )}
+                <p className="text-xs text-zinc-500 mt-1">
+                  Disponibles: <span className="text-emerald-400 font-medium">{availableSerials.length}</span>
+                </p>
+              </div>
+            )}
+
+            {/* Notas (opcional) */}
+            {selectedProduct && (
+              <div>
+                <label className="text-xs font-medium text-zinc-300 block mb-2">
+                  Notas (opcional)
+                </label>
+                <textarea
+                  value={materialForm.notes}
+                  onChange={(e) => setMaterialForm((prev) => ({ ...prev, notes: e.target.value }))}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  rows={2}
+                  placeholder="Observaciones sobre el material..."
+                />
+              </div>
+            )}
           </div>
 
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setShowMaterialDialog(false)}
-              disabled={isSubmitting}
+              onClick={() => {
+                setShowMaterialDialog(false);
+                setMaterialForm({ product_id: '', quantity: 1, serial_number: '', notes: '' });
+                setSelectedProduct(null);
+                setAvailableSerials([]);
+              }}
+              disabled={isSubmitting || warehouseLoading || inventoryLoading}
             >
               Cancelar
             </Button>
             <Button
               onClick={handleAddMaterial}
-              disabled={isSubmitting}
-              className="bg-emerald-600 hover:bg-emerald-700"
+              disabled={!isAddMaterialValid() || isSubmitting || warehouseLoading || inventoryLoading}
+              className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-700 disabled:opacity-50"
             >
               {isSubmitting ? 'Agregando...' : 'Agregar'}
             </Button>

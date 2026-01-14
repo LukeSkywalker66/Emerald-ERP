@@ -9,9 +9,17 @@ import {
   User,
   Package,
   AlertCircle,
-  X
+  X,
+  Edit2,
+  Trash2,
+  MoreVertical
 } from 'lucide-react';
-import { getWarehouses, createWarehouse } from '@/services/inventory.service';
+import { 
+  getWarehouses, 
+  createWarehouse,
+  updateWarehouse,
+  deleteWarehouse 
+} from '@/services/inventory.service';
 import { Link } from 'react-router-dom';
 
 export default function WarehouseList() {
@@ -26,8 +34,15 @@ export default function WarehouseList() {
   
   // Modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [createError, setCreateError] = useState(null);
+  const [editError, setEditError] = useState(null);
+  const [deleteError, setDeleteError] = useState(null);
+  const [selectedWarehouse, setSelectedWarehouse] = useState(null);
   
   // Form data
   const [formData, setFormData] = useState({
@@ -114,6 +129,80 @@ export default function WarehouseList() {
     } finally {
       setCreating(false);
     }
+  };
+
+  const handleEditWarehouse = async (e) => {
+    e.preventDefault();
+    setUpdating(true);
+    setEditError(null);
+    
+    try {
+      if (!formData.name.trim()) {
+        throw new Error('El nombre es obligatorio');
+      }
+      
+      if (formData.type === 'MOBILE' && !formData.user_id) {
+        throw new Error('Los almacenes MOBILE requieren asignar un técnico (user_id)');
+      }
+      
+      const payload = {
+        name: formData.name.trim(),
+        type: formData.type,
+        user_id: formData.type === 'MOBILE' ? formData.user_id : null
+      };
+      
+      await updateWarehouse(selectedWarehouse.id, payload);
+      await loadWarehouses();
+      
+      setShowEditModal(false);
+      setSelectedWarehouse(null);
+      setFormData({ name: '', type: 'CENTRAL', user_id: null });
+    } catch (err) {
+      console.error('Error updating warehouse:', err);
+      setEditError(err.response?.data?.detail || err.message || 'Error al actualizar warehouse');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleDeleteWarehouse = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    
+    try {
+      await deleteWarehouse(selectedWarehouse.id);
+      await loadWarehouses();
+      
+      setShowDeleteConfirm(false);
+      setSelectedWarehouse(null);
+    } catch (err) {
+      console.error('Error deleting warehouse:', err);
+      // Capturar error 409 (Conflict) que indica que tiene datos asociados
+      if (err.response?.status === 409) {
+        setDeleteError(err.response?.data?.detail || 'No se puede eliminar: el almacén tiene stock o movimientos asociados');
+      } else {
+        setDeleteError(err.response?.data?.detail || err.message || 'Error al eliminar warehouse');
+      }
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const openEditModal = (warehouse) => {
+    setSelectedWarehouse(warehouse);
+    setFormData({
+      name: warehouse.name,
+      type: warehouse.type,
+      user_id: warehouse.user_id || null
+    });
+    setEditError(null);
+    setShowEditModal(true);
+  };
+
+  const openDeleteConfirm = (warehouse) => {
+    setSelectedWarehouse(warehouse);
+    setDeleteError(null);
+    setShowDeleteConfirm(true);
   };
 
   const getTypeIcon = (type) => {
@@ -250,13 +339,36 @@ export default function WarehouseList() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredWarehouses.map((warehouse) => (
-            <Link
+            <div
               key={warehouse.id}
-              to={`/app/inventory/warehouses/${warehouse.id}`}
-              className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 hover:border-emerald-800 hover:shadow-lg hover:shadow-emerald-900/20 transition-all group"
+              className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 hover:border-emerald-800 hover:shadow-lg hover:shadow-emerald-900/20 transition-all group relative"
             >
+              {/* Action Buttons (absolute top-right) */}
+              <div className="absolute top-4 right-4 flex items-center space-x-2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openEditModal(warehouse);
+                  }}
+                  className="p-2 bg-zinc-800 hover:bg-blue-900/30 border border-zinc-700 hover:border-blue-700 text-zinc-400 hover:text-blue-400 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                  title="Editar almacén"
+                >
+                  <Edit2 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openDeleteConfirm(warehouse);
+                  }}
+                  className="p-2 bg-zinc-800 hover:bg-red-900/30 border border-zinc-700 hover:border-red-700 text-zinc-400 hover:text-red-400 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                  title="Eliminar almacén"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+
               {/* Header */}
-              <div className="flex items-start justify-between mb-4">
+              <div className="flex items-start justify-between mb-4 pr-20">
                 <div className="p-3 rounded-lg bg-zinc-800 border border-zinc-700 group-hover:border-emerald-800 transition-colors">
                   {getTypeIcon(warehouse.type)}
                 </div>
@@ -264,9 +376,14 @@ export default function WarehouseList() {
               </div>
               
               {/* Name */}
-              <h3 className="text-lg font-semibold text-white mb-2 group-hover:text-emerald-400 transition-colors">
-                {warehouse.name}
-              </h3>
+              <Link
+                to={`/app/inventory/warehouses/${warehouse.id}`}
+                className="block"
+              >
+                <h3 className="text-lg font-semibold text-white mb-2 group-hover:text-emerald-400 transition-colors">
+                  {warehouse.name}
+                </h3>
+              </Link>
               
               {/* Details */}
               <div className="space-y-2">
@@ -284,15 +401,18 @@ export default function WarehouseList() {
               </div>
               
               {/* Footer */}
-              <div className="mt-4 pt-4 border-t border-zinc-800 flex items-center justify-between">
+              <Link
+                to={`/app/inventory/warehouses/${warehouse.id}`}
+                className="mt-4 pt-4 border-t border-zinc-800 flex items-center justify-between"
+              >
                 <span className="text-xs text-zinc-500">
                   Creado {new Date(warehouse.created_at).toLocaleDateString()}
                 </span>
                 <span className="text-emerald-400 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
                   Ver detalles →
                 </span>
-              </div>
-            </Link>
+              </Link>
+            </div>
           ))}
         </div>
       )}
@@ -425,6 +545,203 @@ export default function WarehouseList() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {showEditModal && selectedWarehouse && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-lg max-w-lg w-full p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-blue-400">Editar Almacén</h2>
+              <button
+                onClick={() => {
+                  setShowEditModal(false);
+                  setEditError(null);
+                  setSelectedWarehouse(null);
+                  setFormData({ name: '', type: 'CENTRAL', user_id: null });
+                }}
+                className="text-zinc-400 hover:text-white transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {editError && (
+              <div className="mb-4 bg-red-900/20 border border-red-900/50 rounded-lg p-3 flex items-start space-x-2">
+                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <p className="text-red-300 text-sm">{editError}</p>
+              </div>
+            )}
+
+            <form onSubmit={handleEditWarehouse} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-2">
+                  Nombre del Almacén *
+                </label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="Ej: Depósito Central Buenos Aires"
+                  className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-2">
+                  Tipo de Almacén *
+                </label>
+                <select
+                  value={formData.type}
+                  onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                  className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors"
+                >
+                  <option value="CENTRAL">CENTRAL - Depósito principal</option>
+                  <option value="MOBILE">MOBILE - Camioneta de técnico</option>
+                  <option value="VIRTUAL">VIRTUAL - Ubicación lógica</option>
+                </select>
+              </div>
+
+              {formData.type === 'MOBILE' && (
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    ID del Técnico Asignado *
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.user_id || ''}
+                    onChange={(e) => setFormData({ ...formData, user_id: e.target.value ? parseInt(e.target.value) : null })}
+                    placeholder="Ej: 2"
+                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors"
+                    required
+                  />
+                  <p className="mt-2 text-xs text-zinc-500">
+                    Los almacenes MOBILE requieren asignar un técnico
+                  </p>
+                </div>
+              )}
+
+              <div className="flex items-center space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditError(null);
+                    setSelectedWarehouse(null);
+                    setFormData({ name: '', type: 'CENTRAL', user_id: null });
+                  }}
+                  className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={updating}
+                  className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                >
+                  {updating ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>Actualizando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Edit2 className="w-4 h-4" />
+                      <span>Guardar Cambios</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && selectedWarehouse && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-zinc-950 border border-red-900/50 rounded-lg max-w-md w-full p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-red-900/30 rounded-lg">
+                  <AlertCircle className="w-6 h-6 text-red-400" />
+                </div>
+                <h2 className="text-2xl font-bold text-red-400">Confirmar Eliminación</h2>
+              </div>
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setDeleteError(null);
+                  setSelectedWarehouse(null);
+                }}
+                className="text-zinc-400 hover:text-white transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {deleteError && (
+              <div className="mb-4 bg-red-900/20 border border-red-900/50 rounded-lg p-3 flex items-start space-x-2">
+                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-red-300 text-sm font-medium">No se puede eliminar</p>
+                  <p className="text-red-400/80 text-xs mt-1">{deleteError}</p>
+                </div>
+              </div>
+            )}
+
+            <div className="mb-6">
+              <p className="text-zinc-300 mb-2">
+                ¿Estás seguro de que deseas eliminar el almacén:
+              </p>
+              <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
+                <p className="text-white font-semibold">{selectedWarehouse.name}</p>
+                <p className="text-zinc-500 text-sm mt-1">Tipo: {selectedWarehouse.type}</p>
+              </div>
+              
+              <div className="mt-4 bg-amber-900/20 border border-amber-900/50 rounded-lg p-3">
+                <p className="text-amber-300 text-sm font-medium flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4" />
+                  <span>Advertencia</span>
+                </p>
+                <p className="text-amber-400/80 text-xs mt-1">
+                  Esta acción no se puede deshacer. Solo se pueden eliminar almacenes sin stock ni historial de movimientos.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setDeleteError(null);
+                  setSelectedWarehouse(null);
+                }}
+                className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDeleteWarehouse}
+                disabled={deleting}
+                className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+              >
+                {deleting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Eliminando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Eliminar Almacén</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

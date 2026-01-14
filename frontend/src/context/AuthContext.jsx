@@ -10,6 +10,24 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // Decodificar JWT para obtener user info
+  const decodeToken = (accessToken) => {
+    try {
+      const payload = accessToken.split('.')[1];
+      const decoded = JSON.parse(atob(payload));
+      return {
+        id: parseInt(decoded.sub, 10),
+        email: decoded.email,
+        username: decoded.username,
+        is_superuser: decoded.is_superuser,
+        full_name: localStorage.getItem('emerald_full_name') || decoded.email,
+      };
+    } catch (err) {
+      console.error('Error decodificando token:', err);
+      return null;
+    }
+  };
+
   useEffect(() => {
     // Si tenemos access pero no refresh, forzar logout para evitar loops 401
     if (token && !refreshToken) {
@@ -17,8 +35,11 @@ export const AuthProvider = ({ children }) => {
       return;
     }
     if (token && !user) {
-      // Placeholder: could fetch /me when backend is ready
-      setUser({ email: localStorage.getItem('emerald_email') || 'admin@emerald.com', role: 'admin' });
+      // Decodificar token para obtener user info completo con ID
+      const decodedUser = decodeToken(token);
+      if (decodedUser) {
+        setUser(decodedUser);
+      }
     }
   }, [token, refreshToken, user]);
 
@@ -39,7 +60,12 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem('emerald_token', accessToken);
         localStorage.setItem('emerald_email', email);
         setToken(accessToken);
-        setUser({ email, role: 'admin' });
+        
+        // Decodificar inmediatamente después del login
+        const decodedUser = decodeToken(accessToken);
+        if (decodedUser) {
+          setUser(decodedUser);
+        }
       }
       if (nextRefresh) {
         localStorage.setItem('emerald_refresh', nextRefresh);

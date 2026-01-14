@@ -1,9 +1,11 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { ChevronRight, ChevronLeft, Paperclip, Camera, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import api from '@/api/client';
+import * as inventoryService from '@/services/inventory.service';
+import { useAuth } from '@/context/AuthContext';
 
 /**
  * CloseWorkOrderDialog - Wizard de 3 pasos para cerrar una Orden de Trabajo
@@ -21,13 +23,21 @@ export default function CloseWorkOrderDialog({
   onClose,
   onComplete,
 }) {
+  const { user } = useAuth();
   const [step, setStep] = useState(1);
 
   // Paso 1: Resolución
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [resolutionNotes, setResolutionNotes] = useState('');
 
-  // Paso 2: Materiales
+  // Paso 2: Materiales - Inventario
+  const [products, setProducts] = useState([]);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [availableSerials, setAvailableSerials] = useState([]);
+  const [warehouseStock, setWarehouseStock] = useState(null);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [inventoryError, setInventoryError] = useState(null);
+
   const [additionalMaterial, setAdditionalMaterial] = useState({
     product_id: '',
     quantity: '',
@@ -92,6 +102,92 @@ export default function CloseWorkOrderDialog({
       };
       reader.readAsDataURL(file);
     });
+  };
+
+  // Cargar productos cuando se abre el dialog y user está disponible
+  useEffect(() => {
+    if (!isOpen || !user?.id) return;
+
+    let isCancelled = false;
+
+    const loadInventoryProducts = async () => {
+      try {
+        setInventoryLoading(true);
+        setInventoryError(null);
+
+        // Cargar productos disponibles
+        const productsData = await inventoryService.getProducts();
+        if (isCancelled) return;
+        setProducts(productsData || []);
+
+        // Cargar warehouse del técnico para seriales
+        const myWarehouse = await inventoryService.getMyWarehouse(user.id);
+        if (isCancelled) return;
+
+        if (myWarehouse) {
+          const stockData = await inventoryService.getWarehouseStock(myWarehouse.id);
+          if (isCancelled) return;
+          setWarehouseStock(stockData);
+        }
+
+        console.log('📦 Productos cargados en wizard de cierre:', productsData?.length);
+      } catch (err) {
+        if (isCancelled) return;
+        console.error('Error cargando inventario en wizard:', err);
+        setInventoryError(err.message || 'Error al cargar inventario');
+      } finally {
+        if (!isCancelled) {
+          setInventoryLoading(false);
+        }
+      }
+    };
+
+    loadInventoryProducts();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isOpen, user?.id]);
+
+  // Handler para cambio de producto
+  const handleProductChange = (productId) => {
+    const product = products.find((p) => p.id === parseInt(productId));
+    setSelectedProduct(product);
+    setAdditionalMaterial((prev) => ({
+      ...prev,
+      product_id: productId,
+      quantity: 1,
+      serial_number: '',
+    }));
+
+    if (product && product.type === 'SERIALIZED' && warehouseStock) {
+      const stockItem = warehouseStock.items?.find((item) => item.product_id === product.id);
+      setAvailableSerials(stockItem?.serial_items || []);
+    } else {
+      setAvailableSerials([]);
+    }
+  };
+
+  // Get max quantity para BULK
+  const getMaxQuantity = () => {
+    if (!selectedProduct || !warehouseStock) return 1;
+    if (selectedProduct.type === 'BULK') {
+      const stockItem = warehouseStock.items?.find((item) => item.product_id === selectedProduct.id);
+      return stockItem?.quantity || 1;
+    } else {
+      return availableSerials.length || 1;
+    }
+  };
+
+  // Validate additional material
+  const isAddMaterialValid = () => {
+    if (!additionalMaterial.product_id) return false;
+    if (selectedProduct?.type === 'BULK') {
+      const qty = parseInt(additionalMaterial.quantity, 10);
+      return qty > 0 && qty <= getMaxQuantity();
+    } else {
+      return !!additionalMaterial.serial_number;
+    }
   };
 
   // Upload de foto
@@ -346,46 +442,139 @@ export default function CloseWorkOrderDialog({
                 <h3 className="font-medium text-white mb-3 mt-6">
                   Agregar Material (Opcional)
                 </h3>
-                <div className="space-y-2">
-                  <input
-                    type="number"
-                    placeholder="Producto ID"
-                    value={additionalMaterial.product_id}
-                    onChange={(e) =>
-                      setAdditionalMaterial({
-                        ...additionalMaterial,
-                        product_id: e.target.value,
-                      })
-                    }
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-white placeholder:text-zinc-500 text-sm"
-                  />
-                  <input
-                    type="number"
-                    step="0.1"
-                    placeholder="Cantidad"
-                    value={additionalMaterial.quantity}
-                    onChange={(e) =>
-                      setAdditionalMaterial({
-                        ...additionalMaterial,
-                        quantity: e.target.value,
-                      })
-                    }
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-white placeholder:text-zinc-500 text-sm"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Serial (opcional)"
-                    value={additionalMaterial.serial_number}
-                    onChange={(e) =>
-                      setAdditionalMaterial({
-                        ...additionalMaterial,
-                        serial_number: e.target.value,
-                      })
-                    }
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-white placeholder:text-zinc-500 text-sm"
-                  />
+
+                {/* Loading indicator */}
+                {inventoryLoading && (
+                  <div className="text-sm text-zinc-400 flex items-center gap-2 mb-3">
+                    <div className="animate-spin w-4 h-4 border-2 border-emerald-400 border-t-transparent rounded-full" />
+                    Cargando productos...
+                  </div>
+                )}
+
+                {/* Error messages */}
+                {inventoryError && (
+                  <div className="bg-amber-950/30 border border-amber-800 text-amber-200 text-sm rounded-lg p-3 mb-3">
+                    ⚠️ {inventoryError}
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  {/* Dropdown de productos */}
+                  {!inventoryLoading && products.length > 0 && (
+                    <div>
+                      <label className="text-xs font-medium text-zinc-300 block mb-2">
+                        Producto *
+                      </label>
+                      <select
+                        value={additionalMaterial.product_id}
+                        onChange={(e) => handleProductChange(e.target.value)}
+                        className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      >
+                        <option value="">Selecciona un producto...</option>
+                        {products.map((product) => (
+                          <option key={product.id} value={product.id}>
+                            {product.name} ({product.sku}) - {product.type === 'BULK' ? '📦' : '🔢'}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Info del producto seleccionado */}
+                  {selectedProduct && (
+                    <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-3">
+                      <p className="text-xs text-zinc-400">
+                        Tipo:{' '}
+                        <span className="text-emerald-400 font-medium">
+                          {selectedProduct.type === 'BULK' ? '📦 A Granel' : '🔢 Serializado'}
+                        </span>
+                      </p>
+                      {selectedProduct.category && (
+                        <p className="text-xs text-zinc-400 mt-1">Categoría: {selectedProduct.category}</p>
+                      )}
+                      {warehouseStock && (
+                        <p className="text-xs text-emerald-300 mt-2 font-medium">
+                          {selectedProduct.type === 'BULK'
+                            ? `Stock disponible: ${getMaxQuantity()} unidades`
+                            : `Disponibles: ${availableSerials.length} seriales`}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Cantidad (solo para BULK) */}
+                  {selectedProduct && selectedProduct.type === 'BULK' && (
+                    <div>
+                      <label className="text-xs font-medium text-zinc-300 block mb-2">
+                        Cantidad *
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max={getMaxQuantity()}
+                        value={additionalMaterial.quantity}
+                        onChange={(e) =>
+                          setAdditionalMaterial({
+                            ...additionalMaterial,
+                            quantity: parseInt(e.target.value, 10),
+                          })
+                        }
+                        className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
+                  )}
+
+                  {/* Serial (solo para SERIALIZED) */}
+                  {selectedProduct && selectedProduct.type === 'SERIALIZED' && (
+                    <div>
+                      <label className="text-xs font-medium text-zinc-300 block mb-2">
+                        Serial *
+                      </label>
+                      {availableSerials.length > 0 ? (
+                        <select
+                          value={additionalMaterial.serial_number}
+                          onChange={(e) =>
+                            setAdditionalMaterial({
+                              ...additionalMaterial,
+                              serial_number: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                        >
+                          <option value="">Selecciona un serial...</option>
+                          {availableSerials.map((serial) => (
+                            <option key={serial.id} value={serial.serial_number}>
+                              {serial.serial_number}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="text-xs text-zinc-500 p-2">No hay seriales disponibles</div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Notas */}
+                  <div>
+                    <label className="text-xs font-medium text-zinc-300 block mb-2">
+                      Notas (opcional)
+                    </label>
+                    <textarea
+                      value={additionalMaterial.notes}
+                      onChange={(e) =>
+                        setAdditionalMaterial({
+                          ...additionalMaterial,
+                          notes: e.target.value,
+                        })
+                      }
+                      placeholder="Notas sobre el material..."
+                      className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      rows={2}
+                    />
+                  </div>
                 </div>
-                <p className="text-xs text-zinc-400 mt-2">
+
+                <p className="text-xs text-zinc-400 mt-3">
                   (No se guardará en esta versión, solo para referencia visual)
                 </p>
               </div>

@@ -158,7 +158,18 @@ export function AppSidebar() {
   const { pathname } = useLocation();
 
   const isItemActive = (href) => {
-    return pathname.startsWith(href);
+    // Match exacto
+    if (pathname === href) return true;
+    
+    // Para items que son "raíces" de secciones (ej: /app/inventory),
+    // NO activar si estamos en una subruta específica
+    if (href === '/app/inventory' && pathname.startsWith('/app/inventory/')) {
+      // Solo activo si es exactamente /app/inventory
+      return false;
+    }
+    
+    // Para otras rutas, activo si comienza con href/
+    return pathname.startsWith(href + '/');
   };
 
   return (

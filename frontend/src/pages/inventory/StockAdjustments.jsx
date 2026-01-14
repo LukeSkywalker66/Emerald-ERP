@@ -31,22 +31,33 @@ export default function StockAdjustments() {
         setLoading(true);
         setError(null);
 
-        // Obtener warehouses y productos BULK (solo a granel permitido)
-        const [warehousesData, productsData, movementsData] = await Promise.all([
-          inventoryService.getWarehouses(),
-          inventoryService.getProducts({ product_type: 'BULK' }),
-          inventoryService.getMovements({
-            movement_type: 'PURCHASE,ADJUSTMENT',
-            limit: 20,
-          }),
-        ]);
+        console.log('📦 StockAdjustments: Iniciando carga de datos...');
 
-        setWarehouses(warehousesData);
-        setProducts(productsData);
-        setMovements(movementsData);
+        // Obtener warehouses y productos BULK (solo a granel permitido)
+        const warehousesData = await inventoryService.getWarehouses();
+        console.log('✅ Warehouses cargados:', warehousesData);
+        setWarehouses(warehousesData || []);
+
+        // Server-side filtering: el backend filtra solo productos BULK
+        const productsData = await inventoryService.getProducts({ type: 'BULK' });
+        console.log('✅ Productos BULK cargados (server-side filtered):', productsData);
+        setProducts(productsData || []);
+
+        const movementsData = await inventoryService.getMovements();
+        console.log('✅ Movimientos cargados:', movementsData);
+        setMovements(movementsData || []);
+
+        console.log('✅ Todos los datos cargados exitosamente');
       } catch (err) {
-        console.error('Error loading adjustment data:', err);
-        setError('No se pudieron cargar los datos. Intenta nuevamente.');
+        console.error('❌ Error loading adjustment data:', err);
+        console.error('Error status:', err.response?.status);
+        console.error('Error message:', err.response?.data?.detail || err.message);
+        console.error('Full error object:', err);
+        
+        const errorMessage = err.response?.data?.detail 
+          || err.message 
+          || 'No se pudieron cargar los datos. Intenta nuevamente.';
+        setError(errorMessage);
       } finally {
         setLoading(false);
       }

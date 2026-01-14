@@ -8,9 +8,15 @@ import {
   Droplets,
   QrCode,
   X,
-  Trash2
+  Trash2,
+  Edit2
 } from 'lucide-react';
-import { getProducts, createProduct } from '@/services/inventory.service';
+import { 
+  getProducts, 
+  createProduct,
+  updateProduct,
+  deleteProduct 
+} from '@/services/inventory.service';
 
 export default function ProductCatalog() {
   const [products, setProducts] = useState([]);
@@ -25,8 +31,15 @@ export default function ProductCatalog() {
 
   // Modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [createError, setCreateError] = useState(null);
+  const [editError, setEditError] = useState(null);
+  const [deleteError, setDeleteError] = useState(null);
+  const [selectedProduct, setSelectedProduct] = useState(null);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -135,6 +148,106 @@ export default function ProductCatalog() {
     } finally {
       setCreating(false);
     }
+  };
+
+  const handleEditProduct = async (e) => {
+    e.preventDefault();
+    setUpdating(true);
+    setEditError(null);
+
+    try {
+      // Validations
+      if (!formData.name.trim()) {
+        throw new Error('El nombre es obligatorio');
+      }
+      if (!formData.sku.trim()) {
+        throw new Error('El SKU es obligatorio');
+      }
+
+      // Check SKU uniqueness (excluding current product)
+      if (products.some(p => p.id !== selectedProduct.id && p.sku.toUpperCase() === formData.sku.toUpperCase())) {
+        throw new Error('El SKU ya existe en el catálogo');
+      }
+
+      const payload = {
+        name: formData.name.trim(),
+        sku: formData.sku.trim().toUpperCase(),
+        // type is intentionally omitted - immutable field handled by backend
+        category: formData.category || null,
+        description: formData.description.trim() || null,
+        min_stock_alert: parseInt(formData.min_stock_alert) || 0
+      };
+
+      await updateProduct(selectedProduct.id, payload);
+
+      // Reload products
+      await loadProducts();
+
+      // Close modal and reset form
+      setShowEditModal(false);
+      setSelectedProduct(null);
+      setFormData({
+        name: '',
+        sku: '',
+        type: 'BULK',
+        category: 'Cableado',
+        description: '',
+        min_stock_alert: 50
+      });
+    } catch (err) {
+      console.error('Error updating product:', err);
+      setEditError(err.response?.data?.detail || err.message || 'Error al actualizar producto');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleDeleteProduct = async () => {
+    setUpdating(true);
+    setEditError(null);
+
+    try {
+      await deleteProduct(selectedProduct.id);
+
+      // Reload products
+      await loadProducts();
+
+      // Close confirmation and reset
+      setShowEditModal(false);
+      setSelectedProduct(null);
+    } catch (err) {
+      console.error('Error deleting product:', err);
+      const errorMsg = err.response?.data?.detail || err.message || 'Error al eliminar producto';
+      
+      // Check for 409 conflicts
+      if (err.response?.status === 409) {
+        setEditError(`No se puede eliminar: ${errorMsg}`);
+      } else {
+        setEditError(errorMsg);
+      }
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const openEditModal = (product) => {
+    setSelectedProduct(product);
+    setFormData({
+      name: product.name,
+      sku: product.sku,
+      type: product.type,
+      category: product.category || 'Cableado',
+      description: product.description || '',
+      min_stock_alert: product.min_stock_alert || 50
+    });
+    setShowEditModal(true);
+    setEditError(null);
+  };
+
+  const openDeleteConfirm = (product) => {
+    setSelectedProduct(product);
+    setEditError(null);
+    setShowDeleteConfirm(true);
   };
 
   const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
@@ -313,6 +426,14 @@ export default function ProductCatalog() {
                 {/* Actions */}
                 <div className="col-span-1 flex items-center justify-end space-x-2">
                   <button
+                    onClick={() => openEditModal(product)}
+                    className="p-1.5 text-zinc-500 hover:text-blue-400 hover:bg-blue-900/20 rounded transition-colors"
+                    title="Editar"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => openDeleteConfirm(product)}
                     className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors"
                     title="Eliminar"
                   >
@@ -341,10 +462,10 @@ export default function ProductCatalog() {
 
       {/* Create Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-zinc-950 border border-zinc-800 rounded-lg max-w-lg w-full p-6 shadow-2xl">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between mb-6">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-lg max-w-2xl w-full my-8 shadow-2xl max-h-[90vh] flex flex-col">
+            {/* Modal Header - Fixed */}
+            <div className="flex items-center justify-between p-6 border-b border-zinc-800 flex-shrink-0">
               <h2 className="text-2xl font-bold text-emerald-400">Nuevo Producto</h2>
               <button
                 onClick={() => {
@@ -365,16 +486,18 @@ export default function ProductCatalog() {
               </button>
             </div>
 
-            {/* Error Alert */}
-            {createError && (
-              <div className="mb-4 bg-red-900/20 border border-red-900/50 rounded-lg p-3 flex items-start space-x-2">
-                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-                <p className="text-red-300 text-sm">{createError}</p>
-              </div>
-            )}
+            {/* Scrollable Content */}
+            <div className="overflow-y-auto flex-1 p-6">
+              {/* Error Alert */}
+              {createError && (
+                <div className="mb-4 bg-red-900/20 border border-red-900/50 rounded-lg p-3 flex items-start space-x-2">
+                  <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-red-300 text-sm">{createError}</p>
+                </div>
+              )}
 
-            {/* Form */}
-            <form onSubmit={handleCreateProduct} className="space-y-4">
+              {/* Form */}
+              <form onSubmit={handleCreateProduct} className="space-y-4" id="create-product-form">
               {/* Name */}
               <div>
                 <label className="block text-sm font-medium text-zinc-300 mb-2">
@@ -462,9 +585,12 @@ export default function ProductCatalog() {
                   className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
                 />
               </div>
+              </form>
+            </div>
 
-              {/* Buttons */}
-              <div className="flex items-center space-x-3 pt-4">
+            {/* Fixed Footer with Buttons */}
+            <div className="p-6 border-t border-zinc-800 flex-shrink-0">
+              <div className="flex items-center space-x-3">
                 <button
                   type="button"
                   onClick={() => {
@@ -485,6 +611,7 @@ export default function ProductCatalog() {
                 </button>
                 <button
                   type="submit"
+                  form="create-product-form"
                   disabled={creating}
                   className="flex-1 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
                 >
@@ -501,7 +628,258 @@ export default function ProductCatalog() {
                   )}
                 </button>
               </div>
-            </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {showEditModal && selectedProduct && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-lg max-w-2xl w-full my-8 shadow-2xl max-h-[90vh] flex flex-col">
+            {/* Modal Header - Fixed */}
+            <div className="flex items-center justify-between p-6 border-b border-zinc-800 flex-shrink-0">
+              <h2 className="text-2xl font-bold text-blue-400">Editar Producto</h2>
+              <button
+                onClick={() => {
+                  setShowEditModal(false);
+                  setEditError(null);
+                  setSelectedProduct(null);
+                  setFormData({
+                    name: '',
+                    sku: '',
+                    type: 'BULK',
+                    category: 'Cableado',
+                    description: '',
+                    min_stock_alert: 50
+                  });
+                }}
+                className="text-zinc-400 hover:text-white transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Scrollable Content */}
+            <div className="overflow-y-auto flex-1 p-6">
+              {/* Error Alert */}
+              {editError && (
+                <div className="mb-4 bg-red-900/20 border border-red-900/50 rounded-lg p-3 flex items-start space-x-2">
+                  <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-red-300 text-sm">{editError}</p>
+                </div>
+              )}
+
+              {/* Form */}
+              <form onSubmit={handleEditProduct} className="space-y-4" id="edit-product-form">
+                {/* Name */}
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Nombre del Producto *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    placeholder="Ej: Cable UTP Cat6 305m"
+                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors"
+                    required
+                  />
+                </div>
+
+                {/* SKU */}
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    SKU (Código Único) *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.sku}
+                    onChange={(e) => setFormData({ ...formData, sku: e.target.value.toUpperCase() })}
+                    placeholder="Ej: CAB-UTP-CAT6-305"
+                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors font-mono"
+                    required
+                  />
+                </div>
+
+                {/* Type - DISABLED (immutable) */}
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Tipo de Producto <span className="text-zinc-500 text-xs">(Inmutable)</span>
+                  </label>
+                  <select
+                    value={formData.type}
+                    disabled
+                    className="w-full px-4 py-3 bg-zinc-700/50 border border-zinc-600 rounded-lg text-zinc-500 cursor-not-allowed"
+                  >
+                    <option value="BULK">A Granel (cable, conectores, etc.)</option>
+                    <option value="SERIALIZED">Serializado (ONUs, routers, etc.)</option>
+                  </select>
+                  <p className="text-xs text-zinc-500 mt-1">El tipo de producto no puede ser modificado</p>
+                </div>
+
+                {/* Category */}
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Categoría
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.category}
+                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    placeholder="Ej: Cableado, ONUs, Conectores"
+                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors"
+                  />
+                </div>
+
+                {/* Description */}
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Descripción
+                  </label>
+                  <textarea
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    placeholder="Detalles del producto, especificaciones, proveedor..."
+                    rows="3"
+                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors resize-none"
+                  />
+                </div>
+
+                {/* Min Stock Alert */}
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Stock Mínimo para Alerta
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.min_stock_alert}
+                    onChange={(e) => setFormData({ ...formData, min_stock_alert: e.target.value })}
+                    placeholder="Ej: 50"
+                    min="0"
+                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors"
+                  />
+                </div>
+              </form>
+            </div>
+
+            {/* Fixed Footer with Buttons */}
+            <div className="p-6 border-t border-zinc-800 flex-shrink-0 space-y-2">
+              <div className="flex items-center space-x-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditError(null);
+                    setSelectedProduct(null);
+                    setFormData({
+                      name: '',
+                      sku: '',
+                      type: 'BULK',
+                      category: 'Cableado',
+                      description: '',
+                      min_stock_alert: 50
+                    });
+                  }}
+                  className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  form="edit-product-form"
+                  disabled={updating}
+                  className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                >
+                  {updating ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Edit2 className="w-4 h-4" />
+                      <span>Guardar Cambios</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="w-full px-4 py-3 bg-red-900/30 hover:bg-red-900/50 text-red-300 rounded-lg transition-colors border border-red-900/50"
+              >
+                Eliminar Producto
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && selectedProduct && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-zinc-950 border border-red-900/50 rounded-lg max-w-md w-full shadow-2xl">
+            {/* Header */}
+            <div className="flex items-start space-x-3 p-6 border-b border-red-900/30">
+              <AlertCircle className="w-6 h-6 text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <h2 className="text-lg font-bold text-red-400">Eliminar Producto</h2>
+                <p className="text-sm text-zinc-400 mt-1">Esta acción no puede deshacerse</p>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-4">
+              {editError ? (
+                <div className="bg-red-900/30 border border-red-900/50 rounded-lg p-3 flex items-start space-x-2">
+                  <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-red-300 text-sm">{editError}</p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-zinc-300">
+                    ¿Está seguro que desea eliminar el producto <span className="font-medium text-white">"{selectedProduct.name}"</span>?
+                  </p>
+                  <div className="bg-zinc-900 rounded p-3 text-sm text-zinc-400">
+                    <p><span className="text-zinc-500">SKU:</span> {selectedProduct.sku}</p>
+                    <p><span className="text-zinc-500">Tipo:</span> {selectedProduct.type === 'BULK' ? 'A Granel' : 'Serializado'}</p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 border-t border-red-900/30 flex items-center space-x-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setEditError(null);
+                }}
+                className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteProduct}
+                disabled={updating}
+                className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+              >
+                {updating ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Eliminando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Eliminar</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
