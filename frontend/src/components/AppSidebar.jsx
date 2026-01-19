@@ -1,10 +1,15 @@
 /**
- * AppSidebar - Navegación principal del sistema
- * Estructura modular con secciones temáticas
- * Usa Shadcn UI Sidebar components + diseño Emerald profesional
+ * AppSidebar - Navegación principal con estructura acordeón
+ * 
+ * Características:
+ * - Secciones colapsables para reducir ruido visual
+ * - Operaciones expandidas por defecto (uso diario)
+ * - Inventario e Ingeniería colapsados (uso ocasional)
+ * - Animaciones suaves y estado persistente en localStorage
+ * - Auto-expansión cuando se navega a un item dentro de una sección colapsada
  */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -21,6 +26,9 @@ import {
   Package,
   ArrowLeftRight,
   AlertCircle,
+  Wrench,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -35,10 +43,16 @@ import {
 } from './ui/sidebar';
 import { EmeraldLogo } from './ui/EmeraldLogo';
 
-// Configuración de menú
-const menuSections = [
+// Clave para localStorage
+const SIDEBAR_STATE_KEY = 'emerald-sidebar-expanded-sections';
+
+// 🎯 Configuración de menú con estructura jerárquica
+const MENU_ITEMS = [
   {
+    id: 'principal',
     label: 'Principal',
+    expandedByDefault: true,
+    collapsible: false, // No se puede colapsar
     items: [
       {
         title: 'Dashboard',
@@ -49,7 +63,10 @@ const menuSections = [
     ],
   },
   {
+    id: 'operaciones',
     label: 'Operaciones',
+    expandedByDefault: true, // Expandido por defecto (uso diario)
+    collapsible: true,
     items: [
       {
         title: 'Tickets',
@@ -72,7 +89,26 @@ const menuSections = [
     ],
   },
   {
-    label: 'Inventario',
+    id: 'ingenieria',
+    label: 'Ingeniería / NOC',
+    expandedByDefault: false, // Colapsado por defecto
+    collapsible: true,
+    icon: Wrench,
+    items: [
+      {
+        title: 'Tablero Kanban',
+        icon: Wrench,
+        href: '/app/engineering',
+        description: 'Tareas de infraestructura',
+      },
+    ],
+  },
+  {
+    id: 'inventario',
+    label: 'Logística',
+    expandedByDefault: false, // Colapsado por defecto
+    collapsible: true,
+    icon: Package,
     items: [
       {
         title: 'Dashboard',
@@ -109,11 +145,15 @@ const menuSections = [
         icon: AlertCircle,
         href: '/app/inventory/alerts',
         description: 'Stock crítico',
+        badge: 'hot', // Indicador especial
       },
     ],
   },
   {
+    id: 'red-clientes',
     label: 'Red y Clientes',
+    expandedByDefault: false,
+    collapsible: true,
     items: [
       {
         title: 'Conexiones',
@@ -136,7 +176,10 @@ const menuSections = [
     ],
   },
   {
+    id: 'sistema',
     label: 'Sistema',
+    expandedByDefault: true,
+    collapsible: false, // Siempre visible
     items: [
       {
         title: 'Configuración',
@@ -157,19 +200,71 @@ const menuSections = [
 export function AppSidebar() {
   const { pathname } = useLocation();
 
+  // Estado para manejar qué secciones están expandidas (con persistencia)
+  const [expandedSections, setExpandedSections] = useState(() => {
+    try {
+      // Intentar cargar desde localStorage
+      const saved = localStorage.getItem(SIDEBAR_STATE_KEY);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (error) {
+      console.warn('Error loading sidebar state from localStorage:', error);
+    }
+
+    // Si no hay datos guardados, usar valores por defecto
+    const initial = {};
+    MENU_ITEMS.forEach((section) => {
+      initial[section.id] = section.expandedByDefault;
+    });
+    return initial;
+  });
+
+  // Guardar estado en localStorage cada vez que cambie
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_STATE_KEY, JSON.stringify(expandedSections));
+    } catch (error) {
+      console.warn('Error saving sidebar state to localStorage:', error);
+    }
+  }, [expandedSections]);
+
+  // Auto-expandir sección si navegamos a un item dentro de ella
+  useEffect(() => {
+    MENU_ITEMS.forEach((section) => {
+      if (!section.collapsible) return;
+
+      const hasActiveChild = section.items.some((item) => isItemActive(item.href));
+      
+      if (hasActiveChild && !expandedSections[section.id]) {
+        setExpandedSections((prev) => ({
+          ...prev,
+          [section.id]: true,
+        }));
+      }
+    });
+  }, [pathname]); // Solo cuando cambia la ruta
+
+  // Toggle de sección
+  const toggleSection = (sectionId) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [sectionId]: !prev[sectionId],
+    }));
+  };
+
+  // Detectar si un item está activo
   const isItemActive = (href) => {
-    // Match exacto
     if (pathname === href) return true;
-    
-    // Para items que son "raíces" de secciones (ej: /app/inventory),
-    // NO activar si estamos en una subruta específica
     if (href === '/app/inventory' && pathname.startsWith('/app/inventory/')) {
-      // Solo activo si es exactamente /app/inventory
       return false;
     }
-    
-    // Para otras rutas, activo si comienza con href/
     return pathname.startsWith(href + '/');
+  };
+
+  // Detectar si algún hijo de una sección está activo
+  const isSectionActive = (section) => {
+    return section.items.some((item) => isItemActive(item.href));
   };
 
   return (
@@ -192,68 +287,143 @@ export function AppSidebar() {
         </Link>
       </SidebarHeader>
 
-      {/* Main Navigation */}
+      {/* Main Navigation con Acordeón */}
       <SidebarContent className="px-3 py-4 space-y-2">
-        {menuSections.map((section) => (
-          <SidebarGroup key={section.label} className="py-2">
-            <SidebarGroupLabel className="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-3 px-3 opacity-70 hover:opacity-100 transition-opacity">
-              {section.label}
-            </SidebarGroupLabel>
-            
-            <SidebarMenu className="space-y-1">
-              {section.items.map((item) => {
-                const Icon = item.icon;
-                const active = isItemActive(item.href);
+        {MENU_ITEMS.map((section) => {
+          const isExpanded = expandedSections[section.id];
+          const hasActiveChild = isSectionActive(section);
+          const SectionIcon = section.icon;
 
-                return (
-                  <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton asChild>
-                      <Link
-                        to={item.href}
-                        title={item.description}
-                        className={`
-                          relative group flex items-center gap-3 px-3 py-2.5 rounded-lg
-                          transition-all duration-200 cursor-pointer
-                          ${
-                            active
-                              ? 'bg-emerald-500/15 text-emerald-300 before:content-[""] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:bg-gradient-to-b before:from-emerald-400 before:to-emerald-500 before:rounded-r-sm'
-                              : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100'
-                          }
-                        `}
-                      >
-                        {/* Icono con efecto */}
-                        <div className={`relative transition-all ${active ? 'text-emerald-400' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
-                          <Icon size={18} />
-                          {/* Punto rojo para alertas (solo en Alertas) */}
-                          {item.href === '/app/inventory/alerts' && (
-                            <div className="absolute top-0 right-0 w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
-                          )}
-                        </div>
+          return (
+            <SidebarGroup key={section.id} className="py-2">
+              {/* Header de Sección (Clickeable si es colapsable) */}
+              {section.collapsible ? (
+                <button
+                  onClick={() => toggleSection(section.id)}
+                  className={`
+                    w-full flex items-center justify-between px-3 py-2 rounded-lg
+                    transition-all duration-200 group
+                    ${
+                      hasActiveChild
+                        ? 'bg-emerald-500/10 border border-emerald-500/30'
+                        : 'hover:bg-zinc-800/50'
+                    }
+                  `}
+                >
+                  <div className="flex items-center gap-2">
+                    {SectionIcon && (
+                      <SectionIcon
+                        size={14}
+                        className={hasActiveChild ? 'text-emerald-400' : 'text-zinc-500'}
+                      />
+                    )}
+                    <SidebarGroupLabel
+                      className={`
+                        text-xs font-semibold uppercase tracking-widest
+                        ${
+                          hasActiveChild
+                            ? 'text-emerald-400'
+                            : 'text-zinc-500 group-hover:text-zinc-400'
+                        }
+                      `}
+                    >
+                      {section.label}
+                    </SidebarGroupLabel>
+                  </div>
 
-                        {/* Texto con subrayado en hover */}
-                        <span className={`text-sm font-medium flex-1 group-hover:text-zinc-50 transition-colors ${active ? 'font-semibold' : ''}`}>
-                          {item.title}
-                        </span>
+                  {isExpanded ? (
+                    <ChevronDown
+                      size={14}
+                      className={hasActiveChild ? 'text-emerald-400' : 'text-zinc-600'}
+                    />
+                  ) : (
+                    <ChevronRight
+                      size={14}
+                      className={hasActiveChild ? 'text-emerald-400' : 'text-zinc-600'}
+                    />
+                  )}
+                </button>
+              ) : (
+                <SidebarGroupLabel className="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-3 px-3 opacity-70">
+                  {section.label}
+                </SidebarGroupLabel>
+              )}
 
-                        {/* Indicador de chevron en activo */}
-                        {active && (
-                          <div className="w-1 h-1 rounded-full bg-emerald-400 ml-auto" />
-                        )}
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroup>
-        ))}
+              {/* Items de la sección (con animación de colapso) */}
+              <div
+                className={`
+                  overflow-hidden transition-all duration-300 ease-in-out
+                  ${isExpanded ? 'max-h-[500px] opacity-100 mt-2' : 'max-h-0 opacity-0'}
+                `}
+              >
+                <SidebarMenu className="space-y-1">
+                  {section.items.map((item) => {
+                    const Icon = item.icon;
+                    const active = isItemActive(item.href);
+
+                    return (
+                      <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton asChild>
+                          <Link
+                            to={item.href}
+                            title={item.description}
+                            className={`
+                              relative group flex items-center gap-3 px-3 py-2.5 rounded-lg
+                              transition-all duration-200 cursor-pointer
+                              ${section.collapsible ? 'pl-6' : 'pl-3'}
+                              ${
+                                active
+                                  ? 'bg-emerald-500/15 text-emerald-300 before:content-[""] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:bg-gradient-to-b before:from-emerald-400 before:to-emerald-500 before:rounded-r-sm'
+                                  : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100'
+                              }
+                            `}
+                          >
+                            {/* Icono */}
+                            <div
+                              className={`relative transition-all ${
+                                active
+                                  ? 'text-emerald-400'
+                                  : 'text-zinc-500 group-hover:text-zinc-300'
+                              }`}
+                            >
+                              <Icon size={18} />
+
+                              {/* Badge especial para Alertas */}
+                              {item.badge === 'hot' && (
+                                <div className="absolute top-0 right-0 w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+                              )}
+                            </div>
+
+                            {/* Título */}
+                            <span
+                              className={`text-sm font-medium flex-1 group-hover:text-zinc-50 transition-colors ${
+                                active ? 'font-semibold' : ''
+                              }`}
+                            >
+                              {item.title}
+                            </span>
+
+                            {/* Indicador activo */}
+                            {active && (
+                              <div className="w-1 h-1 rounded-full bg-emerald-400 ml-auto" />
+                            )}
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </div>
+            </SidebarGroup>
+          );
+        })}
       </SidebarContent>
 
       {/* Footer con info de versión */}
       <SidebarFooter className="border-t border-zinc-800/50 px-4 py-3 bg-gradient-to-r from-transparent to-emerald-500/5">
         <div className="text-xs text-zinc-500">
           <p className="font-mono text-zinc-600">v2.1.0</p>
-          <p className="text-zinc-600/70 mt-0.5 text-xs">Build 2026.01.13</p>
+          <p className="text-zinc-600/70 mt-0.5 text-xs">Build 2026.01.16</p>
         </div>
       </SidebarFooter>
     </Sidebar>

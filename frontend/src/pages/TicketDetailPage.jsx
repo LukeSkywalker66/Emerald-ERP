@@ -38,10 +38,12 @@ import {
 } from '@/components/ui/dialog';
 import ticketsService from '@/services/tickets.service';
 import workOrdersService from '@/services/workOrders.service';
+import { engineeringService } from '@/services/engineering.service';
 import TicketHistoryCard from '@/components/tickets/TicketHistoryCard';
 import RepeatedIssueAlert from '@/components/tickets/RepeatedIssueAlert';
 import TicketTags from '@/components/tickets/TicketTags';
 import WorkOrderCompletedSummary from '@/components/work-orders/WorkOrderCompletedSummary';
+import CreateEngineeringTaskDialog from '@/components/engineering/CreateEngineeringTaskDialog';
 
 const statusConfig = {
   open: { label: 'Abierto', tone: 'text-emerald-400', chip: 'bg-emerald-500/10 border-emerald-500/50' },
@@ -59,6 +61,14 @@ const priorityConfig = {
   low: { label: 'Baja', chip: 'bg-zinc-700/60 border-zinc-600 text-zinc-200' },
 };
 
+const ticketTypeConfig = {
+  technical: { label: 'Soporte técnico', chip: 'bg-emerald-500/10 border-emerald-500/50 text-emerald-200' },
+  installation: { label: 'Instalación', chip: 'bg-blue-500/10 border-blue-500/50 text-blue-200' },
+  withdrawal: { label: 'Retiro', chip: 'bg-zinc-600/30 border-zinc-500/30 text-zinc-100' },
+  relocation: { label: 'Traslado', chip: 'bg-purple-500/15 border-purple-500/40 text-purple-200' },
+  administrative: { label: 'Administrativo', chip: 'bg-amber-500/15 border-amber-500/40 text-amber-200' },
+};
+
 function StatusBadge({ status }) {
   const cfg = statusConfig[status] || statusConfig.open;
   return (
@@ -73,6 +83,15 @@ function PriorityBadge({ priority }) {
   return (
     <Badge variant="outline" className={`${cfg.chip} text-xs font-semibold px-3 py-1`}>
       Prioridad {cfg.label}
+    </Badge>
+  );
+}
+
+function TicketTypeBadge({ ticketType }) {
+  const cfg = ticketTypeConfig[ticketType] || ticketTypeConfig.technical;
+  return (
+    <Badge variant="outline" className={`${cfg.chip} text-xs font-semibold px-3 py-1`}>
+      {cfg.label}
     </Badge>
   );
 }
@@ -220,6 +239,102 @@ function WorkOrderCard({ workOrder }) {
 }
 
 function TimelineItem({ event, index }) {
+  // Card unificada para tareas NOC/ingeniería y OT
+  const isNocTask = event.event_type === 'alert' && event.meta_data && typeof event.meta_data.engineering_task_id !== 'undefined';
+  const isOtTask = event.event_type === 'ot_event' && event.meta_data && typeof event.meta_data.work_order_id !== 'undefined';
+  if (isNocTask || isOtTask) {
+    // Config común
+    const isNoc = isNocTask;
+    const id = isNoc ? event.meta_data.engineering_task_id : event.meta_data.work_order_id;
+    const status = isNoc
+      ? (event.meta_data.engineering_task_status || 'backlog')
+      : (event.meta_data.status || 'pending_planning');
+    const statusColorMap = {
+      'pending_planning': 'bg-zinc-600 text-zinc-100',
+      'assigned': 'bg-blue-600 text-blue-100',
+      'in_progress': 'bg-amber-600 text-amber-100',
+      'completed': 'bg-emerald-600 text-emerald-100',
+      'failed': 'bg-red-600 text-red-100',
+      'backlog': 'bg-zinc-700 text-zinc-200',
+      'testing': 'bg-gold-700 text-gold-100',
+      'rejected': 'bg-ruby-700 text-ruby-100',
+      'scheduled': 'bg-blue-700 text-blue-100',
+    };
+    const getStatusLabel = (status) => {
+      const labels = {
+        'pending_planning': 'Pendiente',
+        'assigned': 'Asignada',
+        'in_progress': 'En progreso',
+        'completed': 'Completada',
+        'failed': 'Fallida',
+        'backlog': 'Backlog',
+        'testing': 'Testing',
+        'rejected': 'Rechazada',
+        'scheduled': 'Programada',
+      };
+      return labels[status] || status;
+    };
+    // Colores cyberpunk/retro-neón
+    const borderColor = isNoc ? 'border-emerald-700/80 hover:border-emerald-400/80 shadow-emerald-900/40' : 'border-cyan-500/70 hover:border-cyan-400/80 shadow-cyan-900/40';
+    const glow = isNoc ? 'shadow-[0_0_12px_2px_rgba(16,255,180,0.15)]' : 'shadow-[0_0_12px_2px_rgba(0,255,255,0.12)]';
+    const iconColor = isNoc ? 'text-emerald-400' : 'text-cyan-400';
+    const CardIcon = isNoc ? Wrench : FileText;
+    const cardTitle = isNoc ? `Tarea NOC #${id}` : `Orden de Trabajo #${id}`;
+    const cardLink = isNoc ? `/app/engineering?task=${id}` : `/app/work-orders/${id}/execute`;
+    const statusColor = statusColorMap[status] || 'bg-zinc-700 text-zinc-200';
+    return (
+      <div className="flex gap-4 relative">
+        {index !== 0 && (
+          <div className="absolute left-3 top-0 bottom-0 w-px bg-zinc-800 -translate-y-4"></div>
+        )}
+        <div className={`w-6 h-6 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0 z-10 ${iconColor}`}>
+          <CardIcon size={12} />
+        </div>
+        <div className="flex-1 pb-4">
+          <div
+            onClick={() => navigate(cardLink)}
+            className={`cursor-pointer rounded-lg border ${borderColor} bg-zinc-900/40 p-4 hover:bg-zinc-900/70 transition-all ${glow} group`}
+            style={{ boxShadow: isNoc
+              ? '0 0 16px 2px rgba(16,255,180,0.18), 0 0 2px 1px #00ffb3 inset'
+              : '0 0 16px 2px rgba(0,255,255,0.15), 0 0 2px 1px #00eaff inset' }}
+          >
+            <div className="flex items-start justify-between mb-2">
+              <p className={`text-sm font-semibold ${iconColor} drop-shadow-[0_0_2px_rgba(0,255,180,0.5)]`}>{cardTitle}</p>
+              <span className={`px-2 py-1 rounded text-xs font-semibold ${statusColor} border border-zinc-800/60 shadow shadow-zinc-900/30`}>
+                {getStatusLabel(status)}
+              </span>
+            </div>
+            {isOtTask && event.meta_data?.description && (
+              <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 mb-2">
+                <p className="text-xs uppercase text-zinc-500">Descripción</p>
+                <p className="text-sm text-zinc-200">{event.meta_data.description}</p>
+              </div>
+            )}
+            {isOtTask && event.meta_data?.resolution_notes && (
+              <div className="rounded-lg border border-emerald-800/40 bg-emerald-900/10 px-3 py-2 mb-2">
+                <p className="text-xs uppercase text-emerald-400">Respuesta del técnico</p>
+                <p className="text-sm text-emerald-100">{event.meta_data.resolution_notes}</p>
+              </div>
+            )}
+            <p
+              className={`text-sm mt-1 ${isNoc ? 'text-emerald-100' : 'text-cyan-100'}`}
+              dangerouslySetInnerHTML={{ __html: event.content }}
+            />
+            <div className="flex items-center justify-between mt-2">
+              <time className="text-xs text-zinc-500">
+                {new Date(event.created_at).toLocaleString('es-AR')}
+              </time>
+              {event.author_name && (
+                <p className="text-xs text-zinc-500">por {event.author_name}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+    // DEBUG: Mostrar el evento completo en consola para inspección
+    console.log('DEBUG TIMELINE EVENT', event);
   const [showImageModal, setShowImageModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
   const navigate = useNavigate();
@@ -261,7 +376,10 @@ function TimelineItem({ event, index }) {
         </div>
         <div className="flex-1 pb-4">
           <div className="flex items-start justify-between mb-1">
-            <p className="text-sm font-medium text-white">{event.content}</p>
+            <p
+              className="text-sm font-medium text-white"
+              dangerouslySetInnerHTML={{ __html: event.content }}
+            />
             <time className="text-xs text-zinc-500 ml-4 whitespace-nowrap">
               {new Date(event.created_at).toLocaleString('es-AR')}
             </time>
@@ -535,6 +653,9 @@ export default function TicketDetailPage() {
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [connectionHistory, setConnectionHistory] = useState([]);
+  const [engineeringTasks, setEngineeringTasks] = useState([]);
+  const [isLoadingTasks, setIsLoadingTasks] = useState(false);
+  const [showEngineeringDialog, setShowEngineeringDialog] = useState(false);
 
   const loadTicket = async () => {
     try {
@@ -563,8 +684,29 @@ export default function TicketDetailPage() {
     }
   };
 
+  const loadEngineeringTasks = async () => {
+    if (!id) return;
+    setIsLoadingTasks(true);
+    try {
+      const tasks = await engineeringService.getTasksByTicket(id);
+      setEngineeringTasks(tasks);
+    } catch (error) {
+      console.error('Error loading engineering tasks:', error);
+    } finally {
+      setIsLoadingTasks(false);
+    }
+  };
+
+  const handleEngineeringTaskCreated = () => {
+    setShowEngineeringDialog(false);
+    loadEngineeringTasks();
+    // Recargar ticket para ver cambios de estado
+    loadTicket();
+  };
+
   useEffect(() => {
     loadTicket();
+    loadEngineeringTasks();
   }, [id]);
 
   useEffect(() => {
@@ -899,6 +1041,7 @@ export default function TicketDetailPage() {
               <div className="flex flex-col items-end gap-2">
                 <StatusBadge status={ticket.status} />
                 <PriorityBadge priority={ticket.priority} />
+                {ticket.ticket_type && <TicketTypeBadge ticketType={ticket.ticket_type} />}
               </div>
             </div>
 
@@ -960,6 +1103,8 @@ export default function TicketDetailPage() {
               </div>
             </div>
           </div>
+
+
 
           <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-6">
             <div className="flex items-center justify-between mb-4">
@@ -1088,15 +1233,6 @@ export default function TicketDetailPage() {
               <Zap size={16} className="mr-2" /> Generar Orden de Trabajo
             </Button>
 
-            {isInSupport && !isClosed && (
-              <Button
-                className="w-full bg-purple-700 hover:bg-purple-600"
-                onClick={() => setShowEscalateDialog(true)}
-                disabled={isSaving}
-              >
-                <TrendingUp size={16} className="mr-2" /> Escalar a Infraestructura
-              </Button>
-            )}
 
             {isInInfra && !isClosed && (
               <Button
@@ -1127,6 +1263,16 @@ export default function TicketDetailPage() {
                   <Wrench size={16} className="mr-2" /> OT Infraestructura
                 </Button>
               </div>
+            )}
+
+            {!isClosed && (
+              <Button
+                className="w-full bg-purple-700 hover:bg-purple-600"
+                onClick={() => setShowEngineeringDialog(true)}
+                disabled={isSaving}
+              >
+                <Wrench size={16} className="mr-2" /> Derivar a NOC
+              </Button>
             )}
 
             {!isClosed && (
@@ -1365,6 +1511,14 @@ export default function TicketDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <CreateEngineeringTaskDialog
+        isOpen={showEngineeringDialog}
+        onClose={() => setShowEngineeringDialog(false)}
+        ticketId={id}
+        ticketSubject={ticket?.subject}
+        onSuccess={handleEngineeringTaskCreated}
+      />
     </div>
   );
 }

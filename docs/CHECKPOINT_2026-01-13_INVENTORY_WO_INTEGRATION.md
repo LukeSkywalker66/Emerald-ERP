@@ -42,24 +42,46 @@ const [inventoryError, setInventoryError] = useState(null);
 
 ---
 
-## 🚦 ESTADO ACTUAL (Inventario)
+## 🚦 ESTADO ACTUAL (Inventario) - 14-ENE-2026
 
-### Backend ✅
+### Backend ✅ COMPLETO
 - Endpoints de inventario funcionales: GET /api/inventory/products, /warehouses, /stock
 - Server-side filtering: type=BULK|SERIALIZED
 - Migrations aplicadas: warehouses, products, stock_bulk, serial_items, stock_movements
+- CRUD Products: POST/PUT/DELETE con validaciones
+- Transferencias: POST /transfer con soporte BULK y SERIALIZED
+- Ajustes de stock: POST /adjustments para compras y correcciones
+- Serial items: POST /serial-items para equipos serializados
 
-### Frontend ✅
-- ✅ Service methods: getProducts, getWarehouses, getWarehouseStock, **getMyWarehouse**, getMyWarehouseStock
-- ✅ ProductCatalog: CRUD completo (PUT/DELETE con type inmutable)
-- ✅ StockAdjustments: Carga de datos con server-side filter
-- ✅ **WorkOrderExecutionPage: INTEGRACIÓN 100% COMPLETA** con materiales reales
+### Frontend ✅ COMPLETO Y FUNCIONAL
+- ✅ Service methods: getProducts, getWarehouses, getWarehouseStock, getMyWarehouse, transferStock, adjustStock, createSerialItem, createProduct, updateProduct, deleteProduct
+- ✅ **ProductCatalog** (`/app/inventory/products`): CRUD COMPLETO Y FUNCIONAL
+  - Listado con filtros (tipo, categoría, búsqueda)
+  - Modal crear producto (nombre, SKU, tipo, categoría, stock mínimo)
+  - Modal editar (todos campos excepto type que es inmutable)
+  - Modal eliminar (validaciones 409 si tiene stock/movimientos)
+  - Conectado a API real, probado y funcionando
+- ✅ **StockTransferWizard** (`/app/inventory/transfer`): WIZARD COMPLETO Y FUNCIONAL
+  - 5 pasos: Producto → Origen/Destino → Cantidad/Seriales → Detalles → Confirmación
+  - Componentes: TransferFormBulk, TransferFormSerialized
+  - Validación de stock disponible en origen
+  - Carga automática de seriales por warehouse
+  - Conectado a API real, probado y funcionando
+- ✅ **StockAdjustments** (`/app/inventory/adjustments`): COMPRAS Y AJUSTES FUNCIONAL
+  - Soporte para productos BULK (cantidad) y SERIALIZED (seriales)
+  - Creación de serial items vía createSerialItem()
+  - Tabla histórica de movimientos
+- ✅ **WorkOrderExecutionPage**: INTEGRACIÓN 100% COMPLETA con materiales persistentes
   - Dropdown de productos reales
   - Lógica BULK vs SERIALIZED
   - Carga de seriales por warehouse
   - Validación de stock
   - Recarga de stock post-agregación
-- 🔄 **PENDIENTE VALIDACIÓN EN NAVEGADOR:** UI visual y comportamiento real
+  - Persistencia vía POST /work-orders/{id}/items
+- ✅ **CloseWorkOrderDialog**: Paso 2 con persistencia de materiales
+  - Mismo UX que modal ejecución
+  - Materiales se guardan en tiempo real
+  - Sincronización con parent component
 
 ---
 

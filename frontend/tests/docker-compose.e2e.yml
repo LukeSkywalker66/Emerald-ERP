@@ -1,0 +1,23 @@
+# Servicio E2E Playwright (solo QA/desarrollo)
+# No incluir en producción
+
+version: '3.9'
+services:
+  # ...otros servicios...
+  e2e:
+    build:
+      context: ./frontend
+      dockerfile: tests/e2e.Dockerfile
+    container_name: emerald_e2e
+    depends_on:
+      - frontend
+      - backend
+    environment:
+      - BASE_URL=http://frontend:5173
+    # No expone puertos, solo corre tests y sale
+    networks:
+      - default
+    # Permite correr solo cuando se necesite
+    profiles:
+      - qa
+      - test

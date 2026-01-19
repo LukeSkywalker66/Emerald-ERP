@@ -5,6 +5,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import api from '@/api/client';
 import * as inventoryService from '@/services/inventory.service';
+import workOrdersService from '@/services/workOrders.service';
 import { useAuth } from '@/context/AuthContext';
 
 /**
@@ -22,6 +23,7 @@ export default function CloseWorkOrderDialog({
   isOpen,
   onClose,
   onComplete,
+  onMaterialsUpdated,
 }) {
   const { user } = useAuth();
   const [step, setStep] = useState(1);
@@ -35,15 +37,19 @@ export default function CloseWorkOrderDialog({
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [availableSerials, setAvailableSerials] = useState([]);
   const [warehouseStock, setWarehouseStock] = useState(null);
+  const [currentWarehouse, setCurrentWarehouse] = useState(null);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryError, setInventoryError] = useState(null);
+  const [materialSubmitting, setMaterialSubmitting] = useState(false);
+  const [materialError, setMaterialError] = useState(null);
 
   const [additionalMaterial, setAdditionalMaterial] = useState({
     product_id: '',
-    quantity: '',
+    quantity: 1,
     serial_number: '',
     notes: '',
   });
+  const [materials, setMaterials] = useState(workOrder?.items || []);
 
   // Paso 3: Fotos
   const [uploadedPhotos, setUploadedPhotos] = useState([]);
@@ -114,6 +120,7 @@ export default function CloseWorkOrderDialog({
       try {
         setInventoryLoading(true);
         setInventoryError(null);
+        setMaterialError(null);
 
         // Cargar productos disponibles
         const productsData = await inventoryService.getProducts();
@@ -123,6 +130,7 @@ export default function CloseWorkOrderDialog({
         // Cargar warehouse del técnico para seriales
         const myWarehouse = await inventoryService.getMyWarehouse(user.id);
         if (isCancelled) return;
+        setCurrentWarehouse(myWarehouse || null);
 
         if (myWarehouse) {
           const stockData = await inventoryService.getWarehouseStock(myWarehouse.id);
@@ -148,6 +156,10 @@ export default function CloseWorkOrderDialog({
       isCancelled = true;
     };
   }, [isOpen, user?.id]);
+
+  useEffect(() => {
+    setMaterials(workOrder?.items || []);
+  }, [workOrder, isOpen]);
 
   // Handler para cambio de producto
   const handleProductChange = (productId) => {
@@ -187,6 +199,54 @@ export default function CloseWorkOrderDialog({
       return qty > 0 && qty <= getMaxQuantity();
     } else {
       return !!additionalMaterial.serial_number;
+    }
+  };
+
+  const handleAddMaterial = async () => {
+    if (!isAddMaterialValid()) return;
+    if (!currentWarehouse) {
+      setMaterialError('No tienes una camioneta asignada. Contacta a coordinación.');
+      return;
+    }
+
+    try {
+      setMaterialSubmitting(true);
+      setMaterialError(null);
+
+      const payload = {
+        product_id: parseInt(additionalMaterial.product_id, 10),
+        quantity: selectedProduct?.type === 'BULK' ? parseInt(additionalMaterial.quantity, 10) || 1 : 1,
+        serial_number: selectedProduct?.type === 'SERIALIZED' ? additionalMaterial.serial_number : null,
+        notes: additionalMaterial.notes || null,
+        warehouse_id: currentWarehouse.id,
+      };
+
+      const item = await workOrdersService.addWorkOrderItem(workOrder.id, payload);
+
+      // Refrescar stock y seriales disponibles
+      if (currentWarehouse) {
+        const updatedStock = await inventoryService.getWarehouseStock(currentWarehouse.id);
+        setWarehouseStock(updatedStock);
+
+        if (selectedProduct?.type === 'SERIALIZED') {
+          const stockItem = updatedStock.items?.find((itm) => itm.product_id === selectedProduct.id);
+          setAvailableSerials(stockItem?.serial_items || []);
+        }
+      }
+
+      // Actualizar lista local y notificar al padre para refrescar
+      setMaterials((prev) => [...prev, item]);
+      onMaterialsUpdated?.();
+
+      // Reset form
+      setAdditionalMaterial({ product_id: '', quantity: 1, serial_number: '', notes: '' });
+      setSelectedProduct(null);
+      setAvailableSerials([]);
+    } catch (err) {
+      console.error('Error al agregar material en wizard:', err);
+      setMaterialError(err?.response?.data?.detail || err.message || 'Error al agregar material');
+    } finally {
+      setMaterialSubmitting(false);
     }
   };
 
@@ -410,9 +470,9 @@ export default function CloseWorkOrderDialog({
                 <h3 className="font-medium text-white mb-3">
                   Materiales Utilizados
                 </h3>
-                {workOrder.items && workOrder.items.length > 0 ? (
+                {materials && materials.length > 0 ? (
                   <div className="space-y-2">
-                    {workOrder.items.map((item) => (
+                    {materials.map((item) => (
                       <div
                         key={item.id}
                         className="p-3 bg-zinc-800 border border-zinc-700 rounded flex justify-between items-start"
@@ -573,10 +633,22 @@ export default function CloseWorkOrderDialog({
                     />
                   </div>
                 </div>
+                {materialError && (
+                  <div className="bg-rose-950/40 border border-rose-800 text-rose-200 text-xs rounded-lg p-3">
+                    {materialError}
+                  </div>
+                )}
 
-                <p className="text-xs text-zinc-400 mt-3">
-                  (No se guardará en esta versión, solo para referencia visual)
-                </p>
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    onClick={handleAddMaterial}
+                    disabled={!isAddMaterialValid() || materialSubmitting}
+                    className="bg-emerald-600 hover:bg-emerald-700"
+                  >
+                    {materialSubmitting ? 'Agregando...' : 'Agregar material'}
+                  </Button>
+                </div>
               </div>
             </div>
           )}

@@ -19,6 +19,7 @@ export default function StockAdjustments() {
     product_id: '',
     warehouse_id: '',
     quantity: '',
+    serial_numbers: '',
     movement_type: 'PURCHASE',
     reference: '',
     notes: '',
@@ -33,14 +34,13 @@ export default function StockAdjustments() {
 
         console.log('📦 StockAdjustments: Iniciando carga de datos...');
 
-        // Obtener warehouses y productos BULK (solo a granel permitido)
+        // Obtener warehouses y productos (BULK + SERIALIZED)
         const warehousesData = await inventoryService.getWarehouses();
         console.log('✅ Warehouses cargados:', warehousesData);
         setWarehouses(warehousesData || []);
 
-        // Server-side filtering: el backend filtra solo productos BULK
-        const productsData = await inventoryService.getProducts({ type: 'BULK' });
-        console.log('✅ Productos BULK cargados (server-side filtered):', productsData);
+        const productsData = await inventoryService.getProducts();
+        console.log('✅ Productos cargados (todos los tipos):', productsData);
         setProducts(productsData || []);
 
         const movementsData = await inventoryService.getMovements();
@@ -68,72 +68,141 @@ export default function StockAdjustments() {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setFormData((prev) => {
+      const updated = { ...prev, [name]: value };
+
+      if (name === 'product_id') {
+        const product = products.find((p) => p.id === parseInt(value));
+        if (product?.type === 'SERIALIZED') {
+          updated.movement_type = 'PURCHASE';
+        }
+      }
+
+      return updated;
+    });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     // Validaciones básicas
-    if (!formData.product_id || !formData.warehouse_id || !formData.quantity) {
+    if (!formData.product_id || !formData.warehouse_id) {
       setError('Por favor completa todos los campos requeridos.');
       return;
     }
 
-    if (parseInt(formData.quantity) <= 0) {
-      setError('La cantidad debe ser mayor a 0.');
+    const product = products.find((p) => p.id === parseInt(formData.product_id));
+    const warehouse = warehouses.find((w) => w.id === parseInt(formData.warehouse_id));
+
+    if (!product) {
+      setError('Selecciona un producto válido.');
       return;
     }
 
-    try {
-      setSubmitLoading(true);
-      setError(null);
+    const isSerialized = product.type === 'SERIALIZED';
+    let submissionOk = false;
 
-      const result = await inventoryService.adjustStock({
-        product_id: parseInt(formData.product_id),
-        warehouse_id: parseInt(formData.warehouse_id),
-        quantity: parseInt(formData.quantity),
-        movement_type: formData.movement_type,
-        reference: formData.reference || null,
-        notes: formData.notes || null,
-      });
+    if (isSerialized) {
+      const serials = (formData.serial_numbers || '')
+        .split(/\n|,/)
+        .map((s) => s.trim())
+        .filter(Boolean);
 
-      setSuccessMessage(
-        `✅ Ajuste registrado correctamente. ID: ${result.movement_id}`
-      );
+      if (serials.length === 0) {
+        setError('Ingresa al menos un número de serie.');
+        return;
+      }
 
-      // Resetear formulario
-      setFormData({
-        product_id: '',
-        warehouse_id: '',
-        quantity: '',
-        movement_type: 'PURCHASE',
-        reference: '',
-        notes: '',
-      });
+      try {
+        setSubmitLoading(true);
+        setError(null);
 
-      // Recargar movimientos
-      const updatedMovements = await inventoryService.getMovements({
-        movement_type: 'PURCHASE,ADJUSTMENT',
-        limit: 20,
-      });
-      setMovements(updatedMovements);
+        for (const serial of serials) {
+          await inventoryService.createSerialItem({
+            serial_number: serial,
+            product_id: parseInt(formData.product_id),
+            warehouse_id: parseInt(formData.warehouse_id),
+            status: 'NEW',
+            notes: formData.notes || formData.reference || null,
+          });
+        }
 
-      // Limpiar mensaje después de 5s
-      setTimeout(() => setSuccessMessage(null), 5000);
-    } catch (err) {
-      console.error('Error submitting adjustment:', err);
-      const errorMsg =
-        err.response?.data?.detail ||
-        err.message ||
-        'Error al registrar el ajuste. Intenta nuevamente.';
-      setError(errorMsg);
-    } finally {
-      setSubmitLoading(false);
+        setSuccessMessage(
+          `✅ ${serials.length} equipo(s) registrado(s) en ${warehouse?.name || 'almacén'}`
+        );
+        submissionOk = true;
+      } catch (err) {
+        console.error('Error registrando seriales:', err);
+        const errorMsg =
+          err.response?.data?.detail ||
+          err.message ||
+          'Error al registrar los seriales. Intenta nuevamente.';
+        setError(errorMsg);
+      } finally {
+        setSubmitLoading(false);
+      }
+    } else {
+      if (!formData.quantity) {
+        setError('Por favor completa la cantidad.');
+        return;
+      }
+
+      if (parseInt(formData.quantity) <= 0) {
+        setError('La cantidad debe ser mayor a 0.');
+        return;
+      }
+
+      try {
+        setSubmitLoading(true);
+        setError(null);
+
+        const result = await inventoryService.adjustStock({
+          product_id: parseInt(formData.product_id),
+          warehouse_id: parseInt(formData.warehouse_id),
+          quantity: parseInt(formData.quantity),
+          movement_type: formData.movement_type,
+          reference: formData.reference || null,
+          notes: formData.notes || null,
+        });
+
+        setSuccessMessage(
+          `✅ Ajuste registrado correctamente. ID: ${result.movement_id}`
+        );
+        submissionOk = true;
+      } catch (err) {
+        console.error('Error submitting adjustment:', err);
+        const errorMsg =
+          err.response?.data?.detail ||
+          err.message ||
+          'Error al registrar el ajuste. Intenta nuevamente.';
+        setError(errorMsg);
+      } finally {
+        setSubmitLoading(false);
+      }
     }
+
+    if (!submissionOk) return;
+
+    // Resetear formulario
+    setFormData({
+      product_id: '',
+      warehouse_id: '',
+      quantity: '',
+      serial_numbers: '',
+      movement_type: 'PURCHASE',
+      reference: '',
+      notes: '',
+    });
+
+    // Recargar movimientos
+    const updatedMovements = await inventoryService.getMovements({
+      movement_type: 'PURCHASE,ADJUSTMENT',
+      limit: 20,
+    });
+    setMovements(updatedMovements);
+
+    // Limpiar mensaje después de 5s
+    setTimeout(() => setSuccessMessage(null), 5000);
   };
 
   const getMovementBadge = (type) => {
@@ -158,6 +227,7 @@ export default function StockAdjustments() {
   const selectedWarehouse = warehouses.find(
     (w) => w.id === parseInt(formData.warehouse_id)
   );
+  const isSerialized = selectedProduct?.type === 'SERIALIZED';
 
   if (loading) {
     return (
@@ -254,52 +324,80 @@ export default function StockAdjustments() {
                 </div>
 
                 {/* Cantidad */}
-                <div>
-                  <label className="block text-sm font-medium text-zinc-300 mb-2">
-                    Cantidad *
-                  </label>
-                  <input
-                    type="number"
-                    name="quantity"
-                    value={formData.quantity}
-                    onChange={handleInputChange}
-                    min="1"
-                    step="1"
-                    placeholder="Ingresa cantidad"
-                    className="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                  />
-                </div>
+                {isSerialized ? (
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-300 mb-2">
+                      Serial(es) *
+                    </label>
+                    <textarea
+                      name="serial_numbers"
+                      value={formData.serial_numbers}
+                      onChange={handleInputChange}
+                      placeholder="Uno por línea o separados por coma"
+                      rows="3"
+                      className="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-sm resize-none"
+                    />
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Cada serie se registra como compra individual.
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-300 mb-2">
+                      Cantidad *
+                    </label>
+                    <input
+                      type="number"
+                      name="quantity"
+                      value={formData.quantity}
+                      onChange={handleInputChange}
+                      min="1"
+                      step="1"
+                      placeholder="Ingresa cantidad"
+                      className="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </div>
+                )}
 
                 {/* Tipo de Movimiento */}
-                <div>
-                  <label className="block text-sm font-medium text-zinc-300 mb-2">
-                    Tipo de Movimiento
-                  </label>
-                  <div className="flex gap-3">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="movement_type"
-                        value="PURCHASE"
-                        checked={formData.movement_type === 'PURCHASE'}
-                        onChange={handleInputChange}
-                        className="w-4 h-4"
-                      />
-                      <span className="text-sm">🛒 Compra</span>
+                {!isSerialized ? (
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-300 mb-2">
+                      Tipo de Movimiento
                     </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="movement_type"
-                        value="ADJUSTMENT"
-                        checked={formData.movement_type === 'ADJUSTMENT'}
-                        onChange={handleInputChange}
-                        className="w-4 h-4"
-                      />
-                      <span className="text-sm">⚙️ Ajuste</span>
-                    </label>
+                    <div className="flex gap-3">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="movement_type"
+                          value="PURCHASE"
+                          checked={formData.movement_type === 'PURCHASE'}
+                          onChange={handleInputChange}
+                          className="w-4 h-4"
+                        />
+                        <span className="text-sm">🛒 Compra</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="movement_type"
+                          value="ADJUSTMENT"
+                          checked={formData.movement_type === 'ADJUSTMENT'}
+                          onChange={handleInputChange}
+                          className="w-4 h-4"
+                        />
+                        <span className="text-sm">⚙️ Ajuste</span>
+                      </label>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="p-3 bg-zinc-800/60 border border-emerald-600/40 rounded">
+                    <p className="text-sm text-emerald-300 font-medium">Producto serializado</p>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      El alta de seriales se registra como compra automática. Ingresa los números de serie y los enviaremos al almacén seleccionado.
+                    </p>
+                  </div>
+                )}
 
                 {/* Referencia */}
                 <div>
@@ -383,7 +481,7 @@ export default function StockAdjustments() {
                           Almacén
                         </th>
                         <th className="text-right py-3 px-3 font-semibold">
-                          Cantidad
+                          Cantidad / Serial
                         </th>
                         <th className="text-left py-3 px-3 font-semibold">
                           Referencia
@@ -426,9 +524,16 @@ export default function StockAdjustments() {
                               {movement.to_warehouse?.name}
                             </td>
                             <td className="py-3 px-3 text-right font-mono">
-                              <span className="text-emerald-400">
-                                +{movement.quantity}
-                              </span>
+                              {movement.serial_number ? (
+                                <div className="text-right">
+                                  <span className="text-emerald-400 block">1 u</span>
+                                  <span className="text-zinc-400 text-xs">Serial: {movement.serial_number}</span>
+                                </div>
+                              ) : (
+                                <span className="text-emerald-400">
+                                  +{movement.quantity}
+                                </span>
+                              )}
                             </td>
                             <td className="py-3 px-3 text-zinc-400 text-xs">
                               {movement.reference || '-'}

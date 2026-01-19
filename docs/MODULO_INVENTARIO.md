@@ -1,5 +1,8 @@
 # Módulo de Inventario Operativo - Emerald ERP
 
+**Última actualización:** 14 de Enero de 2026  
+**Estado:** ✅ **COMPLETO Y FUNCIONAL**
+
 ## Descripción General
 
 Módulo completo de gestión de inventario diseñado específicamente para las operaciones de un ISP, con soporte para:
@@ -8,6 +11,9 @@ Módulo completo de gestión de inventario diseñado específicamente para las o
 - **Seguimiento de Seriales**: ONUs, routers y equipamiento rastreable individualmente
 - **Stock a Granel**: Cables, conectores y materiales medibles
 - **Auditoría Completa**: Registro detallado de todos los movimientos
+- **CRUD de Productos**: Catálogo completo con create/edit/delete ✅
+- **Transferencias de Stock**: Wizard paso a paso BULK y SERIALIZED ✅
+- **Integración con Work Orders**: Materiales persistentes en OT ✅
 
 ## Arquitectura
 

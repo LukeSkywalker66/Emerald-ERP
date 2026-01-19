@@ -324,10 +324,8 @@ export default function WorkOrderExecutionPage() {
         warehouse_id: currentWarehouse.id,
       });
 
-      setWorkOrder((prev) => ({
-        ...prev,
-        items: [...(prev.items || []), item],
-      }));
+      // Refrescar OT completa para sincronizar cantidades y seriales
+      await loadWorkOrder();
 
       // Recargar stock después de agregar material
       if (currentWarehouse) {
@@ -355,6 +353,17 @@ export default function WorkOrderExecutionPage() {
         ...prev,
         items: prev.items.filter((i) => i.id !== itemId),
       }));
+
+      // Recargar stock para mantener cantidades y seriales actualizados
+      if (currentWarehouse) {
+        const updatedStock = await inventoryService.getWarehouseStock(currentWarehouse.id);
+        setWarehouseStock(updatedStock);
+
+        if (selectedProduct?.type === 'SERIALIZED') {
+          const stockItem = updatedStock.items?.find((itm) => itm.product_id === selectedProduct.id);
+          setAvailableSerials(stockItem?.serial_items || []);
+        }
+      }
     } catch (err) {
       alert('Error al eliminar material: ' + err.message);
     }
@@ -950,6 +959,7 @@ export default function WorkOrderExecutionPage() {
         isOpen={showCloseDialog}
         onClose={() => setShowCloseDialog(false)}
         onComplete={handleCloseWorkOrder}
+        onMaterialsUpdated={loadWorkOrder}
       />
     </div>
   );

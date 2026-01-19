@@ -494,6 +494,28 @@ cat .env | grep VITE
 
 ---
 
+
+## 🧪 Tests E2E Playwright (QA Dockerizado)
+
+Para ejecutar los tests E2E de Kanban de forma aislada y segura:
+
+1. Levanta el stack normalmente:
+    ```bash
+    docker compose up -d
+    ```
+2. Ejecuta los tests E2E en un contenedor sectorizado:
+    ```bash
+    docker compose -f docker-compose.yml -f frontend/tests/docker-compose.e2e.yml up --build e2e
+    ```
+    Esto solo corre los tests y apaga el contenedor al finalizar.
+
+**Advertencias y buenas prácticas:**
+- El servicio `e2e` y los helpers de test solo existen en entornos de QA/desarrollo.
+- Nunca incluir el compose ni los scripts de E2E en despliegues productivos.
+- Los helpers y credenciales de testing están sectorizados y documentados en `/frontend/tests`.
+- Más info y ejemplos: [frontend/tests/README_DOCKER_E2E.md](frontend/tests/README_DOCKER_E2E.md)
+
+---
 ## 10. Documentación Adicional
 
 - [ROADMAP.md](ROADMAP.md) - Plan de desarrollo futuro

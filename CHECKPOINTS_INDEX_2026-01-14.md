@@ -1,13 +1,37 @@
 # 📑 ÍNDICE DE CHECKPOINTS - Emerald ERP
 
-**Última Actualización:** 14 de enero de 2026  
-**Status General:** 🟢 INVENTARIO INTEGRADO EN WORK ORDERS
+**Última Actualización:** 16 de enero de 2026  
+**Status General:** 🟢 TABLERO KANBAN NOC IMPLEMENTADO
 
 ---
 
 ## 📚 CHECKPOINTS ACTIVOS (2026)
 
-### 🟢 SESIÓN ACTUAL (14-ENE-2026)
+### 🟢 SESIÓN ACTUAL (16-ENE-2026) - TABLERO KANBAN NOC
+**Documento:** `CHANGELOG_2026-01-16_KANBAN.md`  
+**Documentación Técnica:** `docs/KANBAN_NOC_IMPLEMENTATION.md`
+
+**Qué se completó:**
+- ✅ EngineeringBoardPage.jsx (780 líneas) - Tablero Kanban completo
+- ✅ Drag & Drop con @dnd-kit (mouse + teclado)
+- ✅ 4 columnas Kanban (Backlog, En Progreso, En Pruebas, Completadas)
+- ✅ 5 tarjetas KPI con estadísticas en tiempo real
+- ✅ Filtros avanzados (búsqueda, prioridad, asignación)
+- ✅ CreateInternalTaskDialog.jsx (270 líneas) - Tareas sin ticket
+- ✅ Modal de detalle/edición de tareas
+- ✅ Integración con App.jsx (ruta /app/engineering)
+- ✅ Build exitoso (7.94s, 1826 módulos)
+- ✅ Documentación completa (450+ líneas)
+
+**Para próxima sesión:**
+- Testing en runtime con datos reales
+- Implementar cálculo real de tiempo promedio (KPI)
+- Agregar indicadores de tiempo relativo ("hace 2 horas")
+- Mejorar filtro de asignación con usuarios reales
+
+---
+
+### 🟡 SESIÓN ANTERIOR (14-ENE-2026) - WORK ORDERS + INVENTARIO
 **Documento:** `docs/checkpoints/2026-01-14-final-work-orders-inventory.md`
 
 **Qué se completó:**
@@ -21,23 +45,6 @@
 - Leer: `docs/LEER_PRIMERO_PROXIMA_SESION.md` (actualizado)
 - Planificación: `STATUS_IMPLEMENTACIONES_2026-01-14.md`
 - Troubleshoot: Ver sección en LEER_PRIMERO_PROXIMA_SESION.md
-
----
-
-### 🟡 SESIÓN ANTERIOR (14-ENE-2026 - INVENTARIO TÉCNICO 2)
-**Documento:** `docs/checkpoints/2026-01-14-inventory-tecnico2.md`
-
-**Qué se hizo:**
-- Diagnóstico: Técnico 2 no tenía warehouse
-- Solución: Crear warehouse ID=4 + stock + OT assignment
-- Verificación: Todos los endpoints testeados ✅
-
----
-
-### 📋 SESIÓN BASELINE (12-ENE-2026 - INVENTORY MODULE)
-**Documento:** `docs/checkpoints/2026-01-12-inventory-module-complete.md`
-
-**Qué se completó:**
 - Backend: Endpoints de inventario completos
 - Models: Warehouses, Products, Stock (BULK + SERIALIZED)
 - Migrations: Aplicadas a BD

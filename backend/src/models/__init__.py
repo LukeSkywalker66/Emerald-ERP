@@ -1,6 +1,6 @@
 """
 Models package exports
-Unifica todos los modelos: Auth, Tickets, Beholder, API Keys, WorkOrders
+Unifica todos los modelos: Auth, Tickets, Beholder, API Keys, WorkOrders, Engineering
 """
 from .user import Role, User
 from .audit import AuditLog, LoginAttempt
@@ -23,6 +23,13 @@ from .tickets import (
 	ticket_tags_association,
 )
 from .ticket_attachments import TicketAttachment
+from .engineering import (
+	# Gestión de Tareas de Ingeniería/NOC
+	EngineeringTask,
+	EngineeringTaskType,
+	EngineeringTaskPriority,
+	EngineeringTaskStatus,
+)
 from .inventory import (
 	# Gestión de Inventario Operativo
 	Warehouse,
@@ -73,6 +80,11 @@ __all__ = [
 	"WorkOrderItem",
 	"Tag",
 	"TicketAttachment",
+	# Engineering models
+	"EngineeringTask",
+	"EngineeringTaskType",
+	"EngineeringTaskPriority",
+	"EngineeringTaskStatus",
 	# Beholder models - Infraestructura
 	"Subscriber",
 	"Node",

@@ -29,6 +29,9 @@ import StockAdjustments from './pages/inventory/StockAdjustments';
 import MovementsHistory from './pages/inventory/MovementsHistory';
 import StockAlerts from './pages/inventory/StockAlerts';
 
+// Engineering Module Pages
+import EngineeringBoardPage from './pages/engineering/EngineeringBoardPage';
+
 const PrivateRoute = ({ children }) => {
   const { isAuthenticated } = useAuth();
   return isAuthenticated ? children : <Navigate to="/login" replace />;
@@ -58,6 +61,9 @@ const AppRoutes = () => (
         <Route path="customers" element={<CustomersPage />} />
         <Route path="clientes" element={<ClientesPage />} />
         <Route path="inventario" element={<InventarioPage />} />
+        
+        {/* Engineering Module Routes */}
+        <Route path="engineering" element={<EngineeringBoardPage />} />
         
         {/* Inventory Module Routes */}
         <Route path="inventory" element={<InventoryDashboard />} />

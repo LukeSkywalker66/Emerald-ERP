@@ -75,6 +75,8 @@ class TicketStatus(StrEnum):
     in_progress = "in_progress"
     pending = "pending"
     pending_infra = "pending_infra"
+    waiting_internal = "waiting_internal"  # Esperando acción de ingeniería
+    attention_required = "attention_required"  # Ingeniería completó, requiere atención
     resolved = "resolved"
     closed = "closed"
 
@@ -371,6 +373,12 @@ class Ticket(Base, TimestampMixin):
         back_populates="tickets",
         lazy="selectin",
         viewonly=False
+    )
+    engineering_tasks: Mapped[list["EngineeringTask"]] = relationship(
+        "EngineeringTask",
+        back_populates="ticket",
+        lazy="select",
+        cascade="all, delete-orphan"
     )
 
     # Índices compuestos
