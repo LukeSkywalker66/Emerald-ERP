@@ -1,25 +1,27 @@
-# Servicio E2E Playwright (solo QA/desarrollo)
-# No incluir en producción
 
+
+# QA E2E Playwright sectorizado: SOLO el servicio de test, sin duplicar backend/db/frontend
 version: '3.9'
+
 services:
-  # ...otros servicios...
   e2e:
     build:
-      context: ./frontend
-      dockerfile: tests/e2e.Dockerfile
+      # Esto apunta directo a /opt/emerald-erp/frontend/tests
+      context: ${PWD}/frontend/tests
+      
+      # Y como el contexto es esa carpeta exacta, el archivo está ahí:
+      dockerfile: e2e.Dockerfile
     container_name: emerald_e2e
-    depends_on:
-      - frontend
-      - backend
     environment:
       - BASE_URL=http://frontend:5173
-    # No expone puertos, solo corre tests y sale
     networks:
-      - default
-    # Comando corregido: ejecuta todos los tests E2E sectorizados
+      - emerald-erp_default
+    ipc: host
     command: ["npx", "playwright", "test", "--reporter=list"]
-    # Permite correr solo cuando se necesite
     profiles:
       - qa
       - test
+
+networks:
+  emerald-erp_default:
+    external: true

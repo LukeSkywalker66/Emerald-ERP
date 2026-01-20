@@ -8,7 +8,8 @@ export async function login(page: Page, {
   email = 'admin@emerald.com',
   password = 'Admin@123',
 } = {}) {
-  await page.goto('http://localhost:5173/login');
+  //await page.goto('http://localhost:5173/login');
+  await page.goto('/login');
   await page.fill('input#username', email);
   await page.fill('input#password', password);
   await page.click('button[type="submit"]');

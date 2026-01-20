@@ -19,12 +19,12 @@ RUN npx playwright install --with-deps
 
 
 # 5. Copiar el resto de los tests E2E (código fuente, specs, helpers, config)
-COPY . ./
-
+#COPY . .
+COPY . .
 # 6. Comando por defecto: ejecuta todos los tests E2E sectorizados (*.e2e.spec.ts)
-CMD ["npx", "playwright", "test", "*.e2e.spec.ts", "--reporter=list"]
-
-WORKDIR /e2e
+#CMD ["npx", "playwright", "test", "*.e2e.spec.ts", "--reporter=list"]
+CMD ls -la && npx playwright test
+WORKDIR /app
 
 # Copiamos solo dependencias y tests sectorizados
 # Instalamos solo dependencias de test

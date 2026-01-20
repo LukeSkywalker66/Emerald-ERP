@@ -116,25 +116,25 @@ function SortableTaskCard({ task, onClick }) {
       {...attributes}
       {...listeners}
       onClick={() => onClick(task)}
-      className="group relative p-4 rounded-lg border border-zinc-800/60 bg-zinc-900/80 hover:bg-zinc-800/60 hover:border-emerald-700/50 transition-all cursor-grab active:cursor-grabbing"
+      className="group relative p-4 rounded-lg border border-zinc-800/60 bg-zinc-900/80 hover:bg-zinc-800/60 hover:border-emerald-700/50 transition-all cursor-grab active:cursor-grabbing min-w-0"
     >
       {/* Header */}
-      <div className="flex items-start justify-between gap-2 mb-3">
+      <div className="flex items-start justify-between gap-2 mb-3 min-w-0">
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold text-white line-clamp-2 group-hover:text-emerald-300 transition-colors">
+          <h3 className="text-sm font-semibold text-white line-clamp-2 group-hover:text-emerald-300 transition-colors truncate">
             {task.title}
           </h3>
         </div>
-        <Badge variant="outline" className={`text-xs font-medium ${priorityInfo.color}`}>
+        <Badge variant="outline" className={`text-xs font-medium max-w-[80px] whitespace-nowrap overflow-hidden text-ellipsis ${priorityInfo.color}`} title={priorityInfo.label}>
           {priorityInfo.label}
         </Badge>
       </div>
 
       {/* Metadata */}
-      <div className="space-y-2">
+      <div className="space-y-2 min-w-0">
         {/* Tipo */}
-        <div className="flex items-center gap-1.5">
-          <span className={`text-xs font-medium ${typeInfo.color}`}>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className={`text-xs font-medium truncate ${typeInfo.color}`} title={typeInfo.label}>
             {typeInfo.label}
           </span>
         </div>
@@ -186,13 +186,13 @@ function KanbanColumn({ column, tasks, onTaskClick }) {
   });
 
   return (
-    <div className="flex flex-col h-full flex-1 min-w-[300px] w-[300px]">
+    <div className="flex flex-col h-full flex-1 min-w-0 w-full max-w-[360px]">
       {/* Header */}
       <div className={`rounded-t-xl border-t border-x ${column.color} ${column.bgColor} p-4`}>
-        <div className="flex items-center gap-2 mb-1">
-          <Icon size={16} className="text-zinc-400" />
-          <h2 className="text-sm font-bold text-white">{column.label}</h2>
-          <Badge variant="outline" className="ml-auto bg-zinc-900/50 border-zinc-700 text-zinc-300 text-xs">
+        <div className="flex items-center gap-2 mb-1 min-w-0">
+          <Icon size={16} className="text-zinc-400 shrink-0" />
+          <h2 className="text-sm font-bold text-white truncate max-w-[120px]">{column.label}</h2>
+          <Badge variant="outline" className="ml-auto bg-zinc-900/50 border-zinc-700 text-zinc-300 text-xs whitespace-nowrap max-w-[60px] overflow-hidden text-ellipsis">
             {tasks.length}
           </Badge>
         </div>
@@ -561,10 +561,13 @@ export default function EngineeringBoardPage() {
           </select>
         </div>
 
-        {/* Tablero Kanban con Drag & Drop */}
+        {/* Tablero Kanban con scroll horizontal y sin superposición */}
+        {/* Tablero Kanban con Grid Responsive */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 w-full">
           {COLUMNS.map((column) => (
-            <div key={column.id} id={column.id} className="min-w-0">
+            <div key={column.id} id={column.id}
+              /* No min-w/max-w/flex-1: que el grid reparta el espacio */
+            >
               <KanbanColumn
                 column={column}
                 tasks={tasksByColumn[column.id] || []}
