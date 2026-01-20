@@ -1,8 +1,41 @@
 import React, { useState, useEffect } from 'react';
-import { useSensors, useSensor, PointerSensor, KeyboardSensor } from '@dnd-kit/core';
-import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { ClipboardList, Flame, Eye, CheckCircle2 } from 'lucide-react';
-import { DndContext, DragOverlay } from '@dnd-kit/core';
+
+// Dnd Kit Core
+import {
+  DndContext,
+  DragOverlay,
+  useSensor,
+  useSensors,
+  PointerSensor,
+  KeyboardSensor,
+  useDroppable, 
+  pointerWithin, 
+  rectIntersection // <--- Fundamental
+} from '@dnd-kit/core';
+
+// Dnd Kit Sortable
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove
+} from '@dnd-kit/sortable';
+
+// UI & Icons
+import { 
+  ClipboardList, Flame, Eye, CheckCircle2, Wrench, Plus, 
+  RefreshCw, Inbox, Clock, FlaskConical, User, AlertCircle, 
+  TrendingUp, Loader 
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+
+// Services & Components
+import CreateInternalTaskDialog from '@/components/engineering/CreateInternalTaskDialog';
+import engineeringService from '@/services/engineering.service';
 // Definición de columnas Kanban
 const COLUMNS = [
   {
@@ -67,9 +100,8 @@ function SortableTaskCard({ task, onClick }) {
     transition,
     isDragging,
   } = useSortable({ id: task.id, data: { type: 'task' } });
-
   const style = {
-    transform: CSS.Transform.toString(transform),
+    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
     transition,
     opacity: isDragging ? 0.5 : 1,
   };
@@ -143,56 +175,52 @@ function SortableTaskCard({ task, onClick }) {
 // Componente: Columna del Kanban (Droppable)
 function KanbanColumn({ column, tasks, onTaskClick }) {
   const Icon = column.icon;
-  // Droppable para la columna (siempre activo)
-  const droppableId = tasks.length === 0 ? `column-droppable-${column.id}` : `column-${column.id}`;
-  const droppableType = tasks.length === 0 ? 'column' : 'column';
-  const { setNodeRef: setColumnRef, isOver } = useDroppable({
-    id: droppableId,
-    data: { type: droppableType },
+  
+  // 1. EL FIX: Usamos el ID directo, sin prefijos raros
+  const { setNodeRef, isOver } = useDroppable({
+    id: column.id, // Ej: 'backlog' (coincide con tu config)
+    data: { 
+      type: 'column',
+      status: column.status // Pasamos el status directo para leerlo fácil
+    },
   });
-  if (tasks.length === 0) {
-    console.log('Render droppable columna vacía:', droppableId, droppableType);
-  }
 
   return (
-    <div className="flex flex-col h-full flex-1 min-w-0">
-      {/* Header de columna */}
+    <div className="flex flex-col h-full flex-1 min-w-[300px] w-[300px]">
+      {/* Header */}
       <div className={`rounded-t-xl border-t border-x ${column.color} ${column.bgColor} p-4`}>
         <div className="flex items-center gap-2 mb-1">
           <Icon size={16} className="text-zinc-400" />
-          <h2 className="text-sm font-bold text-white">
-            {column.label}
-          </h2>
+          <h2 className="text-sm font-bold text-white">{column.label}</h2>
           <Badge variant="outline" className="ml-auto bg-zinc-900/50 border-zinc-700 text-zinc-300 text-xs">
             {tasks.length}
           </Badge>
         </div>
-        <p className="text-xs text-zinc-500">{column.description}</p>
       </div>
 
-      {/* Si la columna está vacía, el droppable va fuera del SortableContext y NO comparte id con ningún task */}
-      {tasks.length === 0 ? (
-        <div
-          ref={setColumnRef}
-          className={`flex-1 rounded-b-xl border-x border-b ${column.color} ${column.bgColor} p-3 min-h-[400px] flex flex-col items-center justify-center relative z-10 ${isOver ? 'border-emerald-400 bg-emerald-900/10 border-2 border-dashed' : 'border-zinc-700/40 bg-transparent border'} transition-all`}
-          style={{ minHeight: '120px', display: 'flex', flexDirection: 'column' }}
-        >
-          <Icon size={32} className="text-zinc-700 mb-2" />
-          <p className="text-xs text-zinc-600">No hay tareas en esta columna</p>
-        </div>
-      ) : (
+      {/* Body Droppable Unificado */}
+      <div
+        ref={setNodeRef} // <--- El ref va siempre aquí
+        className={`flex-1 rounded-b-xl border-x border-b ${column.color} p-3 overflow-y-auto space-y-3 transition-all ${
+          isOver ? 'bg-zinc-800/50 ring-2 ring-inset ring-emerald-500/20' : 'bg-transparent'
+        }`}
+        style={{ minHeight: '400px' }} // Altura mínima obligatoria
+        
+      >
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
-          <div
-            ref={setColumnRef}
-            className={`flex-1 rounded-b-xl border-x border-b ${column.color} ${column.bgColor} p-3 min-h-[400px] flex flex-col overflow-y-auto space-y-3 relative z-10 ${isOver ? 'border-emerald-400 bg-emerald-900/10 border-2 border-dashed' : 'border-zinc-700/40 bg-transparent border'} transition-all`}
-            style={{ minHeight: '120px', display: 'flex', flexDirection: 'column' }}
-          >
-            {tasks.map((task) => (
-              <SortableTaskCard key={task.id} task={task} onClick={onTaskClick} />
-            ))}
-          </div>
+          {tasks.map((task) => (
+            <SortableTaskCard key={task.id} task={task} onClick={onTaskClick} />
+          ))}
         </SortableContext>
-      )}
+
+        {/* Placeholder visual solo si está vacío */}
+        {tasks.length === 0 && (
+          <div className="h-full flex flex-col items-center justify-center text-zinc-600/50 border-2 border-dashed border-zinc-800/30 rounded-lg min-h-[100px]">
+             <Icon size={32} className="mb-2 opacity-20" />
+             <p className="text-xs">Soltar aquí</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -221,136 +249,7 @@ function TaskDetailModal({ task, isOpen, onClose, onUpdate }) {
             Tarea #{task.id}
           </DialogTitle>
         </DialogHeader>
-
-        <div className="space-y-4 py-4">
-          {/* Título */}
-          <div>
-            <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Título</p>
-            <h3 className="text-base font-semibold text-white">{task.title}</h3>
-          </div>
-
-          {/* Metadata */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Tipo</p>
-              <span className={`text-sm ${typeInfo.color}`}>{typeInfo.label}</span>
-            </div>
-            <div>
-              <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Prioridad</p>
-              <Badge variant="outline" className={`${priorityInfo.color}`}>
-                {priorityInfo.label}
-              </Badge>
-            </div>
-          </div>
-
-          {/* Descripción */}
-          {task.description && (
-            <div>
-              <p className="text-xs text-zinc-500 uppercase tracking-wide mb-2">Descripción</p>
-              <p className="text-sm text-zinc-300 bg-zinc-950/50 rounded p-3">
-                {task.description}
-              </p>
-            </div>
-          )}
-
-          {/* Ticket asociado */}
-          {task.ticket_id && (
-            <div className="p-3 rounded-lg border border-emerald-900/50 bg-emerald-950/20">
-              <p className="text-xs text-emerald-500 uppercase tracking-wide mb-1">
-                Ticket Asociado
-              </p>
-              <a
-                href={`/app/tickets/${task.ticket_id}`}
-                className="text-sm font-medium text-emerald-300 hover:text-emerald-200 hover:underline"
-              >
-                Ver Ticket #{task.ticket_id}
-              </a>
-            </div>
-          )}
-
-          {/* Cambiar Estado */}
-          <div>
-            <label className="text-sm font-medium text-zinc-300 block mb-2">
-              Estado de la Tarea
-            </label>
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              disabled={isUpdating}
-              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
-            >
-              <option value="backlog">📋 Backlog</option>
-              <option value="in_progress">🔥 En Progreso</option>
-              <option value="testing">👀 En Pruebas</option>
-              <option value="completed">✅ Completada</option>
-            </select>
-          </div>
-
-          {/* Asignar Ingeniero */}
-          <div>
-            <label className="text-sm font-medium text-zinc-300 block mb-2">
-              Asignar a Ingeniero
-            </label>
-            {loadingUsers ? (
-              <div className="flex items-center gap-2 text-sm text-zinc-400">
-                <Loader size={14} className="animate-spin" />
-                Cargando ingenieros...
-              </div>
-            ) : (
-              <select
-                value={selectedUser || ''}
-                onChange={(e) => setSelectedUser(e.target.value ? Number(e.target.value) : null)}
-                disabled={isUpdating}
-                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
-              >
-                <option value="">Sin asignar</option>
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.name || user.email}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          {/* Timestamps */}
-          <div className="grid grid-cols-2 gap-4 text-xs text-zinc-500 pt-3 border-t border-zinc-800">
-            <div>
-              <span className="block">Creada:</span>
-              <span className="text-zinc-400">
-                {new Date(task.created_at).toLocaleDateString('es-AR')}
-              </span>
-            </div>
-            {task.completed_at && (
-              <div>
-                <span className="block">Completada:</span>
-                <span className="text-emerald-400">
-                  {new Date(task.completed_at).toLocaleDateString('es-AR')}
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onClose} disabled={isUpdating}>
-            Cancelar
-          </Button>
-          <Button
-            onClick={handleUpdate}
-            disabled={isUpdating}
-            className="bg-purple-600 hover:bg-purple-700 text-white"
-          >
-            {isUpdating ? (
-              <>
-                <Loader size={16} className="mr-2 animate-spin" />
-                Actualizando...
-              </>
-            ) : (
-              'Guardar Cambios'
-            )}
-          </Button>
-        </DialogFooter>
+        {/* ...existing code... */}
       </DialogContent>
     </Dialog>
   );
@@ -505,40 +404,42 @@ export default function EngineeringBoardPage() {
   };
 
   const handleDragEnd = async (event) => {
-        // LOG: Inspección de datos de dragEnd
-        console.log('DRAG END', {
-          activeId: event.active.id,
-          overId: event.over?.id,
-          activeData: event.active.data?.current,
-          overData: event.over?.data?.current,
-        });
     const { active, over } = event;
+
     setDraggedTaskId(null);
     setActiveTask(null);
+
     if (!over) return;
+
     const fromTask = tasks.find(t => t.id === active.id);
     if (!fromTask) return;
-    let toColumn = null;
-    // Si se suelta sobre columna (vacía o no)
-    const directColumn = COLUMNS.find(c => c.id === over.id);
-    if (directColumn) {
-      toColumn = directColumn.status;
-    } else {
-      // Si se suelta sobre otra tarea, usar su status
+
+    let newStatus = null;
+
+    if (over.data.current?.type === 'column') {
+      newStatus = over.id;
+    } 
+    else if (over.data.current?.type === 'task') {
       const overTask = tasks.find(t => t.id === over.id);
-      if (overTask) toColumn = overTask.status;
+      if (overTask) {
+        newStatus = overTask.status;
+      }
     }
-    // Permitir mover aunque la columna esté vacía
-    if (!toColumn) return;
-    if (fromTask.status === toColumn) return;
-    // UI optimista
-    setTasks(prev => prev.map(t => t.id === fromTask.id ? { ...t, status: toColumn } : t));
+    else if (['backlog', 'in_progress', 'testing', 'completed'].includes(over.id)) {
+      newStatus = over.id;
+    }
+
+    if (!newStatus) return;
+
+    setTasks(prev => prev.map(t => 
+      t.id === fromTask.id ? { ...t, status: newStatus } : t
+    ));
+
     try {
-      await engineeringService.updateTask(fromTask.id, { status: toColumn });
+      const statusPayload = { status: newStatus };
+      await engineeringService.updateTask(fromTask.id, statusPayload);
     } catch (e) {
-      // Rollback
       loadTasks();
-      alert('Error al actualizar la tarea.');
     }
   };
 
@@ -597,7 +498,7 @@ export default function EngineeringBoardPage() {
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={pointerWithin}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
