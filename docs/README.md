@@ -54,6 +54,14 @@
 | [ADR-003](adr/003-background-jobs-celery.md) | Decisión: Celery para jobs asíncronos | 30/12/2025 |
 | [ADR-004](adr/004-ticketdetailpage-operador-ui.md) | Decisión: UI del detalle de tickets | 05/01/2026 |
 
+### 📦 Archivos Históricos y Obsoletos
+| Archivo | Descripción | Estado |
+|---------|-------------|--------|
+| [_ARCHIVOS_OBSOLETOS/LEER_PRIMERO.md](_ARCHIVOS_OBSOLETOS/LEER_PRIMERO.md) | "Leer primero" de sesiones anteriores | Archivado |
+| [_ARCHIVOS_OBSOLETOS/LEER_PRIMERO_PROXIMA_SESION.md](_ARCHIVOS_OBSOLETOS/LEER_PRIMERO_PROXIMA_SESION.md) | Instrucciones de sesión previa | Archivado |
+
+> **Nota:** Los archivos "LEER_PRIMERO" y similares solo deben consultarse para auditoría o contexto histórico. Para la continuidad actual, usa los archivos indicados en el índice principal y la guía de documentación.
+
 ### ⏳ Por Hacer (Roadmap de Documentación)
 
 | Archivo | Descripción | Prioridad |

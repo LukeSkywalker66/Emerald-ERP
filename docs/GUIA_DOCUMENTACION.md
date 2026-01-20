@@ -106,7 +106,9 @@
 - [ ] Testing end-to-end del módulo
 
 ### ⏳ Próximas Prioridades
-Consulta [LEER_PRIMERO_PROXIMA_SESION.md](LEER_PRIMERO_PROXIMA_SESION.md) para el orden exacto.
+Consulta la [GUÍA DE DOCUMENTACIÓN](GUIA_DOCUMENTACION.md) y el índice principal para el orden y prioridades actualizadas.
+
+> **Nota:** Los archivos "LEER_PRIMERO" y similares han sido archivados en [_ARCHIVOS_OBSOLETOS/](./_ARCHIVOS_OBSOLETOS/) y solo deben consultarse para auditoría o contexto histórico. Usa siempre el índice y los archivos activos para la continuidad del proyecto.
 
 ---
 

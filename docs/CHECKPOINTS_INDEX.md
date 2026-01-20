@@ -18,13 +18,10 @@ docker compose ps
 
 ## 📬 MENSAJE URGENTE PARA PRÓXIMA SESIÓN
 
-⚠️ **LEER PRIMERO:** [LEER_PRIMERO_PROXIMA_SESION.md](LEER_PRIMERO_PROXIMA_SESION.md)
 
-Incluye:
-- Instrucciones de validación inmediata
-- Reglas de oro (qué NO tocar)
-- Troubleshooting rápido
-- Próximos pasos sugeridos
+⚠️ **INICIO RÁPIDO:** Consulta la [GUÍA DE DOCUMENTACIÓN](GUIA_DOCUMENTACION.md) y el índice principal para instrucciones actualizadas y próximos pasos.
+
+> **Nota:** Los archivos "LEER_PRIMERO" han sido archivados y solo deben consultarse para auditoría o contexto histórico.
 
 ---
 
