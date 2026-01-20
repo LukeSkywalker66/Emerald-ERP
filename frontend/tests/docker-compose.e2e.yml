@@ -17,6 +17,8 @@ services:
     # No expone puertos, solo corre tests y sale
     networks:
       - default
+    # Comando corregido: ejecuta todos los tests E2E sectorizados
+    command: ["npx", "playwright", "test", "--reporter=list"]
     # Permite correr solo cuando se necesite
     profiles:
       - qa

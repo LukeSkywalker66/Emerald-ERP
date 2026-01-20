@@ -1,3 +1,12 @@
+# NOTA IMPORTANTE SOBRE WORKDIR
+
+El Dockerfile E2E debe mantener WORKDIR /app para que Playwright y las dependencias funcionen correctamente.
+Todos los tests y helpers deben estar en la raíz del contexto sectorizado (`frontend/tests`).
+No cambies el WORKDIR a subcarpetas, ya que node_modules y la resolución de imports dependen de estar en /app.
+
+Si agregas tests, helpers o configs, asegúrate de que queden en /app dentro del contenedor.
+
+---
 # CHECKPOINT E2E - 2026-01-19
 
 ## Estado actual

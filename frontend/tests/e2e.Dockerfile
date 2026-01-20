@@ -17,8 +17,9 @@ RUN npm install
 # 4. Instalar navegadores Playwright y todas sus dependencias del sistema
 RUN npx playwright install --with-deps
 
+
 # 5. Copiar el resto de los tests E2E (código fuente, specs, helpers, config)
-COPY . .
+COPY . ./
 
 # 6. Comando por defecto: ejecuta todos los tests E2E sectorizados (*.e2e.spec.ts)
 CMD ["npx", "playwright", "test", "*.e2e.spec.ts", "--reporter=list"]
