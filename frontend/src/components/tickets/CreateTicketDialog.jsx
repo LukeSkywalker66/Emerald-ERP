@@ -68,7 +68,7 @@ const TICKET_TYPES = {
   },
   relocation: {
     id: 'relocation',
-    label: 'Traslado/Mudanza',
+    label: 'Traslado/\nMudanza',
     description: 'Cambio de domicilio del servicio',
     icon: Truck,
     color: 'purple',
@@ -148,8 +148,8 @@ export default function CreateTicketDialog({ isOpen, onClose, onSuccess }) {
         </DialogHeader>
 
         {!selectedType ? (
-          // Selector de tipo con UI Premium
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 py-6">
+          // Selector de tipo con UI Premium - ahora grid 3 columnas, tarjetas cuadradas, contenido centrado
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 py-6">
             {Object.values(TICKET_TYPES).map((type) => {
               const Icon = type.icon;
               return (
@@ -157,39 +157,40 @@ export default function CreateTicketDialog({ isOpen, onClose, onSuccess }) {
                   key={type.id}
                   onClick={() => setSelectedType(type.id)}
                   className={`
-                    group relative p-6 rounded-xl border-2 transition-all duration-300 text-left
+                    group relative rounded-xl border-2 transition-all duration-300 flex flex-col items-center justify-between
+                    aspect-square h-44 min-h-44 w-full
                     bg-gradient-to-br ${type.bgGradient}
                     ${type.borderColor} ${type.hoverBorder}
                     hover:scale-[1.02] hover:shadow-xl ${type.hoverShadow}
                     active:scale-[0.98]
+                    px-4 py-4
+                    cursor-pointer
                   `}
                 >
                   {/* Glow effect en hover */}
                   <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-white/0 to-white/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
 
-                  <div className="relative flex flex-col gap-4">
-                    {/* Icono con contenedor circular */}
-                    <div className={`w-16 h-16 rounded-2xl ${type.iconBg} flex items-center justify-center transition-transform group-hover:scale-110 group-hover:rotate-3`}>
-                      <Icon size={32} className={type.iconColor} />
-                    </div>
+                  {/* Icono grande centrado arriba */}
+                  <div className={`w-16 h-16 rounded-2xl ${type.iconBg} flex items-center justify-center mb-1 mt-0 transition-transform group-hover:scale-110 group-hover:rotate-3`}>
+                    <Icon size={40} className={type.iconColor} />
+                  </div>
 
-                    {/* Texto */}
-                    <div className="flex-1">
-                      <h3 className="text-lg font-bold text-white mb-2 group-hover:text-opacity-90 transition-colors">
-                        {type.label}
-                      </h3>
-                      <p className="text-sm text-zinc-400 leading-relaxed">
-                        {type.description}
-                      </p>
-                    </div>
+                  {/* Título centrado */}
+                  <h3 className="text-lg font-bold text-white text-center mb-1 group-hover:text-opacity-90 transition-colors break-words whitespace-pre-line">
+                    {type.label}
+                  </h3>
 
-                    {/* Arrow indicator */}
-                    <div className="flex justify-end">
-                      <ChevronRight
-                        size={20}
-                        className={`${type.iconColor} opacity-0 group-hover:opacity-100 transform translate-x-0 group-hover:translate-x-1 transition-all`}
-                      />
-                    </div>
+                  {/* Descripción pequeña abajo */}
+                  <p className="text-xs text-zinc-400 text-center leading-tight mb-1">
+                    {type.description}
+                  </p>
+
+                  {/* Arrow indicator, solo visible en hover, abajo a la derecha */}
+                  <div className="absolute bottom-3 right-3 flex justify-end">
+                    <ChevronRight
+                      size={20}
+                      className={`${type.iconColor} opacity-0 group-hover:opacity-100 transform translate-x-0 group-hover:translate-x-1 transition-all`}
+                    />
                   </div>
                 </button>
               );
