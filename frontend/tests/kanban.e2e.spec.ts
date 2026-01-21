@@ -15,6 +15,8 @@ import { login } from './helpers/login';
  *   - Revisar que el entorno esté en modo desarrollo antes de correr E2E
  */
 
+
+
 test.describe('Kanban de Ingeniería', () => {
   // Hook global: login antes de cada test
   test.beforeEach(async ({ page }) => {
@@ -22,25 +24,33 @@ test.describe('Kanban de Ingeniería', () => {
   });
 
   test('El tablero carga y muestra columnas', async ({ page }) => {
-    // Navega al tablero de ingeniería (requiere login previo)
+    // Navegar al tablero
     await page.goto('/app/engineering');
-    // Espera que se rendericen las columnas principales
-    await expect(page.getByText('Backlog')).toBeVisible();
-    await expect(page.getByText('En Progreso')).toBeVisible();
-    await expect(page.getByText('En Pruebas')).toBeVisible();
-    await expect(page.getByText('Completadas')).toBeVisible();
+
+    // CORRECCIÓN: Usamos getByRole('heading', ...) para ser específicos
+    // y evitar confundirnos con otros textos.
+    await expect(page.getByRole('heading', { name: 'Backlog' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'En Progreso' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'En Pruebas' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Completadas' })).toBeVisible();
   });
 
   test('Permite drag & drop de tareas entre columnas', async ({ page }) => {
     await page.goto('/app/engineering');
-    // Espera que haya al menos una tarea en Backlog
+
+    // 1. Esperar que aparezca alguna tarea (buscamos la primera tarjeta)
+    // El selector .group.relative.p-4 parece ser tu tarjeta de tarea según tus logs anteriores
     const task = page.locator('.group.relative.p-4').first();
     await expect(task).toBeVisible();
-    // Drag & drop a la columna "En Progreso"
-    const target = page.getByText('En Progreso');
+
+    // 2. Definir el destino: El TÍTULO de la columna "En Progreso"
+    // (Arrastrar al título suele funcionar bien para soltar en la columna)
+    const target = page.getByRole('heading', { name: 'En Progreso' });
+
+    // 3. Ejecutar Drag & Drop
     await task.dragTo(target);
-    // Verifica que la tarea cambió de columna (esto depende del DOM real)
-    // Aquí solo se verifica que no explote el drag
+
+    // Verificación básica de que no explotó
     await expect(page).toHaveURL(/engineering/);
   });
 });

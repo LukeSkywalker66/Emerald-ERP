@@ -116,25 +116,25 @@ function SortableTaskCard({ task, onClick }) {
       {...attributes}
       {...listeners}
       onClick={() => onClick(task)}
-      className="group relative p-4 rounded-lg border border-zinc-800/60 bg-zinc-900/80 hover:bg-zinc-800/60 hover:border-emerald-700/50 transition-all cursor-grab active:cursor-grabbing min-w-0"
+      className="group relative p-4 rounded-lg border border-zinc-800/60 bg-zinc-900/80 hover:bg-zinc-800/60 hover:border-emerald-700/50 transition-all cursor-grab active:cursor-grabbing"
     >
       {/* Header */}
-      <div className="flex items-start justify-between gap-2 mb-3 min-w-0">
+      <div className="flex items-start justify-between gap-2 mb-3">
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold text-white line-clamp-2 group-hover:text-emerald-300 transition-colors truncate">
+          <h3 className="text-sm font-semibold text-white line-clamp-2 group-hover:text-emerald-300 transition-colors">
             {task.title}
           </h3>
         </div>
-        <Badge variant="outline" className={`text-xs font-medium max-w-[80px] whitespace-nowrap overflow-hidden text-ellipsis ${priorityInfo.color}`} title={priorityInfo.label}>
+        <Badge variant="outline" className={`text-xs font-medium ${priorityInfo.color}`}>
           {priorityInfo.label}
         </Badge>
       </div>
 
       {/* Metadata */}
-      <div className="space-y-2 min-w-0">
+      <div className="space-y-2">
         {/* Tipo */}
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className={`text-xs font-medium truncate ${typeInfo.color}`} title={typeInfo.label}>
+        <div className="flex items-center gap-1.5">
+          <span className={`text-xs font-medium ${typeInfo.color}`}>
             {typeInfo.label}
           </span>
         </div>
@@ -186,13 +186,13 @@ function KanbanColumn({ column, tasks, onTaskClick }) {
   });
 
   return (
-    <div className="flex flex-col h-full flex-1 min-w-0 w-full max-w-[360px]">
+    <div className="flex flex-col h-full flex-1 min-w-[300px] w-[300px]">
       {/* Header */}
       <div className={`rounded-t-xl border-t border-x ${column.color} ${column.bgColor} p-4`}>
-        <div className="flex items-center gap-2 mb-1 min-w-0">
-          <Icon size={16} className="text-zinc-400 shrink-0" />
-          <h2 className="text-sm font-bold text-white truncate max-w-[120px]">{column.label}</h2>
-          <Badge variant="outline" className="ml-auto bg-zinc-900/50 border-zinc-700 text-zinc-300 text-xs whitespace-nowrap max-w-[60px] overflow-hidden text-ellipsis">
+        <div className="flex items-center gap-2 mb-1">
+          <Icon size={16} className="text-zinc-400" />
+          <h2 className="text-sm font-bold text-white">{column.label}</h2>
+          <Badge variant="outline" className="ml-auto bg-zinc-900/50 border-zinc-700 text-zinc-300 text-xs">
             {tasks.length}
           </Badge>
         </div>
@@ -209,7 +209,7 @@ function KanbanColumn({ column, tasks, onTaskClick }) {
       >
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
           {tasks.map((task) => (
-            <SortableTaskCard key={task.id} task={task} onClick={onTaskClick} />
+            <SortableTaskCard key={task.id} task={task} onClick={() => onTaskClick(task)} />
           ))}
         </SortableContext>
 
@@ -233,7 +233,18 @@ function TaskDetailModal({ task, isOpen, onClose, onUpdate }) {
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
 
-  // ...existing code...
+  // Cargar usuarios al abrir el modal
+  useEffect(() => {
+    if (isOpen) {
+      setLoadingUsers(true);
+      import('@/services/users.service').then(mod => {
+        mod.default.getAllUsers().then(data => {
+          setUsers(data || []);
+          setLoadingUsers(false);
+        }).catch(() => setLoadingUsers(false));
+      });
+    }
+  }, [isOpen]);
 
   if (!task) return null;
 
@@ -249,7 +260,83 @@ function TaskDetailModal({ task, isOpen, onClose, onUpdate }) {
             Tarea #{task.id}
           </DialogTitle>
         </DialogHeader>
-        {/* ...existing code... */}
+        <div className="space-y-4 mt-2">
+          {/* Título y descripción */}
+          <div>
+            <h3 className="text-lg font-bold text-emerald-300 mb-1">{task.title}</h3>
+            <p className="text-sm text-zinc-400 mb-2">{task.description}</p>
+          </div>
+          {/* Metadata */}
+          <div className="flex flex-wrap gap-3 mb-2">
+            <Badge variant="outline" className={priorityInfo.color}>{priorityInfo.label}</Badge>
+            <Badge variant="outline" className={typeInfo.color}>{typeInfo.label}</Badge>
+            {task.ticket_id && (
+              <Badge variant="outline" className="bg-zinc-800 text-zinc-300">Ticket #{task.ticket_id}</Badge>
+            )}
+            {task.assigned_to_name ? (
+              <Badge variant="outline" className="bg-emerald-900 text-emerald-300">{task.assigned_to_name}</Badge>
+            ) : (
+              <Badge variant="outline" className="bg-zinc-700 text-zinc-400">Sin asignar</Badge>
+            )}
+          </div>
+          {/* Estado y asignación (editable) */}
+          <div className="flex gap-4 items-center mb-2">
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">Estado</label>
+              <select
+                value={selectedStatus}
+                onChange={e => setSelectedStatus(e.target.value)}
+                className="bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white px-3 py-2"
+              >
+                <option value="backlog">Backlog</option>
+                <option value="in_progress">En Progreso</option>
+                <option value="testing">En Pruebas</option>
+                <option value="completed">Completada</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">Asignado a</label>
+              <select
+                value={selectedUser || ''}
+                onChange={e => setSelectedUser(e.target.value)}
+                className="bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white px-3 py-2"
+                disabled={loadingUsers}
+              >
+                <option value="">Sin asignar</option>
+                {users.map(user => (
+                  <option key={user.id} value={user.id}>{user.name || user.email}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {/* Acciones */}
+          <div className="flex gap-2 justify-end mt-4">
+            <Button
+              variant="outline"
+              onClick={onClose}
+              className="border-zinc-700 text-zinc-300"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={async () => {
+                setIsUpdating(true);
+                try {
+                  await engineeringService.updateTask(task.id, { status: selectedStatus, assigned_to_id: selectedUser || null });
+                  setIsUpdating(false);
+                  onUpdate();
+                } catch (e) {
+                  setIsUpdating(false);
+                  alert('Error al actualizar la tarea');
+                }
+              }}
+              className="bg-emerald-700 hover:bg-emerald-600 text-white font-semibold"
+              disabled={isUpdating}
+            >
+              Guardar cambios
+            </Button>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -561,13 +648,10 @@ export default function EngineeringBoardPage() {
           </select>
         </div>
 
-        {/* Tablero Kanban con scroll horizontal y sin superposición */}
-        {/* Tablero Kanban con Grid Responsive */}
+        {/* Tablero Kanban con Drag & Drop */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 w-full">
           {COLUMNS.map((column) => (
-            <div key={column.id} id={column.id}
-              /* No min-w/max-w/flex-1: que el grid reparta el espacio */
-            >
+            <div key={column.id} id={column.id} className="min-w-0">
               <KanbanColumn
                 column={column}
                 tasks={tasksByColumn[column.id] || []}
