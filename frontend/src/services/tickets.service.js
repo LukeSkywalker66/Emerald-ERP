@@ -24,6 +24,20 @@ export const getAll = async (filters = {}) => {
 };
 
 /**
+ * Obtener categorías de tickets desde el backend
+ * @returns {Promise<Array>} Array de categorías { id, name, description, priority_default }
+ */
+export const getCategories = async () => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/categories`);
+    return data || [];
+  } catch (error) {
+    console.error('❌ Error fetching ticket categories:', error);
+    throw error;
+  }
+};
+
+/**
  * Obtener detalle completo de un ticket
  * @param {number} id - ID del ticket
  * @returns {Promise<Object>} Ticket con timeline y work_orders
@@ -260,6 +274,7 @@ export default {
   searchConnections,
   lookupCustomerByDNI,
   getUsers,
+  getCategories,
   // Tags
   getTags,
   createTag,

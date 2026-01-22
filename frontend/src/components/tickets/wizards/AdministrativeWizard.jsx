@@ -15,7 +15,7 @@ const SUBTYPES = [
   { value: 'other', label: 'Otro Trámite', icon: '📋' },
 ];
 
-export default function AdministrativeWizard({ onBack, onSuccess }) {
+export default function AdministrativeWizard({ onBack, onSuccess, categoryId }) {
   const [step, setStep] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -62,6 +62,7 @@ export default function AdministrativeWizard({ onBack, onSuccess }) {
         subject: `${subtypeLabel} - ${formData.connection.client_name}`,
         description: formData.description,
         priority: 'medium',
+        category_id: categoryId,
         administrative_subtype: formData.administrative_subtype,
         connection_id: formData.connection.connection_id,
       });

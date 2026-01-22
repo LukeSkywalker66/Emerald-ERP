@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import ticketsService from '@/services/tickets.service';
 
-export default function RelocationWizard({ onBack, onSuccess }) {
+export default function RelocationWizard({ onBack, onSuccess, categoryId }) {
   const [step, setStep] = useState(1); // 1: Search, 2: Origin, 3: Destination, 4: Confirm
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -123,6 +123,7 @@ export default function RelocationWizard({ onBack, onSuccess }) {
         subject: `Traslado - ${formData.clientName || 'Cliente'}`,
         description: `Traslado desde ${formData.originConnection.installation_address} hacia ${destinationLabel}`,
         priority: 'medium',
+        category_id: categoryId,
         origin_connection_id: formData.originConnection.connection_id,
         destination_connection_id: hasDestinationConnection
           ? formData.destinationConnection.connection_id

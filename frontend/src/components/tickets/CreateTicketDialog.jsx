@@ -3,7 +3,7 @@
  * Versión mejorada con UI Premium
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -25,14 +25,11 @@ import InstallationWizard from './wizards/InstallationWizard';
 import WithdrawalWizard from './wizards/WithdrawalWizard';
 import RelocationWizard from './wizards/RelocationWizard';
 import AdministrativeWizard from './wizards/AdministrativeWizard';
+import ticketsService from '@/services/tickets.service';
 
-const TICKET_TYPES = {
+const FLOW_STYLES = {
   technical: {
-    id: 'technical',
-    label: 'Soporte Técnico',
-    description: 'Reclamos y reparaciones de servicios activos',
     icon: Wrench,
-    color: 'emerald',
     bgGradient: 'from-emerald-500/10 via-emerald-500/5 to-transparent',
     borderColor: 'border-emerald-500/30',
     iconBg: 'bg-emerald-500/10',
@@ -41,11 +38,7 @@ const TICKET_TYPES = {
     hoverShadow: 'hover:shadow-emerald-500/20',
   },
   installation: {
-    id: 'installation',
-    label: 'Alta de Servicio',
-    description: 'Instalación de nuevas conexiones',
     icon: Plus,
-    color: 'blue',
     bgGradient: 'from-blue-500/10 via-blue-500/5 to-transparent',
     borderColor: 'border-blue-500/30',
     iconBg: 'bg-blue-500/10',
@@ -54,11 +47,7 @@ const TICKET_TYPES = {
     hoverShadow: 'hover:shadow-blue-500/20',
   },
   withdrawal: {
-    id: 'withdrawal',
-    label: 'Baja de Servicio',
-    description: 'Retiro de equipos y cancelación',
     icon: Minus,
-    color: 'rose',
     bgGradient: 'from-rose-500/10 via-rose-500/5 to-transparent',
     borderColor: 'border-rose-500/30',
     iconBg: 'bg-rose-500/10',
@@ -67,11 +56,7 @@ const TICKET_TYPES = {
     hoverShadow: 'hover:shadow-rose-500/20',
   },
   relocation: {
-    id: 'relocation',
-    label: 'Traslado/\nMudanza',
-    description: 'Cambio de domicilio del servicio',
     icon: Truck,
-    color: 'purple',
     bgGradient: 'from-purple-500/10 via-purple-500/5 to-transparent',
     borderColor: 'border-purple-500/30',
     iconBg: 'bg-purple-500/10',
@@ -80,11 +65,7 @@ const TICKET_TYPES = {
     hoverShadow: 'hover:shadow-purple-500/20',
   },
   administrative: {
-    id: 'administrative',
-    label: 'Administrativo',
-    description: 'Facturación, datos y cambios de plan',
     icon: FileText,
-    color: 'amber',
     bgGradient: 'from-amber-500/10 via-amber-500/5 to-transparent',
     borderColor: 'border-amber-500/30',
     iconBg: 'bg-amber-500/10',
@@ -94,44 +75,92 @@ const TICKET_TYPES = {
   },
 };
 
+const resolveFlow = (name = '') => {
+  const normalized = name.toLowerCase();
+  if (normalized.includes('instal')) return 'installation';
+  if (normalized.includes('baja') || normalized.includes('reti')) return 'withdrawal';
+  if (normalized.includes('trasl') || normalized.includes('muda')) return 'relocation';
+  if (normalized.includes('admin')) return 'administrative';
+  return 'technical';
+};
+
 export default function CreateTicketDialog({ isOpen, onClose, onSuccess }) {
-  const [selectedType, setSelectedType] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [hoveredCategory, setHoveredCategory] = useState(null);
+  const [categories, setCategories] = useState([]);
+  const [isLoadingCategories, setIsLoadingCategories] = useState(false);
+  const [categoriesError, setCategoriesError] = useState(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+
+    const loadCategories = async () => {
+      try {
+        setIsLoadingCategories(true);
+        setCategoriesError(null);
+        const data = await ticketsService.getCategories();
+        if (active) setCategories(data);
+      } catch (err) {
+        if (active) setCategoriesError(err.message || 'No se pudieron cargar las categorías');
+      } finally {
+        if (active) setIsLoadingCategories(false);
+      }
+    };
+
+    loadCategories();
+    return () => {
+      active = false;
+    };
+  }, [isOpen]);
+
+  const categoryCards = useMemo(() => {
+    if (!Array.isArray(categories)) return [];
+    return categories.map((cat) => {
+      const flow = resolveFlow(cat.name);
+      const style = FLOW_STYLES[flow] || FLOW_STYLES.technical;
+      return { ...cat, flow, style };
+    });
+  }, [categories]);
 
   const handleBack = () => {
-    setSelectedType(null);
+    setSelectedCategory(null);
   };
 
   const handleSuccess = (createdTicket) => {
-    setSelectedType(null);
+    setSelectedCategory(null);
     onSuccess(createdTicket);
   };
 
   const renderWizard = () => {
-    switch (selectedType) {
+    switch (selectedCategory?.flow) {
       case 'technical':
-        return <TechnicalWizard onBack={handleBack} onSuccess={handleSuccess} />;
+        return <TechnicalWizard onBack={handleBack} onSuccess={handleSuccess} categoryId={selectedCategory?.id} />;
       case 'installation':
-        return <InstallationWizard onBack={handleBack} onSuccess={handleSuccess} />;
+        return <InstallationWizard onBack={handleBack} onSuccess={handleSuccess} categoryId={selectedCategory?.id} />;
       case 'withdrawal':
-        return <WithdrawalWizard onBack={handleBack} onSuccess={handleSuccess} />;
+        return <WithdrawalWizard onBack={handleBack} onSuccess={handleSuccess} categoryId={selectedCategory?.id} />;
       case 'relocation':
-        return <RelocationWizard onBack={handleBack} onSuccess={handleSuccess} />;
+        return <RelocationWizard onBack={handleBack} onSuccess={handleSuccess} categoryId={selectedCategory?.id} />;
       case 'administrative':
-        return <AdministrativeWizard onBack={handleBack} onSuccess={handleSuccess} />;
+        return <AdministrativeWizard onBack={handleBack} onSuccess={handleSuccess} categoryId={selectedCategory?.id} />;
       default:
         return null;
     }
   };
 
+  const selectedStyle = selectedCategory?.style;
+  const SelectedIcon = selectedStyle?.icon;
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-zinc-900 border-zinc-800 max-w-5xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="bg-zinc-900 border-zinc-800 max-w-4xl w-full h-auto">
+        <DialogHeader className="min-h-[100px]">
           <DialogTitle className="text-white text-2xl flex items-center gap-2">
-            {selectedType ? (
+            {selectedCategory ? (
               <>
-                {React.createElement(TICKET_TYPES[selectedType].icon, { size: 24, className: TICKET_TYPES[selectedType].iconColor })}
-                {TICKET_TYPES[selectedType].label}
+                {SelectedIcon ? <SelectedIcon size={24} className={selectedStyle?.iconColor} /> : null}
+                {selectedCategory.name}
               </>
             ) : (
               <>
@@ -140,58 +169,73 @@ export default function CreateTicketDialog({ isOpen, onClose, onSuccess }) {
               </>
             )}
           </DialogTitle>
-          {!selectedType && (
-            <p className="text-sm text-zinc-400 mt-2">
-              Selecciona el tipo de gestión que necesitas realizar
+          {!selectedCategory && (
+            <p className="text-sm text-zinc-400 mt-2 h-[48px] flex items-center transition-all duration-200 overflow-hidden">
+              {hoveredCategory ? (
+                <span className="truncate">
+                  <span className="text-emerald-400 font-semibold">{hoveredCategory.name}</span>
+                  <span className="text-zinc-500 mx-2">•</span>
+                  <span className="text-zinc-300">{hoveredCategory.description}</span>
+                </span>
+              ) : (
+                'Selecciona el tipo de gestión que necesitas realizar'
+              )}
             </p>
           )}
         </DialogHeader>
 
-        {!selectedType ? (
-          // Selector de tipo con UI Premium - ahora grid 3 columnas, tarjetas cuadradas, contenido centrado
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 py-6">
-            {Object.values(TICKET_TYPES).map((type) => {
-              const Icon = type.icon;
+        {!selectedCategory ? (
+          // Selector de tipo con UI Premium - grid 4 columnas, tarjetas amplias
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 py-4">
+            {isLoadingCategories && (
+              <div className="col-span-4 text-center text-zinc-400 py-8">Consultando al Orquestador...</div>
+            )}
+
+            {categoriesError && (
+              <div className="col-span-4 p-3 rounded-lg border border-rose-700/50 bg-rose-950/30 text-rose-200 text-sm">
+                {categoriesError}
+              </div>
+            )}
+
+            {!isLoadingCategories && !categoriesError && categoryCards.length === 0 && (
+              <div className="col-span-4 text-center text-zinc-400 py-8">No hay categorías disponibles.</div>
+            )}
+
+            {categoryCards.map((category) => {
+              const { style, id, name, description } = category;
+              const Icon = style.icon;
               return (
                 <button
-                  key={type.id}
-                  onClick={() => setSelectedType(type.id)}
+                  key={id}
+                  onClick={() => setSelectedCategory(category)}
+                  onMouseEnter={() => setHoveredCategory(category)}
+                  onMouseLeave={() => setHoveredCategory(null)}
                   className={`
-                    group relative rounded-xl border-2 transition-all duration-300 flex flex-col items-center justify-between
-                    aspect-square h-44 min-h-44 w-full
-                    bg-gradient-to-br ${type.bgGradient}
-                    ${type.borderColor} ${type.hoverBorder}
-                    hover:scale-[1.02] hover:shadow-xl ${type.hoverShadow}
-                    active:scale-[0.98]
+                    group relative rounded-lg border-2 transition-all duration-300 flex flex-col items-center justify-center
+                    h-40 w-full
+                    bg-gradient-to-br ${style.bgGradient}
+                    ${style.borderColor} ${style.hoverBorder}
+                    hover:scale-[1.05] hover:shadow-lg ${style.hoverShadow}
+                    active:scale-[0.95]
                     px-4 py-4
                     cursor-pointer
+                    gap-2
                   `}
                 >
-                  {/* Glow effect en hover */}
-                  <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-white/0 to-white/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                  <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-white/0 to-white/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
 
-                  {/* Icono grande centrado arriba */}
-                  <div className={`w-16 h-16 rounded-2xl ${type.iconBg} flex items-center justify-center mb-1 mt-0 transition-transform group-hover:scale-110 group-hover:rotate-3`}>
-                    <Icon size={40} className={type.iconColor} />
+                  <div className={`w-14 h-14 rounded-lg ${style.iconBg} flex items-center justify-center transition-transform group-hover:scale-110`}>
+                    <Icon size={30} className={style.iconColor} />
                   </div>
 
-                  {/* Título centrado */}
-                  <h3 className="text-lg font-bold text-white text-center mb-1 group-hover:text-opacity-90 transition-colors break-words whitespace-pre-line">
-                    {type.label}
+                  <h3 className="text-sm font-bold text-white text-center leading-tight w-full break-words hyphens-auto">
+                    {name}
                   </h3>
 
-                  {/* Descripción pequeña abajo */}
-                  <p className="text-xs text-zinc-400 text-center leading-tight mb-1">
-                    {type.description}
-                  </p>
-
-                  {/* Arrow indicator, solo visible en hover, abajo a la derecha */}
-                  <div className="absolute bottom-3 right-3 flex justify-end">
-                    <ChevronRight
-                      size={20}
-                      className={`${type.iconColor} opacity-0 group-hover:opacity-100 transform translate-x-0 group-hover:translate-x-1 transition-all`}
-                    />
-                  </div>
+                  <ChevronRight
+                    size={16}
+                    className={`${style.iconColor} opacity-0 group-hover:opacity-100 transform transition-all absolute bottom-2 right-2`}
+                  />
                 </button>
               );
             })}

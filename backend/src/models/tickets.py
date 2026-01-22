@@ -211,6 +211,28 @@ class Tag(Base, TimestampMixin):
 
 
 # ===========================
+# MODELO: Categorías de Ticket
+# ===========================
+
+
+class TicketCategory(Base, TimestampMixin):
+    """Catálogo de categorías para clasificar tickets y sugerir prioridad."""
+    __tablename__ = "ticket_categories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    priority_default: Mapped[TicketPriority] = mapped_column(
+        Enum(TicketPriority, name="ticket_priority_enum", native_enum=False),
+        default=TicketPriority.medium,
+        nullable=False,
+        comment="Prioridad sugerida por defecto para esta categoría",
+    )
+
+    tickets: Mapped[list['Ticket']] = relationship("Ticket", back_populates="category", lazy="select")
+
+
+# ===========================
 # MODELOS - Base de Datos
 # ===========================
 
@@ -267,6 +289,14 @@ class Ticket(Base, TimestampMixin):
         Text,
         nullable=True,
         comment="Nota sobre disponibilidad horaria del cliente (ej: 'Solo mañanas')"
+    )
+
+    # Categoría funcional del ticket
+    category_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("ticket_categories.id", name="fk_tickets_category_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Categoría del ticket (clasificación funcional)",
     )
 
     # Estado y prioridad
@@ -347,6 +377,11 @@ class Ticket(Base, TimestampMixin):
         "User",
         foreign_keys=[assigned_to_id],
         lazy="joined"
+    )
+    category: Mapped[Optional['TicketCategory']] = relationship(
+        "TicketCategory",
+        back_populates="tickets",
+        lazy="joined",
     )
     timeline: Mapped[list[TicketTimeline]] = relationship(
         "TicketTimeline",

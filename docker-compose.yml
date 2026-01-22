@@ -53,6 +53,7 @@ services:
       # CAMBIO: Ahora sí lee del archivo .env
       # Si no encuentra la variable, usa '/api' por defecto.
       - VITE_API_URL=${VITE_API_URL:-/api}
+      - INTERNAL_API_URL=http://backend:8500/api
       - CHOKIDAR_USEPOLLING=true
     depends_on:
       - backend

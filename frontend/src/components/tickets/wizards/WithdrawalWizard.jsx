@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { ChevronLeft, Loader, Search, Trash2, AlertCircle } from 'lucide-react';
 import ticketsService from '@/services/tickets.service';
 
-export default function WithdrawalWizard({ onBack, onSuccess }) {
+export default function WithdrawalWizard({ onBack, onSuccess, categoryId }) {
   const [step, setStep] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -46,6 +46,7 @@ export default function WithdrawalWizard({ onBack, onSuccess }) {
         subject: `Retiro - ${selectedConnection.client_name}`,
         description: `Retiro de servicio en ${selectedConnection.address}`,
         priority: 'medium',
+        category_id: categoryId,
         connection_id: selectedConnection.connection_id,
       });
       onSuccess(ticket);

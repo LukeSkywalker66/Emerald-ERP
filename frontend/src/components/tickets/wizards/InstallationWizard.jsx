@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { ChevronLeft, Loader, Search, MapPin, AlertCircle } from 'lucide-react';
 import ticketsService from '@/services/tickets.service';
 
-export default function InstallationWizard({ onBack, onSuccess }) {
+export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
   const [step, setStep] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -105,6 +105,7 @@ export default function InstallationWizard({ onBack, onSuccess }) {
         subject: `Instalación - ${formData.connection.client_name}`,
         description: `Nueva instalación en ${formData.connection.installation_address}`,
         priority: 'medium',
+        category_id: categoryId,
         destination_connection_id: formData.connection.connection_id,
         installation_tech: formData.installation_tech,
         availability_note: formData.availabilityNote,

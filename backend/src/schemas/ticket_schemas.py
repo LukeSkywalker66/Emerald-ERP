@@ -5,16 +5,22 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.models.ticket import TicketEventType, TicketPriority, TicketStatus
+from src.models import TicketEventType, TicketPriority, TicketStatus, TicketCategory
 from src.schemas.user_schemas import UserResponse
 
 
-class TicketCategoryOut(BaseModel):
+class TicketCategoryResponse(BaseModel):
+    """Schema para responder categorías de tickets disponibles."""
     id: int
     name: str
     description: Optional[str] = None
+    priority_default: TicketPriority
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# Alias por compatibilidad
+TicketCategoryOut = TicketCategoryResponse
 
 
 class TicketCreate(BaseModel):

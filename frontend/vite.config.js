@@ -23,7 +23,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/api': {
           // Si estamos en Docker, usa la variable. Si es local, usa localhost:8500
-          target: env.VITE_API_URL || 'http://localhost:8500',
+          target: env.INTERNAL_API_URL || 'http://localhost:8500',
           changeOrigin: true,
           secure: false,
                   },

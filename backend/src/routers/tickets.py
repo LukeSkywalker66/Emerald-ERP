@@ -24,6 +24,7 @@ from src.models import (
     AdministrativeSubtype,
     TicketAttachment,
     Tag,
+    TicketCategory,
 )
 from src.schemas.tickets import (
     TicketCreate,
@@ -36,9 +37,22 @@ from src.schemas.tickets import (
     WorkOrderResponse,
     ConnectionDetailsResponse,
     TagResponse,
+    TicketCategoryResponse,
 )
 
 router = APIRouter()
+
+# ============================
+# Categorías de Ticket
+# ============================
+
+
+@router.get("/categories", response_model=List[TicketCategoryResponse])
+def list_ticket_categories(db: Session = Depends(get_db)):
+    """Devuelve todas las categorías de tickets con prioridad por defecto."""
+    stmt = select(TicketCategory).order_by(TicketCategory.name)
+    result = db.execute(stmt).scalars().all()
+    return result
 
 # Traducciones para mensajes en español
 STATUS_LABELS = {
@@ -459,11 +473,19 @@ def create_ticket(
                 detail="Tickets administrativos requieren administrative_subtype"
             )
     
+    category = None
+    if payload.category_id:
+        category = db.get(TicketCategory, payload.category_id)
+        if not category:
+            raise HTTPException(status_code=404, detail="Categoría de ticket no encontrada")
+
+    ticket_priority = payload.priority or (category.priority_default if category else TicketPriority.medium)
+
     # Crear ticket
     ticket = Ticket(
         subject=payload.subject,
         description=payload.description,
-        priority=payload.priority,
+        priority=ticket_priority,
         status=TicketStatus.open,
         ticket_type=payload.ticket_type,
         administrative_subtype=payload.administrative_subtype,
@@ -472,6 +494,7 @@ def create_ticket(
         destination_connection_id=payload.destination_connection_id,
         installation_tech=payload.installation_tech,
         availability_note=payload.availability_note,
+        category_id=payload.category_id,
         creator_id=user_id,
     )
     

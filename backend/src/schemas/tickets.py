@@ -14,12 +14,23 @@ from src.models.tickets import (
     ResolutionCategory,
     TicketType,
     AdministrativeSubtype,
+    TicketCategory,
 )
 
 
 # ===========================
 # SCHEMAS: Tags
 # ===========================
+
+
+class TicketCategoryResponse(BaseModel):
+    """Respuesta de categorías disponibles para tickets."""
+    id: int
+    name: str
+    description: Optional[str] = None
+    priority_default: TicketPriority
+
+    model_config = ConfigDict(from_attributes=True)
 
 class TagResponse(BaseModel):
     """Respuesta de información de etiqueta."""
@@ -179,6 +190,7 @@ class TicketCreate(BaseModel):
     subject: str = Field(..., min_length=3, max_length=255)
     description: Optional[str] = None
     priority: TicketPriority = TicketPriority.medium
+    category_id: Optional[int] = Field(None, description="Categoría asociada al ticket")
     
     # Tipo de ticket y flujo (NUEVO)
     ticket_type: TicketType = TicketType.technical

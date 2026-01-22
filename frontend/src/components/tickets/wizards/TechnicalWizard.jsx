@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { ChevronLeft, Loader, Search, AlertCircle, MapPin } from 'lucide-react';
 import ticketsService from '@/services/tickets.service';
 
-export default function TechnicalWizard({ onBack, onSuccess }) {
+export default function TechnicalWizard({ onBack, onSuccess, categoryId }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -78,6 +78,7 @@ export default function TechnicalWizard({ onBack, onSuccess }) {
         subject: formData.subject,
         description: formData.description,
         priority: formData.priority,
+        category_id: categoryId,
         connection_id: formData.connection_id,
       });
       

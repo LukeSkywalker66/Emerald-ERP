@@ -13,14 +13,8 @@ sys.path.insert(0, BASE_DIR)
 
 from src.database import SessionLocal  # type: ignore
 from src.models.user import User  # type: ignore
-from src.models.ticket import (  # type: ignore
-    Ticket,
-    TicketCategory,
-    TicketEvent,
-    TicketEventType,
-    TicketPriority,
-    TicketStatus,
-)
+from src.models import Ticket, TicketCategory, TicketPriority, TicketStatus
+from src.models.tickets import TicketEvent, TicketEventType  # type: ignore
 
 DEFAULT_CATEGORIES = [
     ("Falla Técnica", "Default priority: high"),

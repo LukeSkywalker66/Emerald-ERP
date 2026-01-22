@@ -19,6 +19,7 @@ from .tickets import (
 	WorkOrderStatus,
 	WorkOrderType,
 	WorkOrderItem,
+	TicketCategory,
 	Tag,
 	ticket_tags_association,
 )
@@ -78,6 +79,7 @@ __all__ = [
 	"WorkOrderStatus",
 	"WorkOrderType",
 	"WorkOrderItem",
+	"TicketCategory",
 	"Tag",
 	"TicketAttachment",
 	# Engineering models
