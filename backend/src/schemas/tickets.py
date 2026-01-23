@@ -241,6 +241,8 @@ class TicketResponse(BaseModel):
     assigned_to_name: Optional[str] = None
     client_name: Optional[str] = None
     client_dni: Optional[str] = None
+    category_name: Optional[str] = None
+    reason_name: Optional[str] = None
     tags: List[TagResponse] = Field(default_factory=list, description="Etiquetas asignadas al ticket")
 
     model_config = ConfigDict(from_attributes=True)

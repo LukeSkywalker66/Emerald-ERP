@@ -197,6 +197,24 @@ function TimelineEventCard({ event }) {
     );
   }
 
+  // Formatear contenido con saltos de línea
+  const formatContent = (content) => {
+    if (!content) return '';
+    // Convertir saltos de línea en elementos separados
+    const lines = content.split('\n').filter(line => line.trim());
+    if (lines.length === 1) {
+      return <span className="text-sm font-medium text-white">{lines[0]}</span>;
+    }
+    return (
+      <div className="space-y-2">
+        <p className="text-sm font-semibold text-white">{lines[0]}</p>
+        {lines.slice(1).map((line, idx) => (
+          <p key={idx} className="text-sm text-zinc-300 leading-relaxed">{line}</p>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <>
       <div className="flex gap-4 relative">
@@ -204,18 +222,16 @@ function TimelineEventCard({ event }) {
           <Icon size={12} />
         </div>
         <div className="flex-1 pb-4">
-          <div className="flex items-start justify-between mb-1">
-            <p
-              className="text-sm font-medium text-white"
-              dangerouslySetInnerHTML={{ __html: event.content }}
-            />
-            <time className="text-xs text-zinc-500 ml-4 whitespace-nowrap">
-              {new Date(event.created_at).toLocaleString('es-AR')}
-            </time>
-          </div>
-          {event.author_name && (
-            <p className="text-xs text-zinc-500">por {event.author_name}</p>
-          )}
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
+            <div className="flex items-start justify-between mb-2">
+              {formatContent(event.content)}
+              <time className="text-xs text-zinc-500 ml-4 whitespace-nowrap flex-shrink-0">
+                {new Date(event.created_at).toLocaleString('es-AR')}
+              </time>
+            </div>
+            {event.author_name && (
+              <p className="text-xs text-zinc-500">por {event.author_name}</p>
+            )}
 
           {/* Archivos adjuntos en NOTE */}
           {attachments.length > 0 && (

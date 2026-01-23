@@ -119,7 +119,13 @@ def _validate_file(file: UploadFile) -> tuple[bool, str]:
 
 
 def get_user_id(request: Request) -> int:
-    return getattr(request.state, "user_id", 2)  # User admin@emerald.com
+    actual_user_id = getattr(request.state, "user_id", None)
+    if not actual_user_id:
+        # Log cuando se usa el fallback
+        import logging
+        logger = logging.getLogger("uvicorn.error")
+        logger.warning(f"[AUTH] No se encontró user_id en request.state, usando fallback admin (ID=2)")
+    return actual_user_id if actual_user_id else 2  # Fallback a admin@emerald.com
 
 
 def _safe_name(user) -> Optional[str]:
@@ -158,6 +164,8 @@ def _ticket_to_response(
         assigned_to_name=_safe_name(ticket.assigned_to),
         client_name=client_name,
         client_dni=client_dni,
+        category_name=ticket.category.name if ticket.category else None,
+        reason_name=ticket.reason.name if ticket.reason else None,
         tags=[TagResponse.model_validate(tag) for tag in ticket.tags] if ticket.tags else [],
     )
 
@@ -490,10 +498,11 @@ def create_ticket(
             )
     
     elif payload.ticket_type == TicketType.administrative:
-        if not payload.administrative_subtype:
+        # Para tickets administrativos, aceptar tanto administrative_subtype (legacy) como ticket_reason_id (nuevo sistema)
+        if not payload.administrative_subtype and not payload.ticket_reason_id:
             raise HTTPException(
                 status_code=400,
-                detail="Tickets administrativos requieren administrative_subtype"
+                detail="Tickets administrativos requieren administrative_subtype o ticket_reason_id"
             )
     
     category = None
@@ -592,18 +601,39 @@ def create_ticket(
             from src.config import logger
             logger.warning(f"Error sincronizando cliente para ticket {ticket.id}: {e}")
     
-    # Crear evento de timeline
-    timeline_event = TicketTimeline(
+    # Crear evento de timeline para creación del ticket
+    ticket_created_event = TicketTimeline(
         ticket_id=ticket.id,
         author_id=user_id,
-        event_type=TicketTimelineEventType.note,
-        content=f"Ticket creado - Tipo: {payload.ticket_type.value}",
+        event_type=TicketTimelineEventType.status_change,
+        content="Ticket creado",
         meta_data={
             "ticket_type": payload.ticket_type.value,
             "administrative_subtype": payload.administrative_subtype.value if payload.administrative_subtype else None,
         },
     )
-    db.add(timeline_event)
+    db.add(ticket_created_event)
+    
+    # Si hay descripción, crear un segundo evento con el motivo como encabezado
+    if payload.description and payload.description.strip():
+        # Obtener el nombre del motivo si existe
+        reason_header = "Descripción"
+        if payload.ticket_reason_id:
+            reason = db.get(TicketReason, payload.ticket_reason_id)
+            if reason:
+                reason_header = reason.name
+        
+        description_event = TicketTimeline(
+            ticket_id=ticket.id,
+            author_id=user_id,
+            event_type=TicketTimelineEventType.note,
+            content=f"{reason_header}\n{payload.description}",
+            meta_data={
+                "reason_id": payload.ticket_reason_id,
+                "is_initial_description": True,
+            },
+        )
+        db.add(description_event)
     
     # Auto-crear OT según tipo
     if payload.ticket_type in [TicketType.installation, TicketType.withdrawal, TicketType.relocation]:

@@ -296,17 +296,33 @@ export default function TicketDetailPage() {
               </div>
               <div>
                 <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">
-                  Creado por
-                </p>
-                <p className="text-sm text-zinc-300">{ticket.creator_name}</p>
-              </div>
-              <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">
                   Asignado a
                 </p>
                 <p className="text-sm text-zinc-300">
                   {ticket.assigned_to_name || 'Sin asignar'}
                 </p>
+              </div>
+              {ticket.category_name && (
+                <div>
+                  <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">
+                    Categoría
+                  </p>
+                  <p className="text-sm text-emerald-400 font-medium">{ticket.category_name}</p>
+                </div>
+              )}
+              {ticket.reason_name && (
+                <div>
+                  <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">
+                    Motivo
+                  </p>
+                  <p className="text-sm text-amber-400 font-medium">{ticket.reason_name}</p>
+                </div>
+              )}
+              <div>
+                <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">
+                  Creado por
+                </p>
+                <p className="text-sm text-zinc-300">{ticket.creator_name}</p>
               </div>
               <div>
                 <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">
