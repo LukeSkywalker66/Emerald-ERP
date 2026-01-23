@@ -109,6 +109,45 @@ CREATE INDEX ix_work_orders_completed_at ON work_orders(completed_at);
 - ✅ `resolution_notes` es libre-formato para narrativa del técnico (min 10 caracteres)
 - ✅ `custom_data` flexibiliza datos variables (speedtest, señal óptica, etc)
 
+### 1.4 Tabla Motivos: `ticket_reasons` + FK opcional en `tickets`
+
+```sql
+CREATE TABLE ticket_reasons (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(150) NOT NULL,
+  category_id INTEGER NOT NULL REFERENCES ticket_categories(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+
+CREATE INDEX ix_ticket_reasons_id ON ticket_reasons(id);
+CREATE INDEX ix_ticket_reasons_category_id ON ticket_reasons(category_id);
+
+-- tickets: FK opcional (permite tickets creados antes de la feature)
+ALTER TABLE tickets
+  ADD COLUMN ticket_reason_id INTEGER NULL,
+  ADD CONSTRAINT fk_tickets_reason_id FOREIGN KEY (ticket_reason_id)
+    REFERENCES ticket_reasons(id) ON DELETE SET NULL;
+CREATE INDEX ix_tickets_ticket_reason_id ON tickets(ticket_reason_id);
+```
+
+**Rationale:**
+- ✅ Motivo depende de la categoría (FK obligatoria, cascade delete)
+- ✅ FK en `tickets` es opcional para compatibilidad hacia atrás
+- ✅ Índices para filtrar rápido por categoría y motivo
+- ✅ Timestamps para auditoría
+
+**Seeds iniciales (enero 2026):**
+- `Falla Técnica`: Sin Servicio, Intermitencia/Microcortes, Lentitud, Problema WiFi
+- `Administrativo`: Cambio de Plan/Servicio, Cambio de Titularidad, Facturación
+- `Traslado`: Traslado Interno, Traslado a otro domicilio
+- `Baja`: Precio/Competencia, Disconformidad Técnica, Mudanza, Fallecimiento
+- `Instalación`: sin motivos (no aplica)
+
+**API:**
+- `GET /api/v2/tickets/reasons?category_id={id?}` devuelve motivos; sin filtro retorna todos.
+- Validación en `POST /api/v2/tickets`: si se envía `ticket_reason_id` debe pertenecer a la `category_id` del ticket.
+
 ---
 
 ## 2️⃣ Enriquecimiento de Datos - Conexión + Cliente

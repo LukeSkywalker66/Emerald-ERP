@@ -2,18 +2,11 @@
  * AdministrativeWizard - Trámites administrativos
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ChevronLeft, Loader, Search, FileText, AlertCircle } from 'lucide-react';
 import ticketsService from '@/services/tickets.service';
-
-const SUBTYPES = [
-  { value: 'billing', label: 'Consulta / Problema de Facturación', icon: '💳' },
-  { value: 'data_update', label: 'Actualización de Datos', icon: '📝' },
-  { value: 'plan_change', label: 'Cambio de Plan', icon: '🔄' },
-  { value: 'other', label: 'Otro Trámite', icon: '📋' },
-];
 
 export default function AdministrativeWizard({ onBack, onSuccess, categoryId }) {
   const [step, setStep] = useState(1);
@@ -22,11 +15,33 @@ export default function AdministrativeWizard({ onBack, onSuccess, categoryId }) 
   const [isSearching, setIsSearching] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const [reasons, setReasons] = useState([]);
+  const [isLoadingReasons, setIsLoadingReasons] = useState(false);
+  
   const [formData, setFormData] = useState({
     connection: null,
-    administrative_subtype: 'billing',
+    ticket_reason_id: null,
     description: '',
   });
+
+  // Cargar motivos al montar el componente
+  useEffect(() => {
+    if (!categoryId) return;
+    
+    const loadReasons = async () => {
+      try {
+        setIsLoadingReasons(true);
+        const data = await ticketsService.getReasons(categoryId);
+        setReasons(data);
+      } catch (err) {
+        console.error('Error cargando motivos:', err);
+      } finally {
+        setIsLoadingReasons(false);
+      }
+    };
+    
+    loadReasons();
+  }, [categoryId]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -53,17 +68,22 @@ export default function AdministrativeWizard({ onBack, onSuccess, categoryId }) 
       setError('Describe el trámite solicitado');
       return;
     }
+    if (!formData.ticket_reason_id) {
+      setError('Selecciona el tipo de trámite');
+      return;
+    }
     try {
       setIsSubmitting(true);
       setError(null);
-      const subtypeLabel = SUBTYPES.find(s => s.value === formData.administrative_subtype)?.label || 'Trámite';
+      const selectedReason = reasons.find(r => r.id === formData.ticket_reason_id);
+      const reasonLabel = selectedReason?.name || 'Trámite';
       const ticket = await ticketsService.create({
         ticket_type: 'administrative',
-        subject: `${subtypeLabel} - ${formData.connection.client_name}`,
+        subject: `[${reasonLabel}] - ${formData.connection.client_name}`,
         description: formData.description,
         priority: 'medium',
         category_id: categoryId,
-        administrative_subtype: formData.administrative_subtype,
+        ticket_reason_id: formData.ticket_reason_id,
         connection_id: formData.connection.connection_id,
       });
       onSuccess(ticket);
@@ -140,22 +160,19 @@ export default function AdministrativeWizard({ onBack, onSuccess, categoryId }) 
       <div className="space-y-6">
         <div>
           <label className="text-sm font-medium text-zinc-300 block mb-2">Tipo de Trámite *</label>
-          <div className="grid grid-cols-2 gap-2">
-            {SUBTYPES.map((subtype) => (
-              <button
-                key={subtype.value}
-                onClick={() => setFormData(p => ({ ...p, administrative_subtype: subtype.value }))}
-                className={`p-2 rounded-lg border text-xs text-center font-medium transition-all ${
-                  formData.administrative_subtype === subtype.value
-                    ? 'border-amber-500 bg-amber-500/20 text-amber-300'
-                    : 'border-zinc-700 bg-zinc-800/50 text-zinc-300 hover:border-zinc-600'
-                }`}
-              >
-                <div className="text-lg mb-1">{subtype.icon}</div>
-                {subtype.label}
-              </button>
+          <select
+            value={formData.ticket_reason_id || ''}
+            onChange={(e) => setFormData(p => ({ ...p, ticket_reason_id: e.target.value ? parseInt(e.target.value) : null }))}
+            disabled={isLoadingReasons}
+            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50 disabled:opacity-50"
+          >
+            <option value="">Seleccionar tipo...</option>
+            {reasons.map(reason => (
+              <option key={reason.id} value={reason.id}>
+                {reason.name}
+              </option>
             ))}
-          </div>
+          </select>
         </div>
         <div>
           <label className="text-sm font-medium text-zinc-300 block mb-2">Descripción del Trámite *</label>

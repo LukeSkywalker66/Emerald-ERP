@@ -32,6 +32,16 @@ class TicketCategoryResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+class TicketReasonResponse(BaseModel):
+    """Respuesta de motivos de ticket."""
+    id: int
+    name: str
+    category_id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class TagResponse(BaseModel):
     """Respuesta de información de etiqueta."""
     id: int
@@ -191,6 +201,7 @@ class TicketCreate(BaseModel):
     description: Optional[str] = None
     priority: TicketPriority = TicketPriority.medium
     category_id: Optional[int] = Field(None, description="Categoría asociada al ticket")
+    ticket_reason_id: Optional[int] = Field(None, description="Motivo específico del ticket")
     
     # Tipo de ticket y flujo (NUEVO)
     ticket_type: TicketType = TicketType.technical

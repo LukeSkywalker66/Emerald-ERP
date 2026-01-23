@@ -230,6 +230,40 @@ class TicketCategory(Base, TimestampMixin):
     )
 
     tickets: Mapped[list['Ticket']] = relationship("Ticket", back_populates="category", lazy="select")
+    reasons: Mapped[list['TicketReason']] = relationship("TicketReason", back_populates="category", lazy="select")
+
+
+# ===========================
+# MODELO: Motivos de Ticket
+# ===========================
+
+class TicketReason(Base, TimestampMixin):
+    """
+    Motivos de ticket dependientes de la categoría.
+    Permite clasificar tickets con motivos específicos según el tipo de gestión.
+    
+    Ejemplos:
+    - Soporte Técnico: 'Sin Servicio', 'Intermitencia', 'Lentitud'
+    - Baja de Servicio: 'Mudanza', 'Precio/Competencia'
+    - Administrativo: 'Cambio de Plan', 'Facturación'
+    """
+    __tablename__ = "ticket_reasons"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, comment="ID único del motivo")
+    name: Mapped[str] = mapped_column(String(150), nullable=False, comment="Nombre del motivo")
+    category_id: Mapped[int] = mapped_column(
+        ForeignKey("ticket_categories.id", name="fk_ticket_reasons_category_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="Categoría a la que pertenece el motivo"
+    )
+
+    # Relaciones
+    category: Mapped['TicketCategory'] = relationship("TicketCategory", back_populates="reasons", lazy="joined")
+    tickets: Mapped[list['Ticket']] = relationship("Ticket", back_populates="reason", lazy="select")
+
+    def __repr__(self) -> str:
+        return f"<TicketReason(id={self.id}, name={self.name}, category_id={self.category_id})>"
 
 
 # ===========================
@@ -297,6 +331,14 @@ class Ticket(Base, TimestampMixin):
         nullable=True,
         index=True,
         comment="Categoría del ticket (clasificación funcional)",
+    )
+
+    # Motivo específico del ticket (dependiente de categoría)
+    ticket_reason_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("ticket_reasons.id", name="fk_tickets_reason_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Motivo específico del ticket (ej: 'Sin Servicio', 'Mudanza')",
     )
 
     # Estado y prioridad
@@ -380,6 +422,11 @@ class Ticket(Base, TimestampMixin):
     )
     category: Mapped[Optional['TicketCategory']] = relationship(
         "TicketCategory",
+        back_populates="tickets",
+        lazy="joined",
+    )
+    reason: Mapped[Optional['TicketReason']] = relationship(
+        "TicketReason",
         back_populates="tickets",
         lazy="joined",
     )

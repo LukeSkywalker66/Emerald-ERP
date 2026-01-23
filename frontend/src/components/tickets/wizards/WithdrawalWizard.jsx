@@ -2,7 +2,7 @@
  * WithdrawalWizard - Retiro de servicio
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ChevronLeft, Loader, Search, Trash2, AlertCircle } from 'lucide-react';
@@ -16,6 +16,28 @@ export default function WithdrawalWizard({ onBack, onSuccess, categoryId }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [selectedConnection, setSelectedConnection] = useState(null);
+  const [ticketReasonId, setTicketReasonId] = useState(null);
+  const [reasons, setReasons] = useState([]);
+  const [isLoadingReasons, setIsLoadingReasons] = useState(false);
+
+  // Cargar motivos al montar el componente
+  useEffect(() => {
+    if (!categoryId) return;
+    
+    const loadReasons = async () => {
+      try {
+        setIsLoadingReasons(true);
+        const data = await ticketsService.getReasons(categoryId);
+        setReasons(data);
+      } catch (err) {
+        console.error('Error cargando motivos:', err);
+      } finally {
+        setIsLoadingReasons(false);
+      }
+    };
+    
+    loadReasons();
+  }, [categoryId]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -38,16 +60,26 @@ export default function WithdrawalWizard({ onBack, onSuccess, categoryId }) {
   };
 
   const handleConfirmWithdrawal = async () => {
+    if (!ticketReasonId) {
+      setError('Selecciona el motivo de la baja');
+      return;
+    }
+    
     try {
       setIsSubmitting(true);
       setError(null);
+      
+      const selectedReason = reasons.find(r => r.id === ticketReasonId);
+      const reasonLabel = selectedReason?.name || 'Baja';
+      
       const ticket = await ticketsService.create({
         ticket_type: 'withdrawal',
-        subject: `Retiro - ${selectedConnection.client_name}`,
-        description: `Retiro de servicio en ${selectedConnection.address}`,
+        subject: `[${reasonLabel}] - ${selectedConnection.client_name}`,
+        description: `Retiro de servicio en ${selectedConnection.address}. Motivo: ${reasonLabel}`,
         priority: 'medium',
         category_id: categoryId,
         connection_id: selectedConnection.connection_id,
+        ticket_reason_id: ticketReasonId,
       });
       onSuccess(ticket);
     } catch (err) {
@@ -131,6 +163,24 @@ export default function WithdrawalWizard({ onBack, onSuccess, categoryId }) {
             Se retirará la conexión de <strong>{selectedConnection.client_name}</strong> en {selectedConnection.address}
           </p>
         </div>
+        
+        <div>
+          <label className="text-sm font-medium text-zinc-300 block mb-2">Motivo de la Baja *</label>
+          <select
+            value={ticketReasonId || ''}
+            onChange={(e) => setTicketReasonId(e.target.value ? parseInt(e.target.value) : null)}
+            disabled={isLoadingReasons}
+            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-red-500/50 disabled:opacity-50"
+          >
+            <option value="">Seleccionar motivo...</option>
+            {reasons.map(reason => (
+              <option key={reason.id} value={reason.id}>
+                {reason.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        
         {error && (
           <div className="p-3 rounded-lg border border-rose-700/50 bg-rose-950/30 flex gap-2 text-rose-300 text-sm">
             <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />

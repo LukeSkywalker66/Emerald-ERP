@@ -25,6 +25,7 @@ from src.models import (
     TicketAttachment,
     Tag,
     TicketCategory,
+    TicketReason,
 )
 from src.schemas.tickets import (
     TicketCreate,
@@ -38,6 +39,7 @@ from src.schemas.tickets import (
     ConnectionDetailsResponse,
     TagResponse,
     TicketCategoryResponse,
+    TicketReasonResponse,
 )
 
 router = APIRouter()
@@ -53,6 +55,27 @@ def list_ticket_categories(db: Session = Depends(get_db)):
     stmt = select(TicketCategory).order_by(TicketCategory.name)
     result = db.execute(stmt).scalars().all()
     return result
+
+
+@router.get("/reasons", response_model=List[TicketReasonResponse])
+def list_ticket_reasons(
+    category_id: Optional[int] = Query(None, description="Filtrar motivos por categoría"),
+    db: Session = Depends(get_db)
+):
+    """
+    Devuelve los motivos de ticket, opcionalmente filtrados por categoría.
+    
+    Si no se proporciona category_id, retorna todos los motivos.
+    Si se proporciona, retorna solo los motivos de esa categoría específica.
+    """
+    stmt = select(TicketReason).order_by(TicketReason.name)
+    
+    if category_id is not None:
+        stmt = stmt.where(TicketReason.category_id == category_id)
+    
+    result = db.execute(stmt).scalars().all()
+    return result
+
 
 # Traducciones para mensajes en español
 STATUS_LABELS = {
@@ -478,6 +501,18 @@ def create_ticket(
         category = db.get(TicketCategory, payload.category_id)
         if not category:
             raise HTTPException(status_code=404, detail="Categoría de ticket no encontrada")
+    
+    # Validar motivo si se proporciona
+    if payload.ticket_reason_id:
+        reason = db.get(TicketReason, payload.ticket_reason_id)
+        if not reason:
+            raise HTTPException(status_code=404, detail="Motivo de ticket no encontrado")
+        # Validar que el motivo pertenezca a la categoría seleccionada
+        if payload.category_id and reason.category_id != payload.category_id:
+            raise HTTPException(
+                status_code=400, 
+                detail="El motivo seleccionado no pertenece a la categoría del ticket"
+            )
 
     ticket_priority = payload.priority or (category.priority_default if category else TicketPriority.medium)
 
@@ -495,6 +530,7 @@ def create_ticket(
         installation_tech=payload.installation_tech,
         availability_note=payload.availability_note,
         category_id=payload.category_id,
+        ticket_reason_id=payload.ticket_reason_id,
         creator_id=user_id,
     )
     

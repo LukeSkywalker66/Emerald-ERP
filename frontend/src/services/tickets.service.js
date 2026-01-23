@@ -38,6 +38,22 @@ export const getCategories = async () => {
 };
 
 /**
+ * Obtener motivos de ticket filtrados por categoría
+ * @param {number} categoryId - ID de la categoría (opcional)
+ * @returns {Promise<Array>} Array de motivos { id, name, category_id }
+ */
+export const getReasons = async (categoryId = null) => {
+  try {
+    const params = categoryId ? { category_id: categoryId } : {};
+    const { data } = await api.get(`${BASE_URL}/reasons`, { params });
+    return data || [];
+  } catch (error) {
+    console.error('❌ Error fetching ticket reasons:', error);
+    throw error;
+  }
+};
+
+/**
  * Obtener detalle completo de un ticket
  * @param {number} id - ID del ticket
  * @returns {Promise<Object>} Ticket con timeline y work_orders
@@ -275,6 +291,7 @@ export default {
   lookupCustomerByDNI,
   getUsers,
   getCategories,
+  getReasons,
   // Tags
   getTags,
   createTag,

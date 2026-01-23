@@ -185,8 +185,8 @@ export default function CreateTicketDialog({ isOpen, onClose, onSuccess }) {
         </DialogHeader>
 
         {!selectedCategory ? (
-          // Selector de tipo con UI Premium - grid 4 columnas, tarjetas amplias
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 py-4">
+          // Selector de tipo con UI Premium - grid 3 columnas, tarjetas más amplias
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 py-4">
             {isLoadingCategories && (
               <div className="col-span-4 text-center text-zinc-400 py-8">Consultando al Orquestador...</div>
             )}

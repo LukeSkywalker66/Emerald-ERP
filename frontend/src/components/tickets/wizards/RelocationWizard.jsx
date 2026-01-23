@@ -3,7 +3,7 @@
  * filepath: frontend/src/components/tickets/wizards/RelocationWizard.jsx
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +25,8 @@ export default function RelocationWizard({ onBack, onSuccess, categoryId }) {
   const [isSearching, setIsSearching] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const [reasons, setReasons] = useState([]);
+  const [isLoadingReasons, setIsLoadingReasons] = useState(false);
 
   const [formData, setFormData] = useState({
     clientName: '',
@@ -33,9 +35,29 @@ export default function RelocationWizard({ onBack, onSuccess, categoryId }) {
     destinationConnection: null,
     availabilityNote: '',
     destinationAddress: '',
+    ticket_reason_id: null,
   });
 
   const [destinationMode, setDestinationMode] = useState('existing'); // existing | manual
+
+  // Cargar motivos al montar el componente
+  useEffect(() => {
+    if (!categoryId) return;
+    
+    const loadReasons = async () => {
+      try {
+        setIsLoadingReasons(true);
+        const data = await ticketsService.getReasons(categoryId);
+        setReasons(data);
+      } catch (err) {
+        console.error('Error cargando motivos:', err);
+      } finally {
+        setIsLoadingReasons(false);
+      }
+    };
+    
+    loadReasons();
+  }, [categoryId]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -97,6 +119,12 @@ export default function RelocationWizard({ onBack, onSuccess, categoryId }) {
         setIsSubmitting(false);
         return;
       }
+      
+      if (!formData.ticket_reason_id) {
+        setError('Selecciona el motivo del traslado');
+        setIsSubmitting(false);
+        return;
+      }
 
       const hasDestinationConnection = Boolean(formData.destinationConnection);
       const manualAddress = formData.destinationAddress?.trim();
@@ -118,9 +146,12 @@ export default function RelocationWizard({ onBack, onSuccess, categoryId }) {
         .filter(Boolean)
         .join(' | ');
 
+      const selectedReason = reasons.find(r => r.id === formData.ticket_reason_id);
+      const reasonLabel = selectedReason?.name || 'Traslado';
+
       const ticket = await ticketsService.create({
         ticket_type: 'relocation',
-        subject: `Traslado - ${formData.clientName || 'Cliente'}`,
+        subject: `[${reasonLabel}] - ${formData.clientName || 'Cliente'}`,
         description: `Traslado desde ${formData.originConnection.installation_address} hacia ${destinationLabel}`,
         priority: 'medium',
         category_id: categoryId,
@@ -129,6 +160,7 @@ export default function RelocationWizard({ onBack, onSuccess, categoryId }) {
           ? formData.destinationConnection.connection_id
           : null,
         availability_note: availabilityNote || null,
+        ticket_reason_id: formData.ticket_reason_id,
       });
 
       onSuccess(ticket);
@@ -412,6 +444,24 @@ export default function RelocationWizard({ onBack, onSuccess, categoryId }) {
               placeholder="Ej: Lunes a viernes de 14 a 18hs"
               className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 resize-none text-sm"
             />
+          </div>
+
+          {/* Motivo del Traslado */}
+          <div>
+            <label className="text-sm font-medium text-zinc-300 block mb-2">Motivo del Traslado *</label>
+            <select
+              value={formData.ticket_reason_id || ''}
+              onChange={(e) => setFormData(p => ({ ...p, ticket_reason_id: e.target.value ? parseInt(e.target.value) : null }))}
+              disabled={isLoadingReasons}
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50 disabled:opacity-50"
+            >
+              <option value="">Seleccionar motivo...</option>
+              {reasons.map(reason => (
+                <option key={reason.id} value={reason.id}>
+                  {reason.name}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 

@@ -15,14 +15,36 @@ export default function TechnicalWizard({ onBack, onSuccess, categoryId }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [error, setError] = useState(null);
+  const [reasons, setReasons] = useState([]);
+  const [isLoadingReasons, setIsLoadingReasons] = useState(false);
   
   const [formData, setFormData] = useState({
     connection_id: null,
     connection: null,
+    ticket_reason_id: null,
     subject: '',
     description: '',
     priority: 'medium',
   });
+
+  // Cargar motivos al montar el componente
+  useEffect(() => {
+    if (!categoryId) return;
+    
+    const loadReasons = async () => {
+      try {
+        setIsLoadingReasons(true);
+        const data = await ticketsService.getReasons(categoryId);
+        setReasons(data);
+      } catch (err) {
+        console.error('Error cargando motivos:', err);
+      } finally {
+        setIsLoadingReasons(false);
+      }
+    };
+    
+    loadReasons();
+  }, [categoryId]);
 
   // Auto-search con debounce de 500ms
   useEffect(() => {
@@ -59,13 +81,36 @@ export default function TechnicalWizard({ onBack, onSuccess, categoryId }) {
   };
 
   const handleSelectConnection = (conn) => {
-    setFormData(p => ({ 
-      ...p, 
-      connection_id: conn.connection_id, 
-      connection: conn,
-      subject: p.subject || `Reclamo - ${conn.client_name}`
-    }));
+    setFormData(p => {
+      // Si ya hay motivo seleccionado, generar asunto automático
+      const selectedReason = reasons.find(r => r.id === p.ticket_reason_id);
+      const autoSubject = selectedReason 
+        ? `[${selectedReason.name}] - ${conn.client_name}`
+        : p.subject || `Reclamo - ${conn.client_name}`;
+      
+      return {
+        ...p,
+        connection_id: conn.connection_id,
+        connection: conn,
+        subject: autoSubject
+      };
+    });
     setSearchResults([]);
+  };
+  
+  const handleReasonChange = (reasonId) => {
+    setFormData(p => {
+      const selectedReason = reasons.find(r => r.id === parseInt(reasonId));
+      const autoSubject = selectedReason && p.connection
+        ? `[${selectedReason.name}] - ${p.connection.client_name}`
+        : p.subject;
+      
+      return {
+        ...p,
+        ticket_reason_id: reasonId ? parseInt(reasonId) : null,
+        subject: autoSubject
+      };
+    });
   };
 
   const handleSubmit = async () => {
@@ -80,6 +125,7 @@ export default function TechnicalWizard({ onBack, onSuccess, categoryId }) {
         priority: formData.priority,
         category_id: categoryId,
         connection_id: formData.connection_id,
+        ticket_reason_id: formData.ticket_reason_id || undefined,
       });
       
       onSuccess(ticket);
@@ -90,7 +136,7 @@ export default function TechnicalWizard({ onBack, onSuccess, categoryId }) {
     }
   };
 
-  const isValid = formData.connection_id && formData.subject.trim().length >= 3;
+  const isValid = formData.connection_id && formData.ticket_reason_id && formData.subject.trim().length >= 3;
 
   return (
     <div className="space-y-6">
@@ -111,7 +157,7 @@ export default function TechnicalWizard({ onBack, onSuccess, categoryId }) {
               <span>{formData.connection.installation_address}</span>
             </div>
             <button
-              onClick={() => setFormData(p => ({ ...p, connection_id: null, connection: null, subject: '' }))}
+              onClick={() => setFormData(p => ({ ...p, connection_id: null, connection: null, subject: '', ticket_reason_id: null }))}
               className="text-xs text-emerald-300 hover:text-emerald-200 mt-2"
             >
               Cambiar cliente
@@ -153,6 +199,23 @@ export default function TechnicalWizard({ onBack, onSuccess, categoryId }) {
             ))}
           </div>
         )}
+      </div>
+
+      <div>
+        <label className="text-sm font-medium text-zinc-300 block mb-2">Motivo *</label>
+        <select
+          value={formData.ticket_reason_id || ''}
+          onChange={(e) => handleReasonChange(e.target.value)}
+          disabled={isLoadingReasons}
+          className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-50"
+        >
+          <option value="">Seleccionar motivo...</option>
+          {reasons.map(reason => (
+            <option key={reason.id} value={reason.id}>
+              {reason.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div>
