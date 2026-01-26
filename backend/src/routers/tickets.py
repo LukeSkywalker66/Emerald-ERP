@@ -120,11 +120,19 @@ def _validate_file(file: UploadFile) -> tuple[bool, str]:
 
 def get_user_id(request: Request) -> int:
     actual_user_id = getattr(request.state, "user_id", None)
+    auth_type = getattr(request.state, "auth_type", "NONE")
+    
+    # Log cuando se usa el fallback
+    import logging
+    logger = logging.getLogger("uvicorn.error")
+    
     if not actual_user_id:
-        # Log cuando se usa el fallback
-        import logging
-        logger = logging.getLogger("uvicorn.error")
-        logger.warning(f"[AUTH] No se encontró user_id en request.state, usando fallback admin (ID=2)")
+        logger.info(f"🔴 [TICKET AUTH] ❌ No se encontró user_id en request.state")
+        logger.info(f"🔴 [TICKET AUTH] auth_type={auth_type}")
+        logger.info(f"🔴 [TICKET AUTH] Usando fallback admin (ID=2)")
+    else:
+        logger.info(f"✅ [TICKET AUTH] user_id encontrado: {actual_user_id} (tipo={type(actual_user_id)}, auth={auth_type})")
+    
     return actual_user_id if actual_user_id else 2  # Fallback a admin@emerald.com
 
 

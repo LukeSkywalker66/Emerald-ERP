@@ -155,7 +155,6 @@ async def security_middleware(request: Request, call_next):
         "/docs", 
         "/redoc", 
         "/openapi.json", 
-        "/tickets",           # Demo pública
         "/services_options",  # Demo pública
         # Beholder (legacy paths y prefijos /api)
         "/search", "/diagnosis", "/live", 
@@ -164,15 +163,14 @@ async def security_middleware(request: Request, call_next):
         "/api/health", "/health",
         # Auth
         "/api/v1/auth/login", "/api/v1/auth/register",
-        "/"                   # Root
     ]
     
     # Pasar libremente si es whitelist u OPTIONS
-    if request.method == "OPTIONS" or any(request.url.path.startswith(p) for p in whitelist):
+    if request.method == "OPTIONS" or request.url.path == "/" or any(request.url.path.startswith(p) for p in whitelist):
         return await call_next(request)
     
     # Endpoints que requieren autenticación
-    protected_endpoints = ["/admin", "/api/clientes", "/api/servicios"]
+    protected_endpoints = ["/admin", "/api/clientes", "/api/servicios", "/api/v2/tickets", "/api/v2/users"]
     is_protected = any(request.url.path.startswith(p) for p in protected_endpoints)
     
     if is_protected:
@@ -213,10 +211,21 @@ async def security_middleware(request: Request, call_next):
                 token = auth_header.split(" ")[1]
                 try:
                     payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-                    request.state.user_id = payload.get("sub")
+                    user_id_from_token = payload.get("sub")
+                    
+                    # DEBUG: Log del JWT
+                    import logging
+                    logger = logging.getLogger("uvicorn.error")
+                    logger.info(f"🔑 [JWT AUTH] Token decodificado. Payload sub={user_id_from_token}, tipo={type(user_id_from_token)}")
+                    logger.info(f"🔑 [JWT AUTH] Payload completo: {payload}")
+                    
+                    request.state.user_id = user_id_from_token
                     request.state.auth_type = "jwt"
                     return await call_next(request)
-                except JWTError:
+                except JWTError as e:
+                    import logging
+                    logger = logging.getLogger("uvicorn.error")
+                    logger.error(f"[JWT AUTH] Error decodificando token: {e}")
                     return JSONResponse(
                         status_code=401,
                         content={"detail": "Token inválido o expirado"}
