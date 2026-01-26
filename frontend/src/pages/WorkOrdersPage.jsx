@@ -61,8 +61,9 @@ const TYPE_CONFIG = {
 export default function WorkOrdersPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const isAdmin = useMemo(() => 
-    user?.role === 'admin' || user?.role === 'coordinator', 
+  // Roles que ven columnas adicionales (Programada, Creada, Asignada)
+  const canSeeAdminColumns = useMemo(() => 
+    user?.role === 'admin' || user?.role === 'coordinator' || user?.role === 'operator' || user?.role === 'super_user',
     [user]
   );
 
@@ -88,7 +89,16 @@ export default function WorkOrdersPage() {
         search: searchQuery || undefined,
         limit: 100,
       });
-      setWorkOrders(data.items || []);
+      let items = data.items || [];
+
+      // Filtro por asignación (solo admins)
+      if (assigneeFilter === 'unassigned') {
+        items = items.filter((wo) => !wo.technician);
+      } else if (assigneeFilter === 'assigned') {
+        items = items.filter((wo) => !!wo.technician);
+      }
+
+      setWorkOrders(items);
     } catch (err) {
       setError(err?.response?.data?.detail || err.message || 'Error al cargar OTs');
       console.error('Error loading work orders:', err);
@@ -102,7 +112,7 @@ export default function WorkOrdersPage() {
     setIsLoading(true);
     loadWorkOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, typeFilter, searchQuery]);
+  }, [statusFilter, typeFilter, searchQuery, assigneeFilter]);
 
   // Formatear fecha
   const formatScheduledDate = (dateStr) => {
@@ -124,14 +134,14 @@ export default function WorkOrdersPage() {
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-950/50 border border-emerald-500/20 mb-2">
             <ClipboardList size={14} className="text-emerald-500" />
             <span className="text-xs font-medium text-emerald-400 tracking-wide uppercase">
-              {isAdmin ? 'Gestión de OTs' : 'Mi Ruta'}
+              {canSeeAdminColumns ? 'Gestión de OTs' : 'Mi Ruta'}
             </span>
           </div>
           <h1 className="text-2xl font-bold text-white">
-            {isAdmin ? 'Órdenes de Trabajo' : 'Mis Órdenes Asignadas'}
+            {canSeeAdminColumns ? 'Órdenes de Trabajo' : 'Mis Órdenes Asignadas'}
           </h1>
           <p className="text-sm text-zinc-400 mt-1">
-            {isAdmin 
+            {canSeeAdminColumns 
               ? 'Vista global de todas las órdenes técnicas'
               : 'Tus tareas programadas para ejecutar'
             }
@@ -207,7 +217,7 @@ export default function WorkOrdersPage() {
           </select>
 
           {/* Filtro por asignado (solo admins) */}
-          {isAdmin && (
+          {canSeeAdminColumns && (
             <select
               value={assigneeFilter}
               onChange={(e) => setAssigneeFilter(e.target.value)}
@@ -261,10 +271,13 @@ export default function WorkOrdersPage() {
                 <TableHead className="w-[120px] text-zinc-400 font-semibold">Estado</TableHead>
                 <TableHead className="text-zinc-400 font-semibold">Cliente</TableHead>
                 <TableHead className="text-zinc-400 font-semibold">Dirección</TableHead>
-                {isAdmin && (
-                  <TableHead className="w-[140px] text-zinc-400 font-semibold">Asignado a</TableHead>
+                <TableHead className="w-[140px] text-zinc-400 font-semibold">Programada</TableHead>
+                {canSeeAdminColumns && (
+                  <TableHead className="w-[130px] text-zinc-400 font-semibold">Creada</TableHead>
                 )}
-                <TableHead className="w-[130px] text-zinc-400 font-semibold">Creada</TableHead>
+                {canSeeAdminColumns && (
+                  <TableHead className="w-[140px] text-zinc-400 font-semibold">Asignada</TableHead>
+                )}
               </TableRow>
             </TableHeader>
 
@@ -312,17 +325,24 @@ export default function WorkOrdersPage() {
                       {wo.address || '-'}
                     </TableCell>
 
-                    {/* Asignado a (solo para admins) */}
-                    {isAdmin && (
+                    {/* Fecha programada - visible para todos */}
+                    <TableCell className="text-xs text-zinc-400">
+                      {formatScheduledDate(wo.scheduled_at)}
+                    </TableCell>
+
+                    {/* Fecha de creación - solo admins */}
+                    {canSeeAdminColumns && (
+                      <TableCell className="text-xs text-zinc-400">
+                        {formatScheduledDate(wo.created_at)}
+                      </TableCell>
+                    )}
+
+                    {/* Asignada - solo admins */}
+                    {canSeeAdminColumns && (
                       <TableCell className="text-sm text-zinc-300">
                         {wo.technician?.name || <span className="text-zinc-500">Sin asignar</span>}
                       </TableCell>
                     )}
-
-                    {/* Fecha de creación */}
-                    <TableCell className="text-xs text-zinc-400">
-                      {formatScheduledDate(wo.created_at)}
-                    </TableCell>
                   </TableRow>
                 );
               })}
