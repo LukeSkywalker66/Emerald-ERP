@@ -36,10 +36,6 @@ const STATUS_CONFIG = {
     label: 'Asignada', 
     variant: 'bg-blue-500/10 border-blue-500/30 text-blue-300',
   },
-  scheduled: { 
-    label: 'Programada', 
-    variant: 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300',
-  },
   in_progress: { 
     label: 'En curso', 
     variant: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300',
@@ -80,6 +76,7 @@ export default function WorkOrdersPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  const [assigneeFilter, setAssigneeFilter] = useState('');
 
   // Load data
   const loadWorkOrders = async () => {
@@ -170,7 +167,7 @@ export default function WorkOrdersPage() {
 
       {/* Filters Toolbar */}
       <div className="p-4 rounded-xl border border-zinc-800/80 bg-zinc-900/50 space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {/* Búsqueda */}
           <div className="relative md:col-span-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
@@ -191,7 +188,6 @@ export default function WorkOrdersPage() {
             <option value="">Todos los estados</option>
             <option value="pending_planning">Planificación</option>
             <option value="assigned">Asignada</option>
-            <option value="scheduled">Programada</option>
             <option value="in_progress">En curso</option>
             <option value="completed">Completada</option>
             <option value="failed">Fallida</option>
@@ -209,11 +205,37 @@ export default function WorkOrdersPage() {
             <option value="pickup">Retiro</option>
             <option value="infrastructure">Infraestructura</option>
           </select>
+
+          {/* Filtro por asignado (solo admins) */}
+          {isAdmin && (
+            <select
+              value={assigneeFilter}
+              onChange={(e) => setAssigneeFilter(e.target.value)}
+              className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 focus:ring-2 focus:ring-emerald-500/40 h-9"
+            >
+              <option value="">Todos los técnicos</option>
+              <option value="unassigned">Sin asignar</option>
+              <option value="assigned">Asignado</option>
+            </select>
+          )}
         </div>
 
         <div className="flex items-center justify-between text-xs text-zinc-500 pt-2 border-t border-zinc-800">
           <span>{workOrders.length} órdenes encontradas</span>
           <span>Click en una fila para abrir</span>
+        </div>
+
+        {/* Legend de tipos */}
+        <div className="flex flex-wrap gap-4 pt-2 text-xs">
+          {Object.entries(TYPE_CONFIG).map(([key, config]) => {
+            const Icon = config.icon;
+            return (
+              <div key={key} className="flex items-center gap-2 text-zinc-400">
+                <Icon size={16} className={config.color} />
+                <span>{config.label}</span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -235,14 +257,14 @@ export default function WorkOrdersPage() {
             <TableHeader>
               <TableRow className="border-b border-zinc-800/80 hover:bg-transparent">
                 <TableHead className="w-[70px] text-zinc-400 font-semibold">ID</TableHead>
-                <TableHead className="w-[100px] text-zinc-400 font-semibold">Tipo</TableHead>
+                <TableHead className="w-[60px] text-zinc-400 font-semibold">Tipo</TableHead>
                 <TableHead className="w-[120px] text-zinc-400 font-semibold">Estado</TableHead>
                 <TableHead className="text-zinc-400 font-semibold">Cliente</TableHead>
                 <TableHead className="text-zinc-400 font-semibold">Dirección</TableHead>
-                <TableHead className="w-[140px] text-zinc-400 font-semibold">Programada</TableHead>
-                <TableHead className="w-[80px] text-zinc-400 font-semibold text-right">
-                  Acción
-                </TableHead>
+                {isAdmin && (
+                  <TableHead className="w-[140px] text-zinc-400 font-semibold">Asignado a</TableHead>
+                )}
+                <TableHead className="w-[130px] text-zinc-400 font-semibold">Creada</TableHead>
               </TableRow>
             </TableHeader>
 
@@ -263,13 +285,10 @@ export default function WorkOrdersPage() {
                       #{wo.id}
                     </TableCell>
 
-                    {/* Tipo */}
+                    {/* Tipo - solo icono */}
                     <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <TypeIcon size={14} className={typeConfig.color} />
-                        <span className="text-xs text-zinc-300">
-                          {typeConfig.label}
-                        </span>
+                      <div className="flex items-center justify-center" title={typeConfig.label}>
+                        <TypeIcon size={18} className={typeConfig.color} />
                       </div>
                     </TableCell>
 
@@ -293,21 +312,16 @@ export default function WorkOrdersPage() {
                       {wo.address || '-'}
                     </TableCell>
 
-                    {/* Fecha programada */}
-                    <TableCell className="text-xs text-zinc-400">
-                      {formatScheduledDate(wo.scheduled_at)}
-                    </TableCell>
+                    {/* Asignado a (solo para admins) */}
+                    {isAdmin && (
+                      <TableCell className="text-sm text-zinc-300">
+                        {wo.technician?.name || <span className="text-zinc-500">Sin asignar</span>}
+                      </TableCell>
+                    )}
 
-                    {/* Acción */}
-                    <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity h-7 px-2"
-                      >
-                        <ExternalLink size={14} className="mr-1" />
-                        Abrir
-                      </Button>
+                    {/* Fecha de creación */}
+                    <TableCell className="text-xs text-zinc-400">
+                      {formatScheduledDate(wo.created_at)}
                     </TableCell>
                   </TableRow>
                 );
