@@ -37,6 +37,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import ticketsService from '@/services/tickets.service';
+import api from '@/api/client';
 import workOrdersService from '@/services/workOrders.service';
 import { engineeringService } from '@/services/engineering.service';
 import TicketHistoryCard from '@/components/tickets/TicketHistoryCard';
@@ -744,22 +745,18 @@ export default function TicketDetailPage() {
         formData.append('files', file);
       });
 
-      // POST a endpoint de timeline
-      const response = await fetch(
-        `/api/v2/tickets/${ticket.id}/timeline`,
+      // POST a endpoint de timeline usando api client (con JWT token)
+      const response = await api.post(
+        `/v2/tickets/${ticket.id}/timeline`,
+        formData,
         {
-          method: 'POST',
-          body: formData,
-          credentials: 'include',
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
         }
       );
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Error al publicar nota');
-      }
-
-      const newEvent = await response.json();
+      const newEvent = response.data;
 
       // Optimistic update: agregar evento al timeline inmediatamente (al final)
       setTicket(prev => ({
