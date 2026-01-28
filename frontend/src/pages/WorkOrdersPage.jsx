@@ -67,11 +67,18 @@ export default function WorkOrdersPage() {
     [user]
   );
 
+  // Roles que pueden filtrar por técnico (solo admin y operator)
+  const canFilterByTechnician = useMemo(() => 
+    user?.role === 'admin' || user?.role === 'operator',
+    [user]
+  );
+
   // State
   const [workOrders, setWorkOrders] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [technicians, setTechnicians] = useState([]); // Lista de técnicos disponibles
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -91,11 +98,24 @@ export default function WorkOrdersPage() {
       });
       let items = data.items || [];
 
+      // Extraer técnicos únicos de las OTs (sin filtro inicial)
+      const uniqueTechnicians = Array.from(
+        new Set(
+          items
+            .filter(wo => wo.technician_name)
+            .map(wo => wo.technician_name)
+        )
+      ).sort();
+      setTechnicians(uniqueTechnicians);
+
       // Filtro por asignación (solo admins)
       if (assigneeFilter === 'unassigned') {
         items = items.filter((wo) => !wo.technician_name);
       } else if (assigneeFilter === 'assigned') {
         items = items.filter((wo) => !!wo.technician_name);
+      } else if (assigneeFilter && assigneeFilter !== '') {
+        // Filtro por técnico específico
+        items = items.filter((wo) => wo.technician_name === assigneeFilter);
       }
 
       setWorkOrders(items);
@@ -216,8 +236,8 @@ export default function WorkOrdersPage() {
             <option value="infrastructure">Infraestructura</option>
           </select>
 
-          {/* Filtro por asignado (solo admins) */}
-          {canSeeAdminColumns && (
+          {/* Filtro por asignado (solo admin y operator) */}
+          {canFilterByTechnician && (
             <select
               value={assigneeFilter}
               onChange={(e) => setAssigneeFilter(e.target.value)}
@@ -226,6 +246,12 @@ export default function WorkOrdersPage() {
               <option value="">Todos los técnicos</option>
               <option value="unassigned">Sin asignar</option>
               <option value="assigned">Asignado</option>
+              {technicians.length > 0 && <option disabled>─────────────</option>}
+              {technicians.map((tech) => (
+                <option key={tech} value={tech}>
+                  {tech}
+                </option>
+              ))}
             </select>
           )}
         </div>

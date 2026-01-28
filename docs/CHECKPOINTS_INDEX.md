@@ -25,16 +25,20 @@ docker compose ps
 
 ---
 
-## CHECKPOINT ACTIVO (RBAC + Work Orders)
+## CHECKPOINT ACTIVO (Filtro de Técnicos + Password Reset)
 
-📍 **[checkpoints/CHECKPOINT_2026-01-27_RBAC_FILTROS_WORK_ORDERS.md](checkpoints/CHECKPOINT_2026-01-27_RBAC_FILTROS_WORK_ORDERS.md)** ← ACTUAL
+📍 **[checkpoints/CHECKPOINT_2026-01-28_FILTRO_TECNICOS_PASSWORD_RESET.md](checkpoints/CHECKPOINT_2026-01-28_FILTRO_TECNICOS_PASSWORD_RESET.md)** ← ACTUAL
 - Branch: `develop`
+- Estado: ✅ COMPLETADO - Filtro dinámico de técnicos y herramienta de reset de contraseñas
+- Cambios:
+  - Frontend: Filtro mejorado con lista dinámica de técnicos, restricción de permisos (solo admin/operator)
+  - Documentación: Password reset flow explicado, mejores prácticas de seguridad
+  - Herramientas: Script de reset de contraseñas para administrador
+- Próximos pasos: Validación visual, implementar forgot-password flow completo
+
+📍 **[checkpoints/CHECKPOINT_2026-01-27_RBAC_FILTROS_WORK_ORDERS.md](checkpoints/CHECKPOINT_2026-01-27_RBAC_FILTROS_WORK_ORDERS.md)**
 - Estado: ✅ COMPLETADO - Sistema de roles y filtrado de Work Orders funcional
-- Cambios: 
-  - Backend: Uso de get_current_user global, filtrado por rol "tecnico", JWT con campo role
-  - Frontend: Extracción de role desde JWT, columnas condicionales, uso de technician_name
-  - Documentación: Sistema modular de permisos propuesto (RBAC_MEJORA_ROLES.md)
-- Próximos pasos: Decisión sobre migrar a sistema de permisos granulares o mantener actual
+- Cambios: Backend RBAC, JWT con rol, frontend con columnas condicionales
 
 📍 **[CHECKPOINT_2026-01-13_INVENTORY_WO_INTEGRATION.md](CHECKPOINT_2026-01-13_INVENTORY_WO_INTEGRATION.md)** 
 - Branch: `develop`
