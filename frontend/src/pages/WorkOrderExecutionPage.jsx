@@ -565,6 +565,19 @@ export default function WorkOrderExecutionPage() {
             </div>
           </div>
 
+          {/* Asignada a: (solo para admin/operator) */}
+          {(user?.role === 'admin' || user?.role === 'operator') && (
+            <div className="p-4 rounded-lg border border-emerald-800/50 bg-emerald-950/20">
+              <p className="text-sm text-zinc-400 flex items-center gap-2">
+                <User size={14} className="text-emerald-400" />
+                <span className="text-zinc-500">Asignada a:</span>
+                <span className="text-emerald-300 font-medium">
+                  {workOrder?.technician_name || 'sin asignar'}
+                </span>
+              </p>
+            </div>
+          )}
+
           {/* Descripción / Notas de la OT */}
           {workOrder.notes && (
             <div className="p-4 rounded-lg border border-amber-800/50 bg-amber-950/20">
