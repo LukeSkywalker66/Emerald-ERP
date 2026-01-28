@@ -93,9 +93,9 @@ export default function WorkOrdersPage() {
 
       // Filtro por asignación (solo admins)
       if (assigneeFilter === 'unassigned') {
-        items = items.filter((wo) => !wo.technician);
+        items = items.filter((wo) => !wo.technician_name);
       } else if (assigneeFilter === 'assigned') {
-        items = items.filter((wo) => !!wo.technician);
+        items = items.filter((wo) => !!wo.technician_name);
       }
 
       setWorkOrders(items);
@@ -340,7 +340,7 @@ export default function WorkOrdersPage() {
                     {/* Asignada - solo admins */}
                     {canSeeAdminColumns && (
                       <TableCell className="text-sm text-zinc-300">
-                        {wo.technician?.name || <span className="text-zinc-500">Sin asignar</span>}
+                        {wo.technician_name || <span className="text-zinc-500">Sin asignar</span>}
                       </TableCell>
                     )}
                   </TableRow>

@@ -7,6 +7,7 @@ from sqlalchemy import String, cast, or_, text
 from sqlalchemy.orm import Session, joinedload, selectinload, attributes
 
 from src.database import get_db
+from src.core.security import get_current_user
 from src.models.tickets import (
     WorkOrder,
     WorkOrderItem,
@@ -29,19 +30,6 @@ from src.schemas.tickets import (
 
 from .work_orders_snapshot_helper import build_connection_snapshot
 router = APIRouter(prefix="/v2/work-orders", tags=["work-orders"])
-
-
-def get_user_id(request: Request) -> int:
-    """Extract user_id from request state (set by middleware)."""
-    return getattr(request.state, "user_id", 2)  # Fallback to admin user
-
-
-def get_current_user(request: Request, db: Session = Depends(get_db), user_id: int = Depends(get_user_id)) -> User:
-    """Obtiene el usuario actual con su rol para aplicar filtros automáticos."""
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    return user
 
 
 @router.post("", response_model=WorkOrderDetailResponse, status_code=status.HTTP_201_CREATED)
@@ -119,8 +107,8 @@ def list_work_orders(
     # Normalizamos el rol para evitar accesos repetidos a relaciones
     role_name = current_user.role.name if current_user.role else None
 
-    # Filtro automático por rol
-    if role_name == "technician":
+    # Filtro automático por rol (nombre en español: "tecnico")
+    if role_name == "tecnico":
         base_query = base_query.filter(WorkOrder.technician_id == current_user.id)
     # Admin/Coordinator u otros roles ven todas
 
@@ -195,7 +183,7 @@ def list_work_orders(
 def get_work_order_detail(
     work_order_id: int,
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_user_id),
+    current_user: User = Depends(get_current_user),
 ):
     """Obtener detalles completos de una OT (para técnicos)."""
     wo = (
@@ -329,7 +317,7 @@ def update_work_order(
     work_order_id: int,
     payload: WorkOrderUpdate,
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_user_id),
+    current_user: User = Depends(get_current_user),
 ):
     """Actualizar estado de OT (usado por técnicos durante ejecución)."""
     wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
@@ -356,7 +344,7 @@ def update_work_order(
     if payload.status and payload.status != old_status:
         timeline_event = TicketTimeline(
             ticket_id=wo.ticket_id,
-            author_id=user_id,
+            author_id=current_user.id,
             event_type=TicketTimelineEventType.ot_event,
             content=f"OT #{wo.id}: Estado actualizado de {old_status.value} a {payload.status.value}",
             meta_data={"work_order_id": wo.id, "old_status": old_status.value, "new_status": payload.status.value},
@@ -376,7 +364,7 @@ def update_work_order(
         }
         timeline_event = TicketTimeline(
             ticket_id=wo.ticket_id,
-            author_id=user_id,
+            author_id=current_user.id,
             event_type=TicketTimelineEventType.ot_event,
             content=f"OT #{wo.id} Finalizada: {resolution_notes}",
             meta_data=meta_data,
@@ -396,7 +384,7 @@ def add_work_order_item(
     work_order_id: int,
     payload: WorkOrderItemCreate,
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_user_id),
+    current_user: User = Depends(get_current_user),
 ):
     """Agregar material consumido a una OT."""
     wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
@@ -416,7 +404,7 @@ def add_work_order_item(
     serial_info = f" (SN: {payload.serial_number})" if payload.serial_number else ""
     timeline_event = TicketTimeline(
         ticket_id=wo.ticket_id,
-        author_id=user_id,
+        author_id=current_user.id,
         event_type=TicketTimelineEventType.ot_event,
         content=f"Material agregado a OT #{wo.id}: Producto {payload.product_id} x{payload.quantity}{serial_info}",
         meta_data={"work_order_id": wo.id, "product_id": payload.product_id, "quantity": payload.quantity},
@@ -441,7 +429,7 @@ def remove_work_order_item(
     work_order_id: int,
     item_id: int,
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_user_id),
+    current_user: User = Depends(get_current_user),
 ):
     """Eliminar un item de material de una OT."""
     item = (
@@ -467,7 +455,6 @@ def remove_work_order_item(
 def reopen_work_order(
     work_order_id: int,
     db: Session = Depends(get_db),
-    user_id: int = Depends(get_user_id),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -556,7 +543,7 @@ def reopen_work_order(
     # Crear evento en timeline
     timeline_event = TicketTimeline(
         ticket_id=wo.ticket_id,
-        author_id=user_id,
+        author_id=current_user.id,
         event_type=TicketTimelineEventType.ot_event,
         content=f"OT #{wo.id} reabierta para corrección (resolución previa: {old_resolution})",
         meta_data={

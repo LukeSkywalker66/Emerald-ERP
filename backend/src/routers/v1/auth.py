@@ -184,6 +184,7 @@ def refresh_session(
             "email": user.email,
             "username": user.username,
             "is_superuser": user.is_superuser,
+            "role": user.role.name if user.role else None,
         },
         expires_delta=access_expires,
         token_type="access",

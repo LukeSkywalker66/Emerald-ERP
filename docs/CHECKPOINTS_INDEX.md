@@ -25,13 +25,21 @@ docker compose ps
 
 ---
 
-## CHECKPOINT ACTIVO (Inventario + Work Orders)
+## CHECKPOINT ACTIVO (RBAC + Work Orders)
 
-📍 **[CHECKPOINT_2026-01-13_INVENTORY_WO_INTEGRATION.md](CHECKPOINT_2026-01-13_INVENTORY_WO_INTEGRATION.md)** ← ACTUAL
+📍 **[checkpoints/CHECKPOINT_2026-01-27_RBAC_FILTROS_WORK_ORDERS.md](checkpoints/CHECKPOINT_2026-01-27_RBAC_FILTROS_WORK_ORDERS.md)** ← ACTUAL
 - Branch: `develop`
-- Estado: 🔄 IN PROGRESS - Integración completada, pendiente validación en navegador
+- Estado: ✅ COMPLETADO - Sistema de roles y filtrado de Work Orders funcional
+- Cambios: 
+  - Backend: Uso de get_current_user global, filtrado por rol "tecnico", JWT con campo role
+  - Frontend: Extracción de role desde JWT, columnas condicionales, uso de technician_name
+  - Documentación: Sistema modular de permisos propuesto (RBAC_MEJORA_ROLES.md)
+- Próximos pasos: Decisión sobre migrar a sistema de permisos granulares o mantener actual
+
+📍 **[CHECKPOINT_2026-01-13_INVENTORY_WO_INTEGRATION.md](CHECKPOINT_2026-01-13_INVENTORY_WO_INTEGRATION.md)** 
+- Branch: `develop`
+- Estado: ✅ COMPLETADO - Integración de inventario en Work Orders
 - Cambios: Integración real del inventario en WorkOrderExecutionPage, getMyWarehouse() implementado
-- Próximos pasos: Aplicar cambios, validar visual, completar ProductCatalog UI/Transfers
 
 📍 **Session 2026-01-13 - Inventario / Product CRUD** (contexto previo)
 - Estado: ✅ Backend inventario completo; Product CRUD (PUT/DELETE, type inmutable); server-side filtering

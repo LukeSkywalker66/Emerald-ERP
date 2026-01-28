@@ -20,6 +20,7 @@ export const AuthProvider = ({ children }) => {
         email: decoded.email,
         username: decoded.username,
         is_superuser: decoded.is_superuser,
+        role: decoded.role,
         full_name: localStorage.getItem('emerald_full_name') || decoded.email,
       };
     } catch (err) {
