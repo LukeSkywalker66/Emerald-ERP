@@ -17,6 +17,21 @@
 - ✅ Componentes UI coherentes (Shadcn/UI + Tailwind)
 - ✅ Estados dinámicos en timeline (live status de OTs) - 2026-01-08
 
+### Sistema Engineering/NOC (Tablero Kanban)
+- ✅ Tablero Kanban con Drag & Drop (dnd-kit)
+- ✅ CRUD completo de tareas de ingeniería
+- ✅ Estados: backlog, in_progress, testing, completed, rejected
+- ✅ Prioridades y tipos de tareas (incident, maintenance, project)
+- ✅ **Timeline/Bitácora completa (Nivel NASA)** - 2026-01-29
+  - ✅ Modelo EngineeringTaskTimeline (eventos NOTE/STATUS_CHANGE/ASSIGNMENT)
+  - ✅ Auto-creación de eventos en cambios de estado y asignación
+  - ✅ Panel Sheet lateral (drawer derecho) con timeline visual
+  - ✅ Input de notas con auto-refresh
+  - ✅ Iconos por tipo (MessageSquare, AlertCircle, User)
+  - ✅ Mensajes en español
+- ✅ Responsive grid sin scroll horizontal
+- ✅ Tests E2E con Playwright (6/8 passing)
+
 ### Sistema de Autenticación
 - ✅ JWT + Refresh Tokens
 - ✅ Hashing con Argon2
@@ -136,5 +151,6 @@
 
 ---
 
-**Última actualización:** 26 de diciembre de 2025  
-**Versión:** 1.0
+**Última actualización:** 2026-01-29  
+**Próxima revisión:** Q1 2026  
+**Última feature:** Engineering Task Timeline (Bitácora completa)
