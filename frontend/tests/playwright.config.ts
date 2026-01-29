@@ -13,7 +13,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'list',
   use: {
-    baseURL: process.env.BASE_URL || 'http://localhost:5173', // Ojo: Que apunte al nombre del servicio en docker-compose
+    baseURL: process.env.BASE_URL || 'https://emerald.2finternet.ar', // Dominio de producción con SSL válido
     //trace: 'on-first-retry',
     screenshot: 'on', // Saca foto de cada paso
     trace: 'retain-on-failure', // Guarda un video/traza si falla

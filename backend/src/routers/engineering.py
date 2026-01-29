@@ -16,6 +16,8 @@ from src.schemas.engineering import (
     EngineeringTaskListResponse,
     EngineeringTaskDetailResponse,
     EngineeringTaskStatsResponse,
+    EngineeringTaskTimelineEventResponse,
+    EngineeringTaskTimelineNoteCreate,
 )
 
 
@@ -157,6 +159,54 @@ def get_task(
     try:
         service = EngineeringService(db)
         return service.get_task(task_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+
+
+@router.get(
+    "/tasks/{task_id}/timeline",
+    response_model=List[EngineeringTaskTimelineEventResponse],
+    summary="Listar eventos del timeline de una tarea",
+    description="""
+    Lista los eventos de la bitácora de una tarea de ingeniería.
+    """
+)
+def get_task_timeline(
+    task_id: int,
+    user_id: int = Depends(get_user_id),
+    db: Session = Depends(get_db)
+):
+    """Listar timeline de una tarea."""
+    try:
+        service = EngineeringService(db)
+        return service.list_task_timeline(task_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+
+
+@router.post(
+    "/tasks/{task_id}/timeline",
+    response_model=EngineeringTaskTimelineEventResponse,
+    status_code=201,
+    summary="Agregar nota manual al timeline",
+    description="""
+    Agrega una nota manual a la bitácora de la tarea.
+    """
+)
+def add_task_timeline_note(
+    task_id: int,
+    payload: EngineeringTaskTimelineNoteCreate,
+    user_id: int = Depends(get_user_id),
+    db: Session = Depends(get_db)
+):
+    """Agregar nota al timeline de una tarea."""
+    try:
+        service = EngineeringService(db)
+        return service.add_task_note(task_id, user_id, payload.content)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

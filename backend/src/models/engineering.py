@@ -65,6 +65,13 @@ class EngineeringTaskStatus(StrEnum):
     rejected = "rejected"                # Rechazada/No realizable
 
 
+class EngineeringTaskTimelineEventType(StrEnum):
+    """Tipos de eventos del timeline de tareas de ingeniería."""
+    NOTE = "NOTE"                  # Nota manual
+    STATUS_CHANGE = "STATUS_CHANGE" # Cambio de estado
+    ASSIGNMENT = "ASSIGNMENT"       # Cambio de asignación
+
+
 # ===========================
 # MODELO: EngineeringTask
 # ===========================
@@ -226,6 +233,13 @@ class EngineeringTask(Base, TimestampMixin):
         lazy="joined"
     )
 
+    timeline_events: Mapped[list["EngineeringTaskTimeline"]] = relationship(
+        "EngineeringTaskTimeline",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        order_by="EngineeringTaskTimeline.created_at"
+    )
+
     # Índices para queries frecuentes
     __table_args__ = (
         Index(
@@ -250,6 +264,86 @@ class EngineeringTask(Base, TimestampMixin):
         return (
             f"<EngineeringTask(id={self.id}, title='{self.title}', "
             f"status={self.status}, assigned_to={self.assigned_to_id})>"
+        )
+
+
+# ===========================
+# MODELO: EngineeringTaskTimeline
+# ===========================
+
+class EngineeringTaskTimeline(Base):
+    """
+    Bitácora de eventos para tareas de ingeniería.
+
+    Registra notas manuales, cambios de estado y cambios de asignación.
+    """
+    __tablename__ = "engineering_task_timeline"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        index=True,
+        comment="ID único del evento"
+    )
+
+    task_id: Mapped[int] = mapped_column(
+        ForeignKey("engineering_tasks.id", name="fk_engineering_task_timeline_task_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="FK a tarea de ingeniería"
+    )
+
+    author_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", name="fk_engineering_task_timeline_author_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Usuario que generó el evento"
+    )
+
+    event_type: Mapped[EngineeringTaskTimelineEventType] = mapped_column(
+        Enum(
+            EngineeringTaskTimelineEventType,
+            name="engineering_task_timeline_event_type_enum",
+            native_enum=False
+        ),
+        nullable=False,
+        index=True,
+        comment="Tipo de evento: NOTE, STATUS_CHANGE, ASSIGNMENT"
+    )
+
+    content: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="Contenido del evento"
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        comment="Fecha de creación del evento"
+    )
+
+    task: Mapped["EngineeringTask"] = relationship(
+        "EngineeringTask",
+        back_populates="timeline_events",
+        lazy="joined"
+    )
+
+    author: Mapped[Optional["User"]] = relationship(
+        "User",
+        lazy="joined"
+    )
+
+    __table_args__ = (
+        Index("ix_engineering_task_timeline_task_created", "task_id", "created_at"),
+        Index("ix_engineering_task_timeline_event_type", "event_type"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<EngineeringTaskTimeline(id={self.id}, task_id={self.task_id}, "
+            f"type={self.event_type})>"
         )
 
 

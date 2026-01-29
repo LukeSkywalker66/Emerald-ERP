@@ -74,6 +74,38 @@ export const getTaskById = async (id) => {
 };
 
 /**
+ * Obtener timeline de una tarea
+ * @param {number} id - ID de la tarea
+ * @returns {Promise<Array>} Eventos de timeline
+ */
+export const getTaskTimeline = async (id) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/tasks/${id}/timeline`);
+    return data || [];
+  } catch (error) {
+    console.error(`❌ Error fetching task timeline ${id}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Agregar nota al timeline de una tarea
+ * @param {number} id - ID de la tarea
+ * @param {string} content - Nota
+ * @returns {Promise<Object>} Evento creado
+ */
+export const addTaskNote = async (id, content) => {
+  try {
+    const { data } = await api.post(`${BASE_URL}/tasks/${id}/timeline`, { content });
+    return data;
+  } catch (error) {
+    console.error(`❌ Error adding task note ${id}:`, error);
+    const message = error.response?.data?.detail || error.message || 'Error al agregar nota';
+    throw new Error(message);
+  }
+};
+
+/**
  * Actualizar tarea
  * @param {number} id - ID de la tarea
  * @param {Object} payload - { status?, priority?, assigned_to_id?, resolution_note? }
@@ -143,6 +175,8 @@ export default {
   getTasksByTicket,
   getTasks,
   getTaskById,
+  getTaskTimeline,
+  addTaskNote,
   updateTask,
   completeTask,
   rejectTask,
@@ -155,6 +189,8 @@ export const engineeringService = {
   getTasksByTicket,
   getTasks,
   getTaskById,
+  getTaskTimeline,
+  addTaskNote,
   updateTask,
   completeTask,
   rejectTask,

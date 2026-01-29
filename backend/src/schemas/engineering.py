@@ -143,6 +143,28 @@ class EngineeringTaskDetailResponse(EngineeringTaskRead):
     timeline_data: Optional[dict] = None
 
 
+# ===========================
+# ESQUEMAS DE TIMELINE DE TAREA
+# ===========================
+
+class EngineeringTaskTimelineNoteCreate(BaseModel):
+    """Payload para agregar una nota manual al timeline de tarea."""
+    content: str = Field(..., min_length=1, max_length=5000)
+
+
+class EngineeringTaskTimelineEventResponse(BaseModel):
+    """Respuesta de evento de timeline de tarea."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    author_id: Optional[int] = None
+    event_type: str
+    content: str
+    created_at: datetime
+    author: Optional[UserBasicResponse] = None
+
+
 class EngineeringTaskStatsResponse(BaseModel):
     """Estadísticas para el dashboard de ingeniería."""
     total_tasks: int = Field(..., description="Total de tareas")

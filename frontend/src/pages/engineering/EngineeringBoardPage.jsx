@@ -26,12 +26,12 @@ import {
 import { 
   ClipboardList, Flame, Eye, CheckCircle2, Wrench, Plus, 
   RefreshCw, Inbox, Clock, FlaskConical, User, AlertCircle, 
-  TrendingUp, Loader 
+  TrendingUp, Loader, MessageSquare 
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/components/ui/sheet';
 
 // Services & Components
 import CreateInternalTaskDialog from '@/components/engineering/CreateInternalTaskDialog';
@@ -186,7 +186,7 @@ function KanbanColumn({ column, tasks, onTaskClick }) {
   });
 
   return (
-    <div className="flex flex-col h-full flex-1 min-w-[300px] w-[300px]">
+    <div className="flex flex-col h-full w-full">
       {/* Header */}
       <div className={`rounded-t-xl border-t border-x ${column.color} ${column.bgColor} p-4`}>
         <div className="flex items-center gap-2 mb-1">
@@ -225,15 +225,39 @@ function KanbanColumn({ column, tasks, onTaskClick }) {
   );
 }
 
-// Componente: Modal de Detalle/Edición de Tarea
-function TaskDetailModal({ task, isOpen, onClose, onUpdate }) {
+// Componente: Panel lateral (Sheet) de Detalle/Edición de Tarea
+function TaskDetailSheet({ task, isOpen, onClose, onUpdate }) {
   const [isUpdating, setIsUpdating] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState(task?.status || 'backlog');
   const [selectedUser, setSelectedUser] = useState(task?.assigned_to_id || null);
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [timelineEvents, setTimelineEvents] = useState([]);
+  const [isTimelineLoading, setIsTimelineLoading] = useState(false);
+  const [noteContent, setNoteContent] = useState('');
+  const [isSavingNote, setIsSavingNote] = useState(false);
 
-  // Cargar usuarios al abrir el modal
+  useEffect(() => {
+    if (task) {
+      setSelectedStatus(task.status || 'backlog');
+      setSelectedUser(task.assigned_to_id || null);
+    }
+  }, [task]);
+
+  const loadTimeline = async () => {
+    if (!task?.id) return;
+    setIsTimelineLoading(true);
+    try {
+      const events = await engineeringService.getTaskTimeline(task.id);
+      setTimelineEvents(events || []);
+    } catch (e) {
+      setTimelineEvents([]);
+    } finally {
+      setIsTimelineLoading(false);
+    }
+  };
+
+  // Cargar usuarios y timeline al abrir el panel
   useEffect(() => {
     if (isOpen) {
       setLoadingUsers(true);
@@ -243,50 +267,56 @@ function TaskDetailModal({ task, isOpen, onClose, onUpdate }) {
           setLoadingUsers(false);
         }).catch(() => setLoadingUsers(false));
       });
+      loadTimeline();
     }
-  }, [isOpen]);
+  }, [isOpen, task?.id]);
 
   if (!task) return null;
 
   const priorityInfo = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
   const typeInfo = TYPE_CONFIG[task.task_type] || TYPE_CONFIG.incident;
 
+  const eventIcons = {
+    NOTE: { icon: MessageSquare, color: 'text-blue-400' },
+    STATUS_CHANGE: { icon: AlertCircle, color: 'text-amber-400' },
+    ASSIGNMENT: { icon: User, color: 'text-emerald-400' },
+  };
+
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-zinc-900 border-zinc-800 max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="text-white flex items-center gap-2">
+    <Sheet open={isOpen} onOpenChange={onClose}>
+      <SheetContent side="right" className="bg-zinc-950 border-zinc-800 w-full sm:max-w-2xl">
+        <SheetHeader className="pb-4 border-b border-zinc-800">
+          <SheetTitle className="text-white flex items-center gap-2">
             <Wrench size={18} className="text-purple-400" />
             Tarea #{task.id}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 mt-2">
-          {/* Título y descripción */}
-          <div>
-            <h3 className="text-lg font-bold text-emerald-300 mb-1">{task.title}</h3>
-            <p className="text-sm text-zinc-400 mb-2">{task.description}</p>
-          </div>
-          {/* Metadata */}
-          <div className="flex flex-wrap gap-3 mb-2">
+          </SheetTitle>
+          <div className="mt-3 flex flex-wrap gap-2">
             <Badge variant="outline" className={priorityInfo.color}>{priorityInfo.label}</Badge>
             <Badge variant="outline" className={typeInfo.color}>{typeInfo.label}</Badge>
+            <Badge variant="outline" className="bg-zinc-800 text-zinc-300 capitalize">
+              {selectedStatus.replace('_', ' ')}
+            </Badge>
             {task.ticket_id && (
               <Badge variant="outline" className="bg-zinc-800 text-zinc-300">Ticket #{task.ticket_id}</Badge>
             )}
-            {task.assigned_to_name ? (
-              <Badge variant="outline" className="bg-emerald-900 text-emerald-300">{task.assigned_to_name}</Badge>
-            ) : (
-              <Badge variant="outline" className="bg-zinc-700 text-zinc-400">Sin asignar</Badge>
-            )}
           </div>
+        </SheetHeader>
+
+        <div className="flex flex-col gap-6 py-4 overflow-y-auto max-h-[calc(100vh-220px)]">
+          {/* Título y descripción */}
+          <div>
+            <h3 className="text-lg font-bold text-emerald-300 mb-1">{task.title}</h3>
+            <p className="text-sm text-zinc-400">{task.description || 'Sin descripción'}</p>
+          </div>
+
           {/* Estado y asignación (editable) */}
-          <div className="flex gap-4 items-center mb-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs text-zinc-400 mb-1">Estado</label>
               <select
                 value={selectedStatus}
                 onChange={e => setSelectedStatus(e.target.value)}
-                className="bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white px-3 py-2"
+                className="bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white px-3 py-2 w-full"
               >
                 <option value="backlog">Backlog</option>
                 <option value="in_progress">En Progreso</option>
@@ -298,19 +328,21 @@ function TaskDetailModal({ task, isOpen, onClose, onUpdate }) {
               <label className="block text-xs text-zinc-400 mb-1">Asignado a</label>
               <select
                 value={selectedUser || ''}
-                onChange={e => setSelectedUser(e.target.value)}
-                className="bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white px-3 py-2"
+                onChange={e => setSelectedUser(e.target.value || null)}
+                className="bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white px-3 py-2 w-full"
                 disabled={loadingUsers}
               >
                 <option value="">Sin asignar</option>
                 {users.map(user => (
-                  <option key={user.id} value={user.id}>{user.name || user.email}</option>
+                  <option key={user.id} value={user.id}>
+                    {user.full_name || user.name || user.email}
+                  </option>
                 ))}
               </select>
             </div>
           </div>
-          {/* Acciones */}
-          <div className="flex gap-2 justify-end mt-4">
+
+          <div className="flex gap-2 justify-end">
             <Button
               variant="outline"
               onClick={onClose}
@@ -322,23 +354,106 @@ function TaskDetailModal({ task, isOpen, onClose, onUpdate }) {
               onClick={async () => {
                 setIsUpdating(true);
                 try {
-                  await engineeringService.updateTask(task.id, { status: selectedStatus, assigned_to_id: selectedUser || null });
-                  setIsUpdating(false);
-                  onUpdate();
+                  const updated = await engineeringService.updateTask(task.id, {
+                    status: selectedStatus,
+                    assigned_to_id: selectedUser || null,
+                  });
+                  await loadTimeline();
+                  onUpdate?.(updated);
                 } catch (e) {
-                  setIsUpdating(false);
                   alert('Error al actualizar la tarea');
+                } finally {
+                  setIsUpdating(false);
                 }
               }}
               className="bg-emerald-700 hover:bg-emerald-600 text-white font-semibold"
               disabled={isUpdating}
             >
-              Guardar cambios
+              {isUpdating ? 'Guardando...' : 'Guardar cambios'}
             </Button>
           </div>
+
+          {/* Timeline */}
+          <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="text-xs text-zinc-500 uppercase tracking-wide">Bitácora</p>
+                <h4 className="text-sm font-semibold text-white">Timeline de la tarea</h4>
+              </div>
+            </div>
+
+            {isTimelineLoading ? (
+              <div className="flex items-center gap-2 text-zinc-500 text-sm">
+                <Loader size={14} className="animate-spin" />
+                Cargando eventos...
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {(timelineEvents || []).length === 0 && (
+                  <p className="text-sm text-zinc-500">Sin eventos aún.</p>
+                )}
+                {(timelineEvents || []).map((event, index) => {
+                  const eventType = event.event_type?.toUpperCase?.() || 'NOTE';
+                  const info = eventIcons[eventType] || eventIcons.NOTE;
+                  const Icon = info.icon;
+                  const authorLabel = event.author?.full_name || event.author?.email;
+                  return (
+                    <div key={event.id} className="flex gap-3 relative">
+                      {index !== 0 && (
+                        <div className="absolute left-3 top-0 bottom-0 w-px bg-zinc-800 -translate-y-4"></div>
+                      )}
+                      <div className={`w-6 h-6 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0 z-10 ${info.color}`}>
+                        <Icon size={12} />
+                      </div>
+                      <div className="flex-1 pb-4">
+                        <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
+                          <div className="flex items-start justify-between mb-2">
+                            <p className="text-sm text-zinc-200">{event.content}</p>
+                            <time className="text-xs text-zinc-500 ml-4 whitespace-nowrap">
+                              {new Date(event.created_at).toLocaleString('es-AR')}
+                            </time>
+                          </div>
+                          {authorLabel && (
+                            <p className="text-xs text-zinc-500">por {authorLabel}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
-      </DialogContent>
-    </Dialog>
+
+        <SheetFooter className="border-t border-zinc-800 pt-4 gap-2">
+          <Input
+            value={noteContent}
+            onChange={(e) => setNoteContent(e.target.value)}
+            placeholder="Agregar nota a la bitácora..."
+            className="bg-zinc-900 border-zinc-700 text-white"
+          />
+          <Button
+            onClick={async () => {
+              if (!noteContent.trim()) return;
+              setIsSavingNote(true);
+              try {
+                await engineeringService.addTaskNote(task.id, noteContent.trim());
+                setNoteContent('');
+                await loadTimeline();
+              } catch (e) {
+                alert('Error al agregar nota');
+              } finally {
+                setIsSavingNote(false);
+              }
+            }}
+            disabled={isSavingNote || noteContent.trim().length === 0}
+          >
+            {isSavingNote ? 'Guardando...' : 'Agregar Nota'}
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -472,10 +587,12 @@ export default function EngineeringBoardPage() {
     setShowTaskModal(true);
   };
 
-  const handleTaskUpdate = () => {
+  const handleTaskUpdate = ({ keepOpen = true } = {}) => {
     loadTasks();
-    setShowTaskModal(false);
-    setSelectedTask(null);
+    if (!keepOpen) {
+      setShowTaskModal(false);
+      setSelectedTask(null);
+    }
   };
 
   const handleRefresh = () => {
@@ -649,9 +766,9 @@ export default function EngineeringBoardPage() {
         </div>
 
         {/* Tablero Kanban con Drag & Drop */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 w-full">
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-3 w-full">
           {COLUMNS.map((column) => (
-            <div key={column.id} id={column.id} className="min-w-0">
+            <div key={column.id} id={column.id} className="w-full">
               <KanbanColumn
                 column={column}
                 tasks={tasksByColumn[column.id] || []}
@@ -672,15 +789,20 @@ export default function EngineeringBoardPage() {
           ) : null}
         </DragOverlay>
       </div>
-      {/* Modal: Detalle de Tarea */}
-      <TaskDetailModal
+      {/* Panel: Detalle de Tarea */}
+      <TaskDetailSheet
         task={selectedTask}
         isOpen={showTaskModal}
         onClose={() => {
           setShowTaskModal(false);
           setSelectedTask(null);
         }}
-        onUpdate={handleTaskUpdate}
+        onUpdate={(updatedTask) => {
+          if (updatedTask) {
+            setSelectedTask(updatedTask);
+          }
+          handleTaskUpdate();
+        }}
       />
       {/* Modal: Nueva Tarea Interna */}
       <CreateInternalTaskDialog

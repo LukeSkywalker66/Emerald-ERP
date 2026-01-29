@@ -14,8 +14,11 @@ from src.models.engineering import (
     EngineeringTaskStatus,
     EngineeringTaskType,
     EngineeringTaskPriority,
+    EngineeringTaskTimeline,
+    EngineeringTaskTimelineEventType,
 )
 from src.models.tickets import Ticket, TicketStatus, TicketTimeline, TicketTimelineEventType
+from src.models.user import User
 from src.schemas.engineering import (
     EngineeringTaskCreate,
     EngineeringTaskUpdate,
@@ -23,6 +26,7 @@ from src.schemas.engineering import (
     EngineeringTaskListResponse,
     EngineeringTaskDetailResponse,
     EngineeringTaskStatsResponse,
+    EngineeringTaskTimelineEventResponse,
 )
 
 
@@ -242,8 +246,21 @@ class EngineeringService:
             task.priority = payload.priority
         if payload.scheduled_date is not None:
             task.scheduled_date = payload.scheduled_date
-        if payload.assigned_to_id is not None:
-            task.assigned_to_id = payload.assigned_to_id
+        if "assigned_to_id" in payload.model_fields_set:
+            old_assigned_id = task.assigned_to_id
+            new_assigned_id = payload.assigned_to_id
+            if new_assigned_id != old_assigned_id:
+                task.assigned_to_id = new_assigned_id
+                assignment_text = self._format_assignment_change(
+                    old_assigned_id=old_assigned_id,
+                    new_assigned_id=new_assigned_id
+                )
+                self._create_task_timeline_event(
+                    task_id=task.id,
+                    author_id=user_id,
+                    event_type=EngineeringTaskTimelineEventType.ASSIGNMENT,
+                    content=assignment_text
+                )
         if payload.resolution_note is not None:
             task.resolution_note = payload.resolution_note
         if payload.rejection_reason is not None:
@@ -253,6 +270,54 @@ class EngineeringService:
         self.db.refresh(task)
 
         return EngineeringTaskRead.model_validate(task)
+
+    def list_task_timeline(self, task_id: int) -> List[EngineeringTaskTimelineEventResponse]:
+        """
+        Lista eventos de timeline de una tarea.
+        """
+        task = self.db.query(EngineeringTask).filter(
+            EngineeringTask.id == task_id
+        ).first()
+
+        if not task:
+            raise ValueError(f"Tarea {task_id} no encontrada")
+
+        events = (
+            self.db.query(EngineeringTaskTimeline)
+            .filter(EngineeringTaskTimeline.task_id == task_id)
+            .order_by(EngineeringTaskTimeline.created_at.desc())
+            .all()
+        )
+
+        return [EngineeringTaskTimelineEventResponse.model_validate(ev) for ev in events]
+
+    def add_task_note(
+        self,
+        task_id: int,
+        author_id: int,
+        content: str
+    ) -> EngineeringTaskTimelineEventResponse:
+        """
+        Agrega una nota manual al timeline de una tarea.
+        """
+        task = self.db.query(EngineeringTask).filter(
+            EngineeringTask.id == task_id
+        ).first()
+
+        if not task:
+            raise ValueError(f"Tarea {task_id} no encontrada")
+
+        event = EngineeringTaskTimeline(
+            task_id=task_id,
+            author_id=author_id,
+            event_type=EngineeringTaskTimelineEventType.NOTE,
+            content=content
+        )
+        self.db.add(event)
+        self.db.commit()
+        self.db.refresh(event)
+
+        return EngineeringTaskTimelineEventResponse.model_validate(event)
 
     def delete_task(self, task_id: int) -> None:
         """
@@ -347,6 +412,14 @@ class EngineeringService:
             details=f"Estado cambió de {old_status} a {new_status}"
         )
 
+        status_label = self._format_status_label(new_status)
+        self._create_task_timeline_event(
+            task_id=task.id,
+            author_id=user_id,
+            event_type=EngineeringTaskTimelineEventType.STATUS_CHANGE,
+            content=f"Estado cambiado a {status_label}"
+        )
+
     def _update_ticket_status(
         self,
         ticket: Ticket,
@@ -400,6 +473,50 @@ class EngineeringService:
             "by_user_id": user_id,
             "details": details
         })
+
+    def _create_task_timeline_event(
+        self,
+        task_id: int,
+        author_id: int,
+        event_type: EngineeringTaskTimelineEventType,
+        content: str
+    ) -> None:
+        """
+        Crea un evento en la tabla de timeline de tareas.
+        """
+        event = EngineeringTaskTimeline(
+            task_id=task_id,
+            author_id=author_id,
+            event_type=event_type,
+            content=content
+        )
+        self.db.add(event)
+
+    def _format_status_label(self, status: str) -> str:
+        labels = {
+            "backlog": "Backlog",
+            "in_progress": "En Progreso",
+            "testing": "En Pruebas",
+            "completed": "Completada",
+            "rejected": "Rechazada",
+        }
+        return labels.get(str(status), str(status))
+
+    def _format_assignment_change(
+        self,
+        old_assigned_id: Optional[int],
+        new_assigned_id: Optional[int]
+    ) -> str:
+        if new_assigned_id is None:
+            return "Asignación removida"
+
+        user = self.db.query(User).filter(User.id == new_assigned_id).first()
+        user_label = user.full_name or user.email if user else f"Usuario #{new_assigned_id}"
+
+        if old_assigned_id is None:
+            return f"Asignado a {user_label}"
+
+        return f"Reasignado a {user_label}"
 
     def complete_task(
         self,
