@@ -376,7 +376,7 @@ def update_work_order(
     
     print(f"[DEBUG] After refresh, WO #{work_order_id} photo_urls: {wo.photo_urls}, resolution_category: {wo.resolution_category}")
     
-    return get_work_order_detail(work_order_id, db, user_id)
+    return get_work_order_detail(work_order_id, db, current_user)
 
 
 @router.post("/{work_order_id}/items", response_model=WorkOrderItemResponse, status_code=201)
