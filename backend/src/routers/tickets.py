@@ -7,7 +7,7 @@ from pathlib import Path
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
-from sqlalchemy import select, text
+from sqlalchemy import select, text, func
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from src.database import get_db
@@ -26,6 +26,7 @@ from src.models import (
     Tag,
     TicketCategory,
     TicketReason,
+    User,
 )
 from src.schemas.tickets import (
     TicketCreate,
@@ -327,7 +328,7 @@ def list_tickets(
     status: Optional[TicketStatus] = Query(None),
     priority: Optional[TicketPriority] = Query(None),
     search: Optional[str] = Query(None, description="Buscar por nombre de cliente, DNI o asunto"),
-    order_by: str = Query("created_at", description="Campo para ordenar: id, status, priority, created_at"),
+    order_by: str = Query("created_at", description="Campo para ordenar: id, status, priority, created_at, updated_at, subject, ticket_type, assigned_to_name, client_name"),
     order_dir: str = Query("desc", description="Dirección de ordenamiento: asc o desc"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -367,13 +368,37 @@ def list_tickets(
         "priority": Ticket.priority,
         "created_at": Ticket.created_at,
         "updated_at": Ticket.updated_at,
+        "subject": Ticket.subject,
+        "ticket_type": Ticket.ticket_type,
     }
     
-    order_column = allowed_order_fields.get(order_by, Ticket.created_at)
-    if order_dir.lower() == "asc":
-        query = query.order_by(order_column.asc())
+    # Ordenamiento especial para campos con joins o nulls
+    if order_by == "assigned_to_name":
+        # Join con User para ordenar por nombre completo del asignado
+        query = query.outerjoin(User, Ticket.assigned_to_id == User.id)
+        if order_dir.lower() == "asc":
+            query = query.order_by(User.full_name.asc().nulls_last())
+        else:
+            query = query.order_by(User.full_name.desc().nulls_last())
+    elif order_by == "client_name":
+        # Ordenar por nombre de cliente (mantener compatibilidad)
+        if order_dir.lower() == "asc":
+            query = query.order_by(Ticket.client_name.asc().nulls_last())
+        else:
+            query = query.order_by(Ticket.client_name.desc().nulls_last())
+    elif order_by in allowed_order_fields:
+        # Ordenamiento estándar para campos simples
+        order_column = allowed_order_fields[order_by]
+        if order_dir.lower() == "asc":
+            query = query.order_by(order_column.asc())
+        else:
+            query = query.order_by(order_column.desc())
     else:
-        query = query.order_by(order_column.desc())
+        # Default: ordenar por created_at
+        if order_dir.lower() == "asc":
+            query = query.order_by(Ticket.created_at.asc())
+        else:
+            query = query.order_by(Ticket.created_at.desc())
     
     # Paginar - obtener limit+1 para saber si hay más
     tickets = query.offset(offset).limit(limit + 1).all()

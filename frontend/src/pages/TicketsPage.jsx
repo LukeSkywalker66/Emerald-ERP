@@ -303,8 +303,22 @@ export default function TicketsPage() {
                     <SortIcon field="id" />
                   </div>
                 </TableHead>
-                <TableHead className="text-zinc-400 font-semibold">Asunto</TableHead>
-                <TableHead className="w-[120px] text-zinc-400 font-semibold">Tipo</TableHead>
+                <TableHead className="text-zinc-400 font-semibold cursor-pointer hover:text-emerald-400 transition-colors"
+                  onClick={() => handleSort('subject')}
+                >
+                  <div className="flex items-center gap-1">
+                    Asunto
+                    <SortIcon field="subject" />
+                  </div>
+                </TableHead>
+                <TableHead className="w-[120px] text-zinc-400 font-semibold cursor-pointer hover:text-emerald-400 transition-colors"
+                  onClick={() => handleSort('ticket_type')}
+                >
+                  <div className="flex items-center gap-1">
+                    Tipo
+                    <SortIcon field="ticket_type" />
+                  </div>
+                </TableHead>
                 <TableHead className="w-[180px] text-zinc-400 font-semibold">Etiquetas</TableHead>
                 <TableHead 
                   className="w-[180px] text-zinc-400 font-semibold cursor-pointer hover:text-emerald-400 transition-colors"
@@ -333,7 +347,14 @@ export default function TicketsPage() {
                     <SortIcon field="priority" />
                   </div>
                 </TableHead>
-                <TableHead className="w-[150px] text-zinc-400 font-semibold">Asignado a</TableHead>
+                <TableHead className="w-[150px] text-zinc-400 font-semibold cursor-pointer hover:text-emerald-400 transition-colors"
+                  onClick={() => handleSort('assigned_to_name')}
+                >
+                  <div className="flex items-center gap-1">
+                    Asignado a
+                    <SortIcon field="assigned_to_name" />
+                  </div>
+                </TableHead>
                 <TableHead 
                   className="w-[150px] text-zinc-400 font-semibold cursor-pointer hover:text-emerald-400 transition-colors"
                   onClick={() => handleSort('updated_at')}
