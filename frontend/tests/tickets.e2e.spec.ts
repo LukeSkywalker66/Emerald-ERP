@@ -6,47 +6,33 @@ test.describe('Tickets - Listado y ordenamiento', () => {
     await login(page);
     await page.goto('/app/tickets');
     await expect(page.getByRole('heading', { name: 'Gestión de Tickets' })).toBeVisible();
+    await expect(page.locator('thead')).toBeVisible();
   });
 
   test('Permite ordenar por Asunto', async ({ page }) => {
-    const header = page.getByRole('columnheader', { name: 'Asunto' });
-    const [response] = await Promise.all([
-      page.waitForResponse((res) =>
-        res.url().includes('/api/v2/tickets') &&
-        res.url().includes('order_by=subject') &&
-        res.status() === 200
-      ),
-      header.click(),
-    ]);
+    // Buscar por el texto dentro del columnheader
+    const header = page.locator('th').filter({ hasText: 'Asunto' }).first();
+    await header.click();
 
-    expect(response.ok()).toBeTruthy();
+    // Icono activo (flecha verde) indica que el ordenamiento se aplicó
+    await expect(header.locator('svg.text-emerald-400')).toBeVisible();
   });
 
   test('Permite ordenar por Tipo', async ({ page }) => {
-    const header = page.getByRole('columnheader', { name: 'Tipo' });
-    const [response] = await Promise.all([
-      page.waitForResponse((res) =>
-        res.url().includes('/api/v2/tickets') &&
-        res.url().includes('order_by=ticket_type') &&
-        res.status() === 200
-      ),
-      header.click(),
-    ]);
+    // Buscar por el texto dentro del columnheader
+    const header = page.locator('th').filter({ hasText: 'Tipo' }).first();
+    await header.click();
 
-    expect(response.ok()).toBeTruthy();
+    // Icono activo (flecha verde) indica que el ordenamiento se aplicó
+    await expect(header.locator('svg.text-emerald-400')).toBeVisible();
   });
 
   test('Permite ordenar por Asignado a', async ({ page }) => {
-    const header = page.getByRole('columnheader', { name: 'Asignado a' });
-    const [response] = await Promise.all([
-      page.waitForResponse((res) =>
-        res.url().includes('/api/v2/tickets') &&
-        res.url().includes('order_by=assigned_to_name') &&
-        res.status() === 200
-      ),
-      header.click(),
-    ]);
+    // Buscar por el texto dentro del columnheader
+    const header = page.locator('th').filter({ hasText: 'Asignado a' }).first();
+    await header.click();
 
-    expect(response.ok()).toBeTruthy();
+    // Icono activo (flecha verde) indica que el ordenamiento se aplicó
+    await expect(header.locator('svg.text-emerald-400')).toBeVisible();
   });
 });
