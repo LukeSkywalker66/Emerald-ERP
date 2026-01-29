@@ -4,54 +4,39 @@
 
 ---
 
-## 📑 LECTURA ORDENADA (20-30 minutos)
+## 📑 LECTURA ORDENADA (10-15 minutos)
 
-### ① **LEER PRIMERO** (5 min)
+### ① **LEER PRIMERO** (3 min)
 ```
-docs/checkpoints/CHECKPOINT_2026-01-29_ENGINEERING_TIMELINE_COMPLETE.md
+CHECKPOINT_E2E_TESTS.md
 ```
 **Contiene:**
-- Feature completa: Engineering Task Timeline (Bitácora nivel NASA)
-- Implementación backend: Modelo, endpoints, auto-eventos
-- Implementación frontend: Panel Sheet, timeline visual, input de notas
-- Tests E2E: 6/8 passing (2 skipped, backend validado)
-- Responsividad: Grid layout sin scroll horizontal
-- Documentación completa y métricas
+- Estado completo de la suite E2E (26/28 passing)
+- Módulos cubiertos y tests skipped
+- Próximos pasos de testing
 
 ---
 
-### ② **LEER SEGUNDO** (5 min)
+### ② **LEER SEGUNDO** (3 min)
 ```
-docs/TEST_ENGINEERING_TIMELINE_E2E.md
+CONTEXTO_PROXIMA_SESION_COPILOT.md
 ```
 **Contiene:**
-- Guía completa de tests backend (curl commands)
-- Guía de tests frontend (pasos manuales)
-- Resultados de validación
-- Troubleshooting y próximos pasos
+- Resumen de la sesión actual
+- Comando de ejecución E2E
+- Archivos clave y prioridades
 
 ---
 
-### ③ **LEER TERCERO (si trabajas en Inventario)** (Referencia rápida)
+### ③ **LEER TERCERO (opcional)**
 ```
-docs/CHECKPOINT_2026-01-15_VALIDACION_MODULOS.md
-```
-**Contiene:**
-- Estado actual COMPLETO de todos los módulos de Inventario
-- Cambios técnicos realizados (líneas exactas)
-- Próximos pasos (FASE 1, 2, 3)
-- Datos de prueba disponibles
-
----
-
-### ④ **RESUMEN VISUAL** (Opcional, 1 min)
-```
-docs/ROADMAP.md
+CHECKPOINT_2026-01-29_E2E_AUTH.md
+CHECKPOINT_2026-01-29_E2E_INVENTORY.md
+CHECKPOINT_2026-01-29_E2E_STOCK.md
+CHECKPOINT_2026-01-29_E2E_TICKETS_WORKORDERS.md
 ```
 **Contiene:**
-- Roadmap actualizado con feature de Engineering Timeline
-- Estado de todos los módulos del sistema
-- Prioridades Q1-Q3 2026
+- Detalle por módulo del testing E2E
 
 ---
 
@@ -63,53 +48,30 @@ Copia y pega esto en terminal:
 cd /opt/emerald-erp
 git checkout develop && git pull origin develop
 
-# Abre estos archivos en VS Code (en este orden):
-code docs/checkpoints/CHECKPOINT_2026-01-29_ENGINEERING_TIMELINE_COMPLETE.md
-code docs/TEST_ENGINEERING_TIMELINE_E2E.md
-code docs/ROADMAP.md
+# Abrir archivos en VS Code
+code CHECKPOINT_E2E_TESTS.md
+code CONTEXTO_PROXIMA_SESION_COPILOT.md
 
-# Health check
-docker compose ps
-curl http://localhost:8500/api/v2/engineering/tasks | jq '.[0] | {id, title, status}' | head -10
+# Ejecutar E2E (si es necesario)
+docker compose -f docker-compose.yml -f frontend/tests/docker-compose.e2e.yml up --build e2e
 ```
 
 ---
 
 ## ⚡ TL;DR PARA LA PRÓXIMA SESIÓN
 
-Si tienes poco tiempo, lee esto:
-
 **Cambios realizados (29 ENE 2026):**
-1. ✅ **Engineering Task Timeline** - Bitácora completa "Nivel NASA"
-   - Backend: Modelo EngineeringTaskTimeline con eventos automáticos
-   - Frontend: Panel Sheet lateral con timeline visual e input de notas
-   - Tests E2E: 6/8 passing (2 skipped, backend 100% validado)
-   - Responsividad: Grid layout sin scroll horizontal
-2. ✅ Endpoints GET/POST `/engineering/tasks/{id}/timeline`
-3. ✅ Auto-eventos: STATUS_CHANGE y ASSIGNMENT en español
-4. ✅ Migración Alembic m1n2o3p4q5r6 aplicada
-
-**Feature anterior (14-15 ENE 2026 - Inventario):**
-1. ✅ Material persistence en Work Orders (POST/DELETE)
-2. ✅ ONU purchase fix (SERIALIZED support en StockAdjustments)
-3. ✅ ProductCatalog validado (889 líneas, CRUD completo)
-4. ✅ StockTransferWizard validado (622 líneas, 5-step wizard)
+1. ✅ Suite E2E completa estable en Docker
+2. ✅ Fix de sintaxis Playwright en Users (`locator().first()`)
+3. ✅ Checkpoint actualizado con estado y pasos
 
 **Próximos pasos:**
-- **Engineering:** Arreglar 2 tests E2E skipped (opcional)
-- **Inventario (FASE 1):** Testing de todos los módulos en navegador (1-2h)
-- **Inventario (FASE 2):** Optimizar flujo de acciones (2-3h)
-- **Inventario (FASE 3):** Enriquecer MovementsHistory/Dashboard (2-3h)
-
-**Datos de prueba:**
-- User Engineering: admin@emerald.com (ID=2, token en TEST_ENGINEERING_TIMELINE_E2E.md)
-- User Inventario: tecnico2@emerald.com (ID=9)
-- Warehouse: ID=4 (MOBILE)
-- Task #6: Para testing de timeline
+- Des-skippear 2 tests de Engineering Timeline (auto-eventos)
+- Agregar E2E CRUD y validaciones
+- Integrar E2E a CI/CD
 
 ---
 
 **Generado:** 29-ENE-2026  
-**Estado:** ✅ Contexto completo transferible a otra PC  
-**Última feature:** Engineering Task Timeline (Bitácora completa)  
-**Próxima Sesión:** Abre los archivos en orden ①②③ y comienza con testing o nuevas features
+**Estado:** ✅ Contexto listo para continuar  
+**Último hito:** E2E suite estable (26/28 passing)
