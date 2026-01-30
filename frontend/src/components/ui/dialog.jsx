@@ -23,8 +23,8 @@ export function Dialog({ open = false, onOpenChange, children }) {
   return (
     <DialogContext.Provider value={{ open: isOpen, onOpenChange: handleOpenChange }}>
       {isOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm">
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm pointer-events-none">
+          <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-auto">
             <div
               onClick={() => handleOpenChange(false)}
               className="absolute inset-0"

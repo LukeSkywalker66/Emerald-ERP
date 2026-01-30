@@ -212,7 +212,15 @@ test.describe('Tickets - Validaciones de Negocio', () => {
     const createButton = page.getByRole('button', { name: /Nuevo Ticket/i });
     await createButton.waitFor({ state: 'visible', timeout: 10000 });
     await createButton.click();
-    await page.getByText('Falla Técnica').click();
+    
+    // Esperar a que el modal esté completamente visible y cargado
+    await expect(page.getByRole('heading', { name: 'Crear Nuevo Ticket' })).toBeVisible();
+    await expect(page.getByText('Selecciona el tipo de gestión que necesitas realizar')).toBeVisible();
+    
+    const categoryCard = page.locator('div[role="button"], button, .cursor-pointer').filter({ hasText: 'Falla Técnica' }).first();
+    await categoryCard.waitFor({ state: 'visible' });
+    await page.waitForTimeout(300);
+    await categoryCard.click();
     
     // Buscar input de asunto
     const subjectInput = page.getByPlaceholder(/Asunto/i);
@@ -236,7 +244,8 @@ test.describe('Tickets - Validaciones de Negocio', () => {
     const createButton = page.getByRole('button', { name: /Nuevo Ticket/i });
     await createButton.waitFor({ state: 'visible', timeout: 10000 });
     await createButton.click();
-    await page.getByText('Falla Técnica').click();
+    await page.waitForTimeout(500); // Esperar a que el modal esté completamente visible
+    await page.locator('div[role="button"], button, .cursor-pointer').filter({ hasText: 'Falla Técnica' }).first().click();
     
     // Buscar textarea de descripción
     const descriptionInput = page.locator('textarea').filter({ hasText: /Descripción/i });
@@ -263,21 +272,24 @@ test.describe('Tickets - Wizards Específicos', () => {
     await createButton.waitFor({ state: 'visible', timeout: 10000 });
     await createButton.click();
     
-    // Seleccionar categoría Instalación
-    const installationCard = page.getByText('Instalación');
+    // Esperar a que el modal esté completamente visible y cargado
+    await expect(page.getByRole('heading', { name: 'Crear Nuevo Ticket' })).toBeVisible();
+    await expect(page.getByText('Selecciona el tipo de gestión que necesitas realizar')).toBeVisible();
     
-    if (await installationCard.isVisible()) {
-      await installationCard.click();
-      
-      // Verificar campos específicos de instalación
-      await page.waitForTimeout(500);
-      
-      // Debe tener campos para técnico de instalación
-      const techField = page.locator('input, select').filter({ hasText: /técnico/i });
-      
-      if (await techField.first().isVisible()) {
-        await expect(techField.first()).toBeVisible();
-      }
+    // Seleccionar categoría Instalación (buscar contenedor clickeable)
+    const installationCard = page.locator('div[role="button"], button, .cursor-pointer').filter({ hasText: 'Instalación' }).first();
+    await installationCard.waitFor({ state: 'visible' });
+    await page.waitForTimeout(300);
+    await installationCard.click();
+    
+    // Verificar campos específicos de instalación
+    await page.waitForTimeout(500);
+    
+    // Debe tener campos para técnico de instalación
+    const techField = page.locator('input, select').filter({ hasText: /técnico/i });
+    
+    if (await techField.first().isVisible()) {
+      await expect(techField.first()).toBeVisible();
     }
   });
 
@@ -285,9 +297,10 @@ test.describe('Tickets - Wizards Específicos', () => {
     const createButton = page.getByRole('button', { name: /Nuevo Ticket/i });
     await createButton.waitFor({ state: 'visible', timeout: 10000 });
     await createButton.click();
+    await page.waitForTimeout(500); // Esperar a que el modal esté completamente visible
     
-    // Seleccionar categoría Traslado
-    const relocationCard = page.getByText('Traslado');
+    // Seleccionar categoría Traslado (buscar contenedor clickeable)
+    const relocationCard = page.locator('div[role="button"], button, .cursor-pointer').filter({ hasText: 'Traslado' }).first();
     
     if (await relocationCard.isVisible()) {
       await relocationCard.click();
@@ -307,18 +320,22 @@ test.describe('Tickets - Wizards Específicos', () => {
     await createButton.waitFor({ state: 'visible', timeout: 10000 });
     await createButton.click();
     
-    // Seleccionar categoría Baja
-    const withdrawalCard = page.getByText('Baja');
+    // Esperar a que el modal esté completamente visible y cargado
+    await expect(page.getByRole('heading', { name: 'Crear Nuevo Ticket' })).toBeVisible();
+    await expect(page.getByText('Selecciona el tipo de gestión que necesitas realizar')).toBeVisible();
     
-    if (await withdrawalCard.isVisible()) {
-      await withdrawalCard.click();
-      await page.waitForTimeout(500);
-      
-      // Verificar que hay un select de motivos
-      const reasonSelect = page.locator('select, [role="combobox"]').first();
-      
-      if (await reasonSelect.isVisible()) {
-        await reasonSelect.click();
+    // Seleccionar categoría Baja (buscar contenedor clickeable)
+    const withdrawalCard = page.locator('div[role="button"], button, .cursor-pointer').filter({ hasText: 'Baja' }).first();
+    await withdrawalCard.waitFor({ state: 'visible' });
+    await page.waitForTimeout(300);
+    await withdrawalCard.click();
+    await page.waitForTimeout(500);
+    
+    // Verificar que hay un select de motivos
+    const reasonSelect = page.locator('select, [role="combobox"]').first();
+    
+    if (await reasonSelect.isVisible()) {
+      await reasonSelect.click();
         
         // Verificar motivos específicos de baja
         const priceOption = page.getByText(/Precio|Competencia/i).first();
@@ -329,7 +346,6 @@ test.describe('Tickets - Wizards Específicos', () => {
           expect(true).toBeTruthy();
         }
       }
-    }
   });
 });
 

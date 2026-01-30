@@ -39,13 +39,14 @@ test.describe('Tickets - Creación de Ticket Técnico', () => {
     const createButton = page.getByRole('button', { name: /Nuevo Ticket/i });
     await createButton.waitFor({ state: 'visible', timeout: 10000 });
     await createButton.click();
+    await page.waitForTimeout(500); // Esperar a que el modal esté completamente visible
     
     // Verificar que el modal de categorías se abre
     await expect(page.getByRole('heading', { name: 'Crear Nuevo Ticket' })).toBeVisible();
     
-    // Verificar que aparecen las categorías
-    await expect(page.getByText('Falla Técnica')).toBeVisible();
-    await expect(page.getByText('Administrativo')).toBeVisible();
+    // Verificar que aparecen las categorías (buscar por rol o heading en lugar de texto ambiguo)
+    await expect(page.locator('div[role="button"], button, .cursor-pointer').filter({ hasText: 'Falla Técnica' }).first()).toBeVisible();
+    await expect(page.locator('div[role="button"], button, .cursor-pointer').filter({ hasText: 'Administrativo' }).first()).toBeVisible();
   });
 
   test('Selecciona categoría Falla Técnica y abre wizard', async ({ page }) => {
@@ -53,8 +54,17 @@ test.describe('Tickets - Creación de Ticket Técnico', () => {
     await createButton.waitFor({ state: 'visible', timeout: 10000 });
     await createButton.click();
     
-    // Click en la tarjeta de Falla Técnica
-    await page.getByText('Falla Técnica').click();
+    // Esperar a que el modal esté completamente visible y cargado
+    await expect(page.getByRole('heading', { name: 'Crear Nuevo Ticket' })).toBeVisible();
+    await expect(page.getByText('Selecciona el tipo de gestión que necesitas realizar')).toBeVisible();
+    
+    // Esperar a que la tarjeta de Falla Técnica esté visible
+    const categoryCard = page.locator('button').filter({ hasText: 'Falla Técnica' }).first();
+    await categoryCard.waitFor({ state: 'visible' });
+    await page.waitForTimeout(500);
+    
+    // Clickear con JavaScript para evitar problema de overlay
+    await categoryCard.click();
     
     // Verificar que el wizard técnico se abre
     await expect(page.getByText(/Buscar conexión del cliente/i)).toBeVisible();
@@ -64,7 +74,15 @@ test.describe('Tickets - Creación de Ticket Técnico', () => {
     const createButton = page.getByRole('button', { name: /Nuevo Ticket/i });
     await createButton.waitFor({ state: 'visible', timeout: 10000 });
     await createButton.click();
-    await page.getByText('Falla Técnica').click();
+    
+    // Esperar a que el modal esté completamente visible y cargado
+    await expect(page.getByRole('heading', { name: 'Crear Nuevo Ticket' })).toBeVisible();
+    await expect(page.getByText('Selecciona el tipo de gestión que necesitas realizar')).toBeVisible();
+    
+    const categoryCard = page.locator('div[role="button"], button, .cursor-pointer').filter({ hasText: 'Falla Técnica' }).first();
+    await categoryCard.waitFor({ state: 'visible' });
+    await page.waitForTimeout(300);
+    await categoryCard.click();
     
     // Buscar por DNI de prueba
     const searchInput = page.getByPlaceholder(/DNI, nombre/i);
@@ -78,7 +96,15 @@ test.describe('Tickets - Creación de Ticket Técnico', () => {
     const createButton = page.getByRole('button', { name: /Nuevo Ticket/i });
     await createButton.waitFor({ state: 'visible', timeout: 10000 });
     await createButton.click();
-    await page.getByText('Falla Técnica').click();
+    
+    // Esperar a que el modal esté completamente visible y cargado
+    await expect(page.getByRole('heading', { name: 'Crear Nuevo Ticket' })).toBeVisible();
+    await expect(page.getByText('Selecciona el tipo de gestión que necesitas realizar')).toBeVisible();
+    
+    const categoryCard = page.locator('div[role="button"], button, .cursor-pointer').filter({ hasText: 'Falla Técnica' }).first();
+    await categoryCard.waitFor({ state: 'visible' });
+    await page.waitForTimeout(300);
+    await categoryCard.click();
     
     // Intentar crear sin llenar campos
     const submitButton = page.getByRole('button', { name: /Nuevo Ticket/i });
@@ -99,7 +125,15 @@ test.describe('Tickets - Creación de Ticket Administrativo', () => {
     const createButton = page.getByRole('button', { name: /Nuevo Ticket/i });
     await createButton.waitFor({ state: 'visible', timeout: 10000 });
     await createButton.click();
-    await page.getByText('Administrativo').click();
+    
+    // Esperar a que el modal esté completamente visible y cargado
+    await expect(page.getByRole('heading', { name: 'Crear Nuevo Ticket' })).toBeVisible();
+    await expect(page.getByText('Selecciona el tipo de gestión que necesitas realizar')).toBeVisible();
+    
+    const categoryCard = page.locator('div[role="button"], button, .cursor-pointer').filter({ hasText: 'Administrativo' }).first();
+    await categoryCard.waitFor({ state: 'visible' });
+    await page.waitForTimeout(300);
+    await categoryCard.click();
     
     // Verificar que aparece el select de motivos
     await expect(page.getByText(/Motivo del ticket/i)).toBeVisible();
@@ -113,7 +147,15 @@ test.describe('Tickets - Creación de Ticket Administrativo', () => {
     const createButton = page.getByRole('button', { name: /Nuevo Ticket/i });
     await createButton.waitFor({ state: 'visible', timeout: 10000 });
     await createButton.click();
-    await page.getByText('Administrativo').click();
+    
+    // Esperar a que el modal esté completamente visible y cargado
+    await expect(page.getByRole('heading', { name: 'Crear Nuevo Ticket' })).toBeVisible();
+    await expect(page.getByText('Selecciona el tipo de gestión que necesitas realizar')).toBeVisible();
+    
+    const categoryCard = page.locator('div[role="button"], button, .cursor-pointer').filter({ hasText: 'Administrativo' }).first();
+    await categoryCard.waitFor({ state: 'visible' });
+    await page.waitForTimeout(300);
+    await categoryCard.click();
     
     // Buscar cliente
     const searchInput = page.getByPlaceholder(/DNI, nombre/i);
@@ -143,7 +185,15 @@ test.describe('Tickets - Validaciones y Campos', () => {
     const createButton = page.getByRole('button', { name: /Nuevo Ticket/i });
     await createButton.waitFor({ state: 'visible', timeout: 10000 });
     await createButton.click();
-    await page.getByText('Administrativo').click();
+    
+    // Esperar a que el modal esté completamente visible y cargado
+    await expect(page.getByRole('heading', { name: 'Crear Nuevo Ticket' })).toBeVisible();
+    await expect(page.getByText('Selecciona el tipo de gestión que necesitas realizar')).toBeVisible();
+    
+    const categoryCard = page.locator('div[role="button"], button, .cursor-pointer').filter({ hasText: 'Administrativo' }).first();
+    await categoryCard.waitFor({ state: 'visible' });
+    await page.waitForTimeout(300);
+    await categoryCard.click();
     
     // Verificar que el select de motivos existe y está vacío por defecto
     const reasonSelect = page.locator('select, [role="combobox"]').first();
@@ -154,7 +204,8 @@ test.describe('Tickets - Validaciones y Campos', () => {
     const createButton = page.getByRole('button', { name: /Nuevo Ticket/i });
     await createButton.waitFor({ state: 'visible', timeout: 10000 });
     await createButton.click();
-    await page.getByText('Falla Técnica').click();
+    await page.waitForTimeout(500); // Esperar a que el modal esté completamente visible
+    await page.locator('div[role="button"], button, .cursor-pointer').filter({ hasText: 'Falla Técnica' }).first().click();
     
     // Buscar el selector de prioridad
     const prioritySelect = page.locator('select').filter({ hasText: /prioridad/i });

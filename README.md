@@ -2,19 +2,45 @@
 Sistema de Gestión Integral para ISP (Internet Service Providers)
 
 **Estado:** ✅ Production Ready  
-**Última actualización:** 2026-01-23  
-**Branch:** develop (55b7d54)
+**Última actualización:** 2026-01-30  
+**Branch:** develop
+
+---
+
+## 📚 **DOCUMENTACIÓN CONSOLIDADA** ⭐
+
+### Para cualquier persona que necesite entender el proyecto:
+
+1. **[⚡ EXECUTIVE_SUMMARY.md](EXECUTIVE_SUMMARY.md)** ← Léeme primero (2 min)
+   - Overview rápido del sistema
+   - Responde FAQ
+   - Perfect para arquitectos en apuro
+
+2. **[🎭 MASTER_CONTEXT.md](MASTER_CONTEXT.md)** ← El documento completo (30 min)
+   - Stack technológico detallado
+   - Estructura del proyecto
+   - Modelo de datos con relaciones
+   - Módulos funcionales y su estado
+   - Reglas de negocio
+   - Patrones arquitectónicos
+
+3. **[📖 DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md)** ← Índice de todo
+   - Links a documentación específica por tema
+   - Guía de lectura por perfil (arquitecto, dev, ops, qa)
+
+---
 
 ## 📖 Descripción
 
-Emerald ERP es una plataforma moderna diseñada para administrar la operación técnica y comercial de un ISP (2F Internet). Integra:
+Emerald ERP es una plataforma moderna diseñada para administrar la operación técnica y comercial de un ISP. Integra:
 - ✅ Sistema multi-flujo de tickets (5 tipos: técnico, instalación, retiro, traslado, administrativo)
-- ✅ **Motivos dinámicos por categoría** (13 motivos en 4 categorías, asunto automático)
+- ✅ **Motivos dinámicos por categoría** (cargados desde BD, sin hardcoding)
 - ✅ Órdenes de trabajo con seguimiento técnico
 - ✅ Integración en tiempo real con ISPCube para búsqueda de clientes/conexiones
-- ✅ Caché optimizado para performance (1200x mejora de velocidad)
-- ✅ Historial de incidentes por conexión
-- ✅ Gestión de materiales y resolución de OTs
+- ✅ Gestión de inventario operativo (stock central + móvil en camionetas)
+- ✅ Módulo de Ingeniería/NOC con kanban y timeline
+- ✅ Historial de incidentes unificado (timeline)
+- ✅ Caché optimizado para performance
 
 El sistema está construido con una arquitectura modular contenerizada, utilizando FastAPI para un backend de alto rendimiento y React (Vite) para una experiencia de usuario fluida.
 
