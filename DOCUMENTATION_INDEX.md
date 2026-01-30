@@ -26,6 +26,7 @@
 1. [QUICK_START.md](docs/QUICK_START.md) - Inicio rápido (5 min)
 2. [DESARROLLO_LOCAL.md](docs/DESARROLLO_LOCAL.md) - Setup detallado
 3. [README.md](README.md) - Overview general
+4. [AUTO_SYNC_CONTEXT_SETUP.md](docs/AUTO_SYNC_CONTEXT_SETUP.md) - Sincronizar docs a Google Drive
 
 ### Backend (Python + FastAPI)
 - [AUTH_SYSTEM.md](docs/AUTH_SYSTEM.md) - JWT, API Keys, Roles

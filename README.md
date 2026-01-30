@@ -24,9 +24,22 @@ Sistema de Gestión Integral para ISP (Internet Service Providers)
    - Reglas de negocio
    - Patrones arquitectónicos
 
-3. **[📖 DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md)** ← Índice de todo
+3. **[🤖 AI_ARCHITECT_CONTEXT.md](AI_ARCHITECT_CONTEXT.md)** ← Para IAs (Gemini, Claude)
+   - Decisiones arquitectónicas clave
+   - Troubleshooting matrix
+   - Contribución guidelines
+   - Deuda técnica
+
+4. **[📖 DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md)** ← Índice de todo
    - Links a documentación específica por tema
    - Guía de lectura por perfil (arquitecto, dev, ops, qa)
+   - Referencias cruzadas
+
+5. **[🔄 AUTO_SYNC_CONTEXT_SETUP.md](docs/AUTO_SYNC_CONTEXT_SETUP.md)** ← Script automático
+   - Cómo sincronizar docs a Google Drive
+   - Setup de Rclone
+   - Monitoreo y troubleshooting
+   - Uso: `nohup ./auto_sync_context.sh > sync.log 2>&1 &`
 
 ---
 
