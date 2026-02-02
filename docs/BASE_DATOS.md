@@ -328,9 +328,14 @@ docker compose exec db psql -U postgres -d emerald -c \
     │ PK: id               │   │ PK: id                            │
     │ FK: ticket_id ◄──────┤   │ FK: ticket_id ◄────────────────────┤
     │ FK: author_id        │   │ FK: technician_id                 │
+    │                      │   │ FK: team_id                       │
     │ - event_type (ENUM)  │   │ - ot_type (ENUM)                  │
     │ - content (TEXT)     │   │ - status (ENUM)                   │
     │ - meta_data (JSONB)  │   │ - scheduled_at (TIMESTAMP)        │
+    │                      │   │ - scheduled_start (TIMESTAMP) *N* │
+    │                      │   │ - scheduled_end (TIMESTAMP) *N*   │
+    │                      │   │ - estimated_duration (INT) *N*    │
+    │                      │   │ - coordination_notes (TEXT) *N*   │
     │ - created_at         │   │ - started_at (TIMESTAMP) *NUEVO*  │
     │                      │   │ - completed_at (TIMESTAMP) *NUEVO*│
     │                      │   │ - resolution_type (VARCHAR)       │
@@ -361,6 +366,7 @@ docker compose exec db psql -U postgres -d emerald -c \
 FK: creator_id, assigned_to_id → users.id
 FK: ticket_id → tickets.id (CASCADE)
 FK: technician_id → users.id (SET NULL)
+FK: team_id → teams.id (SET NULL)
 FK: work_order_id → work_orders.id (CASCADE)
 ```
 
@@ -401,20 +407,21 @@ class TicketTimelineEventType(str, Enum):
 ```python
 class WorkOrderStatus(str, Enum):
     PENDING_PLANNING = "pending_planning"  # Pendiente de planificar
-    SCHEDULED = "scheduled"                # Programada
-    IN_PROGRESS = "in_progress"           # En ejecución
-    COMPLETED = "completed"                # Completada
-    CANCELLED = "cancelled"                # Cancelada
+  COORDINATED = "coordinated"            # Fecha pactada sin cuadrilla
+  SCHEDULED = "scheduled"                # Fecha pactada con cuadrilla
+  ASSIGNED = "assigned"                  # Asignada a técnico (legacy)
+  IN_PROGRESS = "in_progress"            # En ejecución
+  COMPLETED = "completed"                # Completada
+  FAILED = "failed"                      # Falló en ejecución
 ```
 
 **WorkOrderType:**
 ```python
 class WorkOrderType(str, Enum):
-    DIAGNOSIS = "diagnosis"          # Diagnóstico
-    REPAIR = "repair"                # Reparación
-    INSTALL = "install"              # Instalación
-    UPGRADE = "upgrade"              # Upgrade de equipos
-    MAINTENANCE = "maintenance"      # Mantenimiento preventivo
+  REPAIR = "repair"                # Diagnóstico/reparación
+  INSTALL = "install"              # Instalación
+  PICKUP = "pickup"                # Retiro de equipo
+  INFRASTRUCTURE = "infrastructure"# Cuadrilla de infraestructura
 ```
 
 **ResolutionCategory:** *(Añadido 07/01/2026 - Cierre de Órdenes de Trabajo)*

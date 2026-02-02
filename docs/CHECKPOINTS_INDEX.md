@@ -25,16 +25,17 @@ docker compose ps
 
 ---
 
-## CHECKPOINT ACTIVO (Filtro de Técnicos + Password Reset)
+## CHECKPOINT ACTIVO (WorkOrders + Coordinación)
 
-📍 **[checkpoints/CHECKPOINT_2026-01-28_FILTRO_TECNICOS_PASSWORD_RESET.md](checkpoints/CHECKPOINT_2026-01-28_FILTRO_TECNICOS_PASSWORD_RESET.md)** ← ACTUAL
+📍 **[checkpoints/CHECKPOINT_2026-02-02_WORK_ORDERS_COORDINACION.md](checkpoints/CHECKPOINT_2026-02-02_WORK_ORDERS_COORDINACION.md)** ← ACTUAL
 - Branch: `develop`
-- Estado: ✅ COMPLETADO - Filtro dinámico de técnicos y herramienta de reset de contraseñas
+- Estado: ✅ COMPLETADO - Agendamiento de WorkOrders + asignación de cuadrillas
 - Cambios:
-  - Frontend: Filtro mejorado con lista dinámica de técnicos, restricción de permisos (solo admin/operator)
-  - Documentación: Password reset flow explicado, mejores prácticas de seguridad
-  - Herramientas: Script de reset de contraseñas para administrador
-- Próximos pasos: Validación visual, implementar forgot-password flow completo
+	- Backend: nuevos campos de coordinación en WorkOrders (team_id, scheduled_start/end, estimated_duration, notes)
+	- Enums: WorkOrderStatus actualizado (coordinated/scheduled)
+	- Migraciones: Alembic + merge heads aplicado
+	- Fix: backend crash por `comment` en relationships
+- Próximos pasos: UI de agenda + tests E2E de coordinación
 
 📍 **[checkpoints/CHECKPOINT_2026-01-27_RBAC_FILTROS_WORK_ORDERS.md](checkpoints/CHECKPOINT_2026-01-27_RBAC_FILTROS_WORK_ORDERS.md)**
 - Estado: ✅ COMPLETADO - Sistema de roles y filtrado de Work Orders funcional

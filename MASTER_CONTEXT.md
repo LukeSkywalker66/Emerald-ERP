@@ -1,7 +1,7 @@
 # 🎭 MASTER_CONTEXT - Emerald ERP -
 
 **Documento de Referencia Arquitectónica para Arquitectos**  
-*Última actualización: 30 de Enero 2026*
+*Última actualización: 2 de Febrero 2026*
 
 ---
 
@@ -305,11 +305,14 @@ TicketTimeline / TicketEvents (Bitácora unificada)
 
 WorkOrders (Órdenes de trabajo)
   ├─ FK: ticket_id → Tickets (ON DELETE CASCADE)
-  ├─ FK: assigned_to_id → Users (técnico)
+  ├─ FK: technician_id → Users (técnico, legacy)
   ├─ FK: team_id → Teams (asignación a equipo, no usuario individual)
-  ├─ status: pending_planning | assigned | in_progress | completed | failed
+  ├─ status: pending_planning | coordinated | scheduled | assigned | in_progress | completed | failed
   ├─ type: repair | install | pickup | infrastructure
-  ├─ estimated_duration: minutos
+  ├─ scheduled_start: datetime (UTC)
+  ├─ scheduled_end: datetime (UTC, calculado)
+  ├─ estimated_duration: minutos (default 60)
+  ├─ coordination_notes: texto (ej: "Llave en portería")
   ├─ has many: WorkOrderItems (materiales consumidos)
   ├─ has many: TicketTimeline (eventos OT)
   ├─ resolution_type: success | failed | rescheduled | partial

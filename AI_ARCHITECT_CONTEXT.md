@@ -666,8 +666,8 @@ Si hago cambios en Emerald:
 
 ---
 
-**Documento versión:** 1.0  
-**Generado:** 30 Enero 2026  
+**Documento versión:** 1.1  
+**Generado:** 2 Febrero 2026  
 **Para:** Arquitectos de sistemas + IA (Gemini, Claude, etc.)  
 **Precisión:** 95%+ (basado en código fuente actual)
 
