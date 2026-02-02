@@ -190,6 +190,7 @@ def get_work_order_detail(
         db.query(WorkOrder)
         .options(
             joinedload(WorkOrder.technician),
+            joinedload(WorkOrder.team),
             joinedload(WorkOrder.ticket),
             joinedload(WorkOrder.work_order_items),
         )
@@ -287,6 +288,16 @@ def get_work_order_detail(
         status=wo.status,
         technician_id=wo.technician_id,
         technician_name=wo.technician.full_name if wo.technician else None,
+        
+        # NUEVOS campos de coordinación
+        team_id=wo.team_id,
+        team_name=wo.team.name if wo.team else None,
+        scheduled_start=wo.scheduled_start,
+        scheduled_end=wo.scheduled_end,
+        estimated_duration=wo.estimated_duration,
+        coordination_notes=wo.coordination_notes,
+        
+        # Campos existentes
         scheduled_at=wo.scheduled_at,
         started_at=wo.started_at,
         completed_at=wo.completed_at,
@@ -319,7 +330,7 @@ def update_work_order(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Actualizar estado de OT (usado por técnicos durante ejecución)."""
+    """Actualizar estado de OT (usado por técnicos Y coordinadores)."""
     wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
     if not wo:
         raise HTTPException(status_code=404, detail="WorkOrder not found")
@@ -331,6 +342,32 @@ def update_work_order(
     update_data = payload.model_dump(exclude_unset=True)
     print(f"[DEBUG] Updating WO #{work_order_id} with data: {update_data}")
     
+    # LÓGICA DE CÁLCULO AUTOMÁTICO DE scheduled_end
+    if 'scheduled_start' in update_data or 'estimated_duration' in update_data:
+        # Si se actualiza scheduled_start o estimated_duration, recalcular scheduled_end
+        scheduled_start = update_data.get('scheduled_start', wo.scheduled_start)
+        estimated_duration = update_data.get('estimated_duration', wo.estimated_duration)
+        
+        if scheduled_start and estimated_duration:
+            # Calcular scheduled_end automáticamente
+            calculated_end = scheduled_start + timedelta(minutes=estimated_duration)
+            update_data['scheduled_end'] = calculated_end
+            print(f"[DEBUG] Auto-calculated scheduled_end: {calculated_end}")
+    
+    # LÓGICA DE TRANSICIÓN DE ESTADOS AUTOMÁTICA
+    # Si se asigna scheduled_start pero no hay team_id, pasar a "coordinated"
+    if 'scheduled_start' in update_data and update_data.get('scheduled_start'):
+        if not wo.team_id and 'team_id' not in update_data:
+            update_data['status'] = WorkOrderStatus.coordinated
+            print(f"[DEBUG] Auto-transition to COORDINATED (fecha sin cuadrilla)")
+    
+    # Si se asigna team_id y ya hay scheduled_start, pasar a "scheduled"
+    if 'team_id' in update_data and update_data.get('team_id'):
+        if wo.scheduled_start or update_data.get('scheduled_start'):
+            update_data['status'] = WorkOrderStatus.scheduled
+            print(f"[DEBUG] Auto-transition to SCHEDULED (fecha + cuadrilla)")
+    
+    # Aplicar actualizaciones
     for key, value in update_data.items():
         setattr(wo, key, value)
     
@@ -347,7 +384,13 @@ def update_work_order(
             author_id=current_user.id,
             event_type=TicketTimelineEventType.ot_event,
             content=f"OT #{wo.id}: Estado actualizado de {old_status.value} a {payload.status.value}",
-            meta_data={"work_order_id": wo.id, "old_status": old_status.value, "new_status": payload.status.value},
+            meta_data={
+                "work_order_id": wo.id, 
+                "old_status": old_status.value, 
+                "new_status": payload.status.value,
+                "team_id": wo.team_id,
+                "scheduled_start": wo.scheduled_start.isoformat() if wo.scheduled_start else None,
+            },
         )
         db.add(timeline_event)
     

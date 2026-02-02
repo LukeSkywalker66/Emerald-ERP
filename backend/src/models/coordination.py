@@ -77,7 +77,16 @@ class Team(Base):
         "TeamMember",
         back_populates="team",
         lazy="selectin",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
+        comment="Miembros de la cuadrilla"
+    )
+
+    work_orders: Mapped[List["WorkOrder"]] = relationship(
+        "WorkOrder",
+        back_populates="team",
+        lazy="select",
+        foreign_keys="WorkOrder.team_id",
+        comment="Órdenes de trabajo asignadas a esta cuadrilla"
     )
 
     def __repr__(self) -> str:

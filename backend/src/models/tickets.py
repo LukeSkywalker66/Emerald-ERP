@@ -101,7 +101,9 @@ class TicketTimelineEventType(StrEnum):
 class WorkOrderStatus(StrEnum):
     """Estados posibles de una Orden de Trabajo."""
     pending_planning = "pending_planning"  # Aguardando asignación del planificador
-    assigned = "assigned"  # Asignada a un técnico
+    coordinated = "coordinated"            # Fecha pactada con cliente, SIN cuadrilla asignada
+    scheduled = "scheduled"                # Fecha pactada Y cuadrilla asignada
+    assigned = "assigned"  # Asignada a un técnico individual
     in_progress = "in_progress"  # Técnico trabajando en sitio
     completed = "completed"  # Trabajo completado
     failed = "failed"  # Fallo en ejecución
@@ -578,23 +580,31 @@ class WorkOrder(Base, TimestampMixin):
     Una OT es una tarea concreta derivada de un ticket.
     Un ticket puede generar múltiples OT (ej: diagnóstico + reparación).
 
-    Estados:
-      PENDING_PLANNING → ASSIGNED → IN_PROGRESS → COMPLETED (o FAILED)
+    Estados (actualizado para coordinación):
+      PENDING_PLANNING → COORDINATED → SCHEDULED → IN_PROGRESS → COMPLETED (o FAILED)
+                          ↓                ↓
+                    (fecha con cliente) (+ cuadrilla asignada)
 
-    Flujo típico:
+    Flujo típico coordinado:
       1. Operador crea OT desde ticket (estado: PENDING_PLANNING)
-      2. Planificador asigna técnico y programa fecha (estado: ASSIGNED)
-      3. Técnico va a sitio y cambia a IN_PROGRESS
-      4. Técnico completa trabajo, consume materiales (estado: COMPLETED)
-      5. Sistema descuenta stock automáticamente
+      2. Coordinador pacta fecha con cliente (estado: COORDINATED, scheduled_start definido)
+      3. Coordinador asigna cuadrilla (estado: SCHEDULED, team_id definido)
+      4. Técnico va a sitio y cambia a IN_PROGRESS
+      5. Técnico completa trabajo, consume materiales (estado: COMPLETED)
+      6. Sistema descuenta stock automáticamente
 
     Relaciones:
       - ticket: Ticket origen
-      - technician: Usuario (técnico asignado)
+      - technician: Usuario (técnico asignado individual, deprecated)
+      - team: Cuadrilla asignada (NUEVO - reemplaza technician)
       - work_order_items: Materiales consumidos
 
     Campos especiales:
-      - scheduled_at: Fecha/hora programada para la visita
+      - scheduled_at: Fecha/hora programada (deprecated, usar scheduled_start)
+      - scheduled_start: Inicio pactado con cliente (timezone aware UTC)
+      - scheduled_end: Fin estimado (calculado automáticamente)
+      - estimated_duration: Duración estimada en minutos
+      - coordination_notes: Notas para el técnico
       - completed_at: Fecha/hora de finalización real
       - notes: Notas técnicas del trabajo realizado
     """
@@ -618,7 +628,14 @@ class WorkOrder(Base, TimestampMixin):
         ForeignKey("users.id", name="fk_work_orders_technician_id", ondelete="SET NULL"),
         nullable=True,
         index=True,
-        comment="Técnico asignado (nullable hasta que planificador asigne)"
+        comment="Técnico asignado individual (deprecated, usar team_id)"
+    )
+
+    team_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("teams.id", name="fk_work_orders_team_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Cuadrilla asignada para esta OT (NULL si asignación individual legacy)"
     )
 
     # Tipo y estado
@@ -641,8 +658,39 @@ class WorkOrder(Base, TimestampMixin):
         DateTime(timezone=True),
         nullable=True,
         index=True,
-        comment="Fecha/hora programada para la visita"
+        comment="Fecha/hora programada para la visita (deprecated, usar scheduled_start)"
     )
+
+    # ===== COORDINACIÓN Y AGENDAMIENTO (NUEVO) =====
+    
+    scheduled_start: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+        comment="Fecha/hora de inicio pactada con cliente (timezone aware UTC)"
+    )
+
+    scheduled_end: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Fecha/hora estimada de finalización (calculada automáticamente)"
+    )
+
+    estimated_duration: Mapped[int] = mapped_column(
+        Integer,
+        default=60,
+        nullable=False,
+        comment="Duración estimada de la tarea en minutos (default: 60min)"
+    )
+
+    coordination_notes: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Notas para el técnico (ej: 'Llave en portería', 'Llamar antes de llegar')"
+    )
+
+    # ===== FIN COORDINACIÓN =====
+
     started_at: Mapped[Optional[DateTime]] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
@@ -709,7 +757,14 @@ class WorkOrder(Base, TimestampMixin):
     )
     technician: Mapped[Optional[User]] = relationship(
         "User",
-        lazy="joined"
+        lazy="joined",
+        foreign_keys=[technician_id]
+    )
+    team: Mapped[Optional["Team"]] = relationship(
+        "Team",
+        back_populates="work_orders",
+        lazy="joined",
+        foreign_keys=[team_id]
     )
     work_order_items: Mapped[list[WorkOrderItem]] = relationship(
         "WorkOrderItem",
@@ -723,10 +778,33 @@ class WorkOrder(Base, TimestampMixin):
         Index("ix_work_orders_ticket_status", "ticket_id", "status"),
         Index("ix_work_orders_technician", "technician_id"),
         Index("ix_work_orders_scheduled", "scheduled_at"),
+        Index("ix_work_orders_team_scheduled", "team_id", "scheduled_start"),  # NUEVO índice para coordinación
     )
 
     def __repr__(self) -> str:
         return f"<WorkOrder(id={self.id}, type={self.ot_type}, status={self.status})>"
+
+    @property
+    def is_coordinated(self) -> bool:
+        """Retorna True si tiene fecha pactada con cliente."""
+        return self.scheduled_start is not None
+
+    @property
+    def is_team_assigned(self) -> bool:
+        """Retorna True si tiene cuadrilla asignada."""
+        return self.team_id is not None
+
+    def calculate_scheduled_end(self) -> Optional[datetime]:
+        """
+        Calcula scheduled_end basado en scheduled_start + estimated_duration.
+        
+        Returns:
+            datetime con zona horaria UTC o None si no hay scheduled_start
+        """
+        if not self.scheduled_start:
+            return None
+        from datetime import timedelta
+        return self.scheduled_start + timedelta(minutes=self.estimated_duration)
 
 
 class WorkOrderItem(Base, TimestampMixin):

@@ -117,6 +117,15 @@ class WorkOrderListResponse(BaseModel):
     client_name: Optional[str] = None
     address: Optional[str] = None
     technician_name: Optional[str] = None
+    
+    # NUEVOS campos de coordinación
+    team_id: Optional[int] = None
+    team_name: Optional[str] = None
+    scheduled_start: Optional[datetime] = None
+    scheduled_end: Optional[datetime] = None
+    estimated_duration: int = 60
+    
+    # Campos existentes
     scheduled_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -126,8 +135,17 @@ class WorkOrderListResponse(BaseModel):
 
 
 class WorkOrderUpdate(BaseModel):
-    """Schema para actualización de WorkOrder (usado por técnicos)."""
+    """Schema para actualización de WorkOrder (usado por técnicos Y coordinadores)."""
     status: Optional[WorkOrderStatus] = None
+    
+    # NUEVOS campos de coordinación
+    team_id: Optional[int] = Field(None, description="Cuadrilla asignada")
+    scheduled_start: Optional[datetime] = Field(None, description="Inicio pactado con cliente (UTC)")
+    scheduled_end: Optional[datetime] = Field(None, description="Fin estimado (auto-calculado o manual)")
+    estimated_duration: Optional[int] = Field(None, ge=15, le=480, description="Duración en minutos (15-480)")
+    coordination_notes: Optional[str] = Field(None, max_length=500, description="Notas para técnico")
+    
+    # Campos existentes
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     resolution_type: Optional[WorkOrderResolutionType] = None
@@ -176,6 +194,16 @@ class WorkOrderDetailResponse(BaseModel):
     status: WorkOrderStatus
     technician_id: Optional[int] = None
     technician_name: Optional[str] = None
+    
+    # NUEVOS campos de coordinación
+    team_id: Optional[int] = None
+    team_name: Optional[str] = None
+    scheduled_start: Optional[datetime] = None
+    scheduled_end: Optional[datetime] = None
+    estimated_duration: int = 60
+    coordination_notes: Optional[str] = None
+    
+    # Campos existentes
     scheduled_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
