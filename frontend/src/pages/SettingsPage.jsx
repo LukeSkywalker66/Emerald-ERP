@@ -3,6 +3,7 @@ import { Settings, Plus, MoreHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import Avatar from '@/components/ui/Avatar';
 import {
   Table,
   TableBody,
@@ -139,11 +140,11 @@ export default function SettingsPage() {
                   >
                     <TableCell className="font-medium text-zinc-50">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-emerald-600/20 border border-emerald-600/50 flex items-center justify-center">
-                          <span className="text-xs font-bold text-emerald-400">
-                            {user.avatar}
-                          </span>
-                        </div>
+                        <Avatar
+                          name={user.name}
+                          size="sm"
+                          variant="emerald"
+                        />
                         {user.name}
                       </div>
                     </TableCell>
