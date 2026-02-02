@@ -536,16 +536,120 @@ APIKey (Claves para integraciones)
 
 ---
 
-### 5️⃣ Módulo de Coordinación (🚧 En Desarrollo)
+### 5️⃣ Módulo de Coordinación (✅ MVP Completado - Q1 2026)
 
-**Estado:** 🚧 Pendiente
+**Estado:** ✅ Producción - MVP v1.0 completo
 
-**Características Planeadas:**
-- [ ] Teams (equipos de técnicos)
+**Versión:** 1.0 | Última actualización: 2 Febrero 2026
+
+**Características Implementadas:**
+- ✅ Teams/Cuadrillas con gestión completa de miembros
+- ✅ CRUD funcional (create, read, update, delete) con endpoints v2/coordination/teams
+- ✅ Asignación de móviles (warehouse type=MOBILE) a equipos con validación
+- ✅ Gestión de roles por miembro (technician/leader) con UI inline
+- ✅ Prevención de asignaciones duplicadas (bilocación) - técnico no puede estar en múltiples equipos
+- ✅ Prevención de asignaciones duplicadas (móviles) - cada móvil asignado a máximo 1 equipo
+- ✅ UI inteligente con selects de vehicles y usuarios filtrados dinámicamente
+- ✅ Enforcing single leader per team con confirmación de cambio
+- ✅ Avatar component reutilizable en toda la app (initials, 5 tamaños, 4 variantes de color)
+- ✅ Dropdowns mostran name+ID, nunca solo ID
+- ✅ Buttons X de eliminar miembro correctamente alineados (padding y spacing optimizado)
+- ✅ Color coding visual: Técnico=Emerald 💚 | Líder=Cyan 💎 (no rojo para evitar "desactivado")
+
+**Database Schema:**
+```
+Teams (equipo de técnicos)
+  ├─ id: Primary Key
+  ├─ name: string (nombre cuadrilla)
+  ├─ vehicle_id: FK → Warehouses (type=MOBILE, nullable)
+  ├─ is_active: boolean
+  └─ has many: TeamMembers
+
+TeamMembers (miembros del equipo)
+  ├─ id: Primary Key
+  ├─ team_id: FK → Teams (cascade delete)
+  ├─ user_id: FK → Users
+  ├─ role: enum [technician, leader] - solo 1 líder por team
+  └─ joined_at: timestamp
+```
+
+**Características Planeadas (Q2 2026+):**
 - [ ] Calendario de turnos y vacaciones
-- [ ] Distribución automática de OT por equipo
-- [ ] Notificaciones (app mobile, SMS)
-- [ ] Reportes de ocupación
+- [ ] Integración con WorkOrders (asignar OT a equipos)
+- [ ] Distribución automática de OT por carga de equipo
+- [ ] Notificaciones (app mobile, SMS, push)
+- [ ] Reportes de ocupación y utilización
+- [ ] Validación de capacidad (máx 2 técnicos por móvil)
+- [ ] Geolocalización de equipos en tiempo real
+
+**Stack Técnico:**
+
+**Backend:**
+- Router: `routers/v2/coordination.py`
+- Service: `services/coordination_service.py` con métodos:
+  - `get_teams(db, active_only=True)`
+  - `create_team(db, payload)`
+  - `update_team(db, team_id, payload)`
+  - `delete_team(db, team_id)`
+  - `add_team_member(db, team_id, user_id, role="technician")`
+  - `remove_team_member(db, team_id, user_id)`
+  - `update_member_role(db, team_id, user_id, new_role)` - con validación single leader
+- Models: `models/coordination.py`
+- Endpoints:
+  - `GET /v2/coordination/teams` - listar con filtro active
+  - `POST /v2/coordination/teams` - crear
+  - `PUT /v2/coordination/teams/{id}` - editar
+  - `DELETE /v2/coordination/teams/{id}` - borrar
+  - `POST /v2/coordination/teams/{id}/members` - agregar miembro
+  - `DELETE /v2/coordination/teams/{id}/members/{user_id}` - remover miembro
+  - `PUT /v2/coordination/teams/{id}/members/{user_id}/role` - cambiar rol con validación
+
+**Frontend:**
+- Page: `pages/coordination/CuadrillasPage.jsx` (326 lines)
+  - Orquesta loading de teams, users (filtrados por rol 'técnico'), vehicles (MOBILE)
+  - Mantiene Set-based filtering para prevenir duplicados
+  - Calcula: assignedVehicleIds, assignedUserIds, availableUsers, availableVehicles
+  - Handlers: handleCreateTeam, handleEditTeam, handleDeleteTeam
+- Card: `components/coordination/TeamCard.jsx` (260+ lines)
+  - Muestra info equipo con lista de miembros
+  - Inline role selector con confirmación para cambio a líder
+  - Color coding: technician=emerald-600, leader=cyan-600
+  - Buttons X compactados (h-5 w-5, icons h-3.5 w-3.5)
+  - Remove member action con confirmación
+- Dialog: `components/coordination/CreateTeamDialog.jsx` (170 lines)
+  - Form: name (required), vehicle (select con name+ID), initial_member (select con full_name+ID), is_active
+  - Crea team y opcionalmente agrega primer miembro con rol technician
+  - Props: availableUsers, availableVehicles (pre-filtrados desde page)
+- Dialog: `components/coordination/EditTeamDialog.jsx` (144 lines)
+  - Form: name, vehicle (select), is_active
+  - Carga datos via useEffect
+  - Props: team, availableVehicles
+- Dialog: `components/coordination/AddMemberDialog.jsx` (143 lines)
+  - Form: user (select), role (radio o select)
+  - Props: availableUsers (filtrados para no duplicar)
+- Component: `components/ui/Avatar.jsx` (NEW - 76 lines)
+  - Reusable en toda app
+  - Props: name, email, image, size (xs/sm/md/lg/xl), variant (emerald/amber/ruby/zinc)
+  - Muestra imagen o initials
+  - Tooltip con name+email
+  - Used in: TeamCard, SettingsPage users table
+- Service: `services/coordination.service.js` (200+ lines)
+  - Methods: getTeams(), createTeam(), updateTeam(), deleteTeam()
+  - Methods: addTeamMember(), removeTeamMember(), updateMemberRole()
+  - Method: getUserTeams(userId)
+
+**Reglas de Negocio (Enforcement):**
+1. **Single Leader:** Solo 1 líder por equipo. Si cambias someone a leader y ya hay uno, muestra confirmación y demota al anterior automáticamente.
+2. **No Bilocación:** Técnico solo puede estar en 1 equipo. Dropdown availableUsers filtra todos los user_ids en assignedUserIds.
+3. **Móvil Exclusivo:** Cada móvil en 1 equipo. availableVehicles excluye asignados, excepto el actual en edit.
+4. **Color UI:** Técnico=Emerald (confianza), Líder=Cyan (autoridad), nunca rojo (no se ve como "error")
+
+**Testing:**
+- Manual testing via http://emerald.2finternet.ar/app/cuadrillas ✅
+- CRUD operations funcionales ✅
+- Filtering logic validated ✅
+- Role enforcement tested ✅
+- Pending: E2E automation tests (deferred to Q2)
 
 ---
 

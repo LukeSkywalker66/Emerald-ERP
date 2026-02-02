@@ -192,6 +192,57 @@ curl -H "x-api-key: sk_prod_abc123xyz" https://emerald.local/api/v2/tickets
 
 ---
 
+### D11: Teams en lugar de Usuarios individuales para Coordinación
+
+**Decisión:** Coordinación gestiona **Teams** (equipos de técnicos), no usuarios aislados. WorkOrders se asignan a Teams, el Team distribuye internamente.
+
+**Por qué:** 
+- Permite redistribución dinámica (si técnico se enferma, otro del team asume)
+- Previene bilocación (técnico solo en 1 team)
+- Escala mejor que N:1 (usuario) model
+
+```
+Team A (Móvil Ruta Zona Sur)
+  ├─ Técnico 1 (Líder)
+  ├─ Técnico 2
+  └─ Móvil warehouse vinculado
+
+WorkOrder #456 → asigna a Team A
+  ↓
+Team A lead asigna a Técnico 2
+  ↓
+Técnico 2 ejecuta en móvil
+```
+
+**Implementación:**
+- BD: Teams table + TeamMembers (N:N con rol)
+- Validación: Solo 1 leader/team, no duplicados de técnico en múltiples teams
+- UI: Avatar component reutilizable, color coding (Técnico=Emerald, Líder=Cyan)
+- Filtering: Dropdowns inteligentes previenen bilocación y asignaciones inválidas
+
+---
+
+### D12: UI Filtering Preventivo (Set-based Deduplication)
+
+**Decisión:** Frontend mantiene Set de recursos asignados, filtra dinámicamente en dropdowns.
+
+**Por qué:** UX preventiva (no puedes cometer errores), mejor performance (O(1) lookups).
+
+```javascript
+// CuadrillasPage.jsx
+const assignedUserIds = new Set(
+  teams.flatMap(t => t.members || [])
+    .map(m => m.user_id)
+    .filter(id => id !== null)
+    .map(id => Number(id))
+);
+
+// availableUsersForAssign = users.filter(u => !assignedUserIds.has(Number(u.id)));
+// Dropdown solo muestra no-asignados → imposible duplicar
+```
+
+---
+
 ## 🗄️ Estructura Lógica de Datos
 
 ### Relaciones Críticas
@@ -200,6 +251,7 @@ curl -H "x-api-key: sk_prod_abc123xyz" https://emerald.local/api/v2/tickets
 Users → Roles (N:N)
 Users → Tickets (1:N, creator_id + assigned_to_id)
 Users → Warehouses (1:N, si MOBILE type)
+Users → TeamMembers (N:N, con rol) → Teams
 
 Tickets → TicketCategory (N:1)
 Tickets → TicketReason (N:1, dinámico)
@@ -213,6 +265,20 @@ WorkOrderItems → Products (N:1)
 
 Products → StockBulk | SerialItems (1:N)
 Warehouses → StockMovements (1:N)
+Warehouses ← Teams (FK vehicle_id, type=MOBILE)
+
+Teams (Coordinación)
+  ├─ name: nombre cuadrilla
+  ├─ vehicle_id: FK → Warehouses (type=MOBILE, nullable)
+  ├─ is_active: booleano
+  ├─ has many: TeamMembers
+  └─ created_at, updated_at
+
+TeamMembers (N:N con roles)
+  ├─ team_id: FK → Teams
+  ├─ user_id: FK → Users
+  ├─ role: enum [technician, leader] (solo 1 leader/team)
+  └─ joined_at: timestamp
 
 EngineeringTasks → Users (N:1)
 EngineeringTasks → Tickets (N:1, opcional)
@@ -319,7 +385,7 @@ docker-compose up -d nginx certbot
 | **Work Orders** | ✅ Prod | 🟢 Bajo | CRUD, ejecución móvil, stock integration |
 | **Inventory** | ✅ Prod | 🟢 Bajo | Stock + movimientos, serializados OK |
 | **Engineering** | ✅ Prod | 🟢 Bajo | Kanban, timeline, NOC workflows |
-| **Coordination** | 🚧 Dev | 🟠 Med | Teams, calendario, dist. OT (Q1 2026) |
+| **Coordination** | ✅ MVP | 🟢 Bajo | Teams + miembros + móviles + roles + filtering (Q1 2026) |
 | **Beholder** | ⚠️ Legacy | 🔴 Alto | Monitor diagnóstico, deprecar |
 
 ---
@@ -364,10 +430,189 @@ docker-compose up -d nginx certbot
 
 | Q | Feature | Status |
 |---|---------|--------|
-| Q1 | Coordinación (Teams) | 🚧 Dev |
-| Q2 | Mobile app nativa | 🚧 Plan |
+| Q1 | Coordinación (Teams) | ✅ MVP Completado |
+| Q2 | Mobile app nativa + Coordinación v2 (calendarios, OT integration) | 🚧 Plan |
 | Q3 | Analytics + BI | 📋 Backlog |
 | Q4 | ISPCube deep integration | 📋 Backlog |
+
+---
+
+## 📦 Detalles de Implementación: Módulo Coordinación
+
+### Frontend Components
+
+**CuadrillasPage.jsx** (326 lines) - Orquestación principal
+```javascript
+State Management:
+  - teams: Team[] ← GET /v2/coordination/teams?active_only=true
+  - users: User[] ← GET /v2/users?role=tecnico (filtrado por role)
+  - vehicles: Warehouse[] ← GET /inventory/warehouses?type=MOBILE
+  
+Derived State (Set-based):
+  - assignedVehicleIds = new Set(teams.map(t => t.vehicle_id))
+  - assignedUserIds = new Set(teams.flatMap(t => t.members.map(m => m.user_id)))
+  
+Computed Lists (para dropdowns):
+  - availableVehiclesForCreate = vehicles.filter(v => !assignedVehicleIds.has(v.id))
+  - availableVehiclesForEdit = vehicles.filter(v => !assignedVehicleIds.has(v.id) || v.id === currentTeam.vehicle_id)
+  - availableUsersForAssign = users.filter(u => !assignedUserIds.has(u.id))
+
+Handlers:
+  - loadTeams() → fetch + set state
+  - loadUsers() → fetch + filter role → set state
+  - loadVehicles() → fetch warehouse type=MOBILE → set state
+  - handleCreateTeam(name, vehicle_id, initial_member_id)
+  - handleEditTeam(teamId, name, vehicle_id, is_active)
+  - handleDeleteTeam(teamId)
+```
+
+**TeamCard.jsx** (260 lines) - Display + inline editing
+```javascript
+Props:
+  - team: Team object
+  - onEdit(team), onDelete(teamId, teamName)
+  - availableUsers: User[] (for adding members)
+  - onTeamUpdated: callback to refresh
+
+Key Features:
+  - getRoleColor(role) → 
+    case 'leader': return 'bg-cyan-600/20 text-cyan-300 border-cyan-600/40'
+    case 'technician': return 'bg-emerald-600/20 text-emerald-300 border-emerald-600/40'
+  
+  - Member card layout (px-2 py-1 compact):
+    [Avatar] [Name/Email] [Role Selector] [Delete Button (h-5 w-5)]
+    
+  - handleRoleChange(member, newRole):
+    if newRole=leader && currentLeader exists && currentLeader !== member:
+      confirm("Replace current leader?") → if yes:
+        1. demote currentLeader to technician
+        2. promote member to leader
+    
+  - handleRemoveMember(userId) → DELETE /v2/coordination/teams/{id}/members/{userId}
+```
+
+**Avatar.jsx** (76 lines) - Reusable component
+```javascript
+Props:
+  - name: string (full name)
+  - email: string
+  - image: optional URL
+  - size: 'xs' | 'sm' | 'md' | 'lg' | 'xl'
+  - variant: 'emerald' | 'amber' | 'ruby' | 'zinc'
+
+Logic:
+  - getInitials(name) → take first 2 chars (J from Juan)
+  - Display: image if exists, else initials in sized div
+  - Tooltip: "{name} - {email}"
+  
+Size Mapping:
+  xs: h-6 w-6, text-xs
+  sm: h-8 w-8, text-sm
+  md: h-10 w-10, text-base
+  lg: h-12 w-12, text-lg
+  xl: h-16 w-16, text-2xl
+```
+
+**CreateTeamDialog.jsx** (170 lines)
+```javascript
+Form Fields:
+  - name: input[type=text] required
+  - vehicle_id: select (name + ID display)
+    options: {label: "Móvil Zona Sur (ID: 5)", value: 5}
+  - initial_member_id: select
+    options: {label: "Juan García (tech1@emerald.com)", value: 123}
+  - is_active: checkbox, default true
+
+onSubmit:
+  1. POST /v2/coordination/teams {name, vehicle_id, is_active}
+  2. if initial_member_id:
+     POST /v2/coordination/teams/{newTeamId}/members
+       {user_id: initial_member_id, role: "technician"}
+```
+
+**EditTeamDialog.jsx** (144 lines)
+```javascript
+Props:
+  - team: Team
+  - availableVehicles: Warehouse[]
+
+Form Fields: (similar to create, minus member field)
+  - name: input
+  - vehicle_id: select
+  - is_active: checkbox
+
+onSubmit:
+  PUT /v2/coordination/teams/{team.id} {name, vehicle_id, is_active}
+```
+
+**AddMemberDialog.jsx** (143 lines)
+```javascript
+Props:
+  - availableUsers: User[] (pre-filtered, no duplicates)
+
+Form Fields:
+  - user_id: select
+  - role: radio buttons or select [technician, leader]
+
+onSubmit:
+  POST /v2/coordination/teams/{teamId}/members {user_id, role}
+```
+
+### Backend Service Layer
+
+**coordination_service.py**
+```python
+async def get_teams(db: Session, active_only: bool = True):
+    """Get all teams with members populated"""
+    query = db.query(Team)
+    if active_only:
+        query = query.filter(Team.is_active == True)
+    return query.all()
+
+async def create_team(db: Session, payload: TeamCreate):
+    """Create team (optionally with initial vehicle)"""
+    team = Team(name=payload.name, vehicle_id=payload.vehicle_id, is_active=True)
+    db.add(team)
+    db.commit()
+    return team
+
+async def add_team_member(db: Session, team_id: int, user_id: int, role: str = "technician"):
+    """Add member with validation (no duplicate users in team)"""
+    # Check user already in any team
+    existing = db.query(TeamMember).filter(TeamMember.user_id == user_id).first()
+    if existing:
+        raise ValueError(f"User {user_id} already in team {existing.team_id} (bilocación)")
+    
+    # Add member
+    member = TeamMember(team_id=team_id, user_id=user_id, role=role)
+    db.add(member)
+    db.commit()
+    return member
+
+async def update_member_role(db: Session, team_id: int, user_id: int, new_role: str):
+    """Update role with single-leader enforcement"""
+    member = db.query(TeamMember)\
+        .filter(TeamMember.team_id == team_id, TeamMember.user_id == user_id)\
+        .first()
+    
+    if not member:
+        raise ValueError("Member not found")
+    
+    if new_role == "leader":
+        current_leader = db.query(TeamMember)\
+            .filter(TeamMember.team_id == team_id, TeamMember.role == "leader")\
+            .first()
+        
+        if current_leader and current_leader.user_id != user_id:
+            # Demote old leader
+            current_leader.role = "technician"
+            db.add(current_leader)
+    
+    member.role = new_role
+    db.add(member)
+    db.commit()
+    return member
+```
 
 ---
 
@@ -375,8 +620,8 @@ docker-compose up -d nginx certbot
 
 1. **Beholder Legacy** → Funcionalidad replicada en Engineering. Deprecar Q2 2026.
 2. **Frontend Legacy** → `src_legacy/` contiene código viejo. Limpiar.
-3. **Test Coverage** → Coordinación sin tests (Q1).
-4. **Documentation** → Algunos comentarios en código están desactualizados.
+3. **Test Coverage** → Coordinación sin tests E2E (deferred Q2 2026).
+4. **Documentación** → Algunos comentarios en código están desactualizados (actualizado 2 Feb 2026).
 
 ---
 

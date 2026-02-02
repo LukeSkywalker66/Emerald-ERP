@@ -31,7 +31,7 @@ const TeamCard = ({
   const getRoleColor = (role) => {
     switch (role) {
       case 'leader':
-        return 'bg-ruby-600/20 text-ruby-300 border-ruby-600/40';
+        return 'bg-cyan-600/20 text-cyan-300 border-cyan-600/40';
       case 'technician':
         return 'bg-emerald-600/20 text-emerald-300 border-emerald-600/40';
       default:
@@ -177,9 +177,9 @@ const TeamCard = ({
               {team.members.map(member => (
                 <div
                   key={member.id}
-                  className="flex items-center justify-between p-2 rounded bg-zinc-800/30 border border-zinc-700/30 hover:border-emerald-600/30 transition-colors"
+                  className="flex items-center justify-between px-2 py-1 rounded bg-zinc-800/30 border border-zinc-700/30 hover:border-emerald-600/30 transition-colors"
                 >
-                  <div className="flex items-center gap-2 flex-1">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
                     <Avatar
                       name={member.user_name}
                       email={member.user_email}
@@ -196,12 +196,12 @@ const TeamCard = ({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 ml-2 flex-shrink-0">
                     <select
                       value={member.role}
                       onChange={(e) => handleRoleChange(member, e.target.value)}
                       disabled={updatingMemberId === member.user_id}
-                      className={`text-xs px-2 py-1 rounded border bg-zinc-900 ${getRoleColor(member.role)}`}
+                      className={`text-xs px-1.5 py-0.5 rounded border bg-zinc-900 ${getRoleColor(member.role)}`}
                       title="Cambiar rol"
                     >
                       <option value="technician">Técnico</option>
@@ -212,9 +212,9 @@ const TeamCard = ({
                       size="sm"
                       onClick={() => handleRemoveMember(member.user_id)}
                       disabled={removingMemberId === member.user_id}
-                      className="h-6 w-6 p-0 text-zinc-500 hover:text-ruby-400 hover:bg-ruby-950/20"
+                      className="h-5 w-5 p-0 text-zinc-500 hover:text-ruby-400 hover:bg-ruby-950/20 flex-shrink-0"
                     >
-                      <X className="h-4 w-4" />
+                      <X className="h-3.5 w-3.5" />
                     </Button>
                   </div>
                 </div>
