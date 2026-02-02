@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import coordinationService from '@/services/coordination.service';
 import usersService from '@/services/users.service';
+import { getWarehouses } from '@/services/inventory.service';
 import TeamCard from '@/components/coordination/TeamCard';
 import CreateTeamDialog from '@/components/coordination/CreateTeamDialog';
 import EditTeamDialog from '@/components/coordination/EditTeamDialog';
@@ -32,12 +33,15 @@ const CuadrillasPage = () => {
   // Datos auxiliares
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [vehicles, setVehicles] = useState([]);
+  const [loadingVehicles, setLoadingVehicles] = useState(false);
 
   // ========== EFFECTS ==========
 
   useEffect(() => {
     loadTeams();
     loadUsers();
+    loadVehicles();
   }, []);
 
   // ========== FUNCIONES ==========
@@ -77,12 +81,38 @@ const CuadrillasPage = () => {
   };
 
   /**
+   * Cargar móviles disponibles (warehouses tipo MOBILE)
+   */
+  const loadVehicles = async () => {
+    try {
+      setLoadingVehicles(true);
+      const data = await getWarehouses({ type: 'MOBILE', warehouse_type: 'MOBILE' });
+      const list = Array.isArray(data) ? data : [];
+      setVehicles(list);
+    } catch (err) {
+      console.error('Error loading vehicles:', err);
+      // No mostrar error aquí, es secundario
+    } finally {
+      setLoadingVehicles(false);
+    }
+  };
+
+  /**
    * Crear nueva cuadrilla
    */
   const handleCreateTeam = async (teamData) => {
     try {
-      const newTeam = await coordinationService.createTeam(teamData);
-      setTeams([...teams, newTeam]);
+      const { member_user_id, ...payload } = teamData;
+      const newTeam = await coordinationService.createTeam(payload);
+
+      if (member_user_id) {
+        await coordinationService.addTeamMember(newTeam.id, {
+          user_id: member_user_id,
+          role: 'technician',
+        });
+      }
+
+      await loadTeams();
       setShowCreateDialog(false);
       alert(`✅ Cuadrilla "${teamData.name}" creada exitosamente`);
     } catch (err) {
@@ -233,6 +263,8 @@ const CuadrillasPage = () => {
           onSubmit={handleCreateTeam}
           availableUsers={users}
           loadingUsers={loadingUsers}
+          availableVehicles={vehicles}
+          loadingVehicles={loadingVehicles}
         />
       )}
 

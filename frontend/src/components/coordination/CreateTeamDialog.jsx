@@ -16,11 +16,14 @@ const CreateTeamDialog = ({
   onSubmit,
   availableUsers = [],
   loadingUsers = false,
+  availableVehicles = [],
+  loadingVehicles = false,
 }) => {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     vehicle_id: '',
+    member_user_id: '',
     is_active: true,
   });
 
@@ -43,6 +46,7 @@ const CreateTeamDialog = ({
       await onSubmit({
         name: formData.name.trim(),
         vehicle_id: formData.vehicle_id ? parseInt(formData.vehicle_id) : null,
+        member_user_id: formData.member_user_id ? parseInt(formData.member_user_id) : null,
         is_active: formData.is_active,
       });
       
@@ -50,6 +54,7 @@ const CreateTeamDialog = ({
       setFormData({
         name: '',
         vehicle_id: '',
+        member_user_id: '',
         is_active: true,
       });
     } finally {
@@ -85,22 +90,53 @@ const CreateTeamDialog = ({
             </p>
           </div>
 
-          {/* Vehicle ID (Opcional) */}
+          {/* Móvil / Warehouse */}
           <div className="space-y-2">
             <label htmlFor="vehicle_id" className="block text-sm font-medium text-zinc-300">
-              ID de Vehículo (Opcional)
+              Móvil disponible (opcional)
             </label>
-            <Input
+            <select
               id="vehicle_id"
               name="vehicle_id"
-              type="number"
-              placeholder="ID del warehouse móvil"
               value={formData.vehicle_id}
               onChange={handleInputChange}
-              className="bg-zinc-800 border-zinc-700 text-white focus:border-emerald-600"
-            />
+              disabled={loadingVehicles}
+              className="w-full bg-zinc-800 border border-zinc-700 text-white rounded px-3 py-2 focus:border-emerald-600 focus:outline-none"
+            >
+              <option value="">Seleccionar móvil...</option>
+              {availableVehicles.map((vehicle) => (
+                <option key={vehicle.id} value={vehicle.id}>
+                  {(vehicle.name || vehicle.label || vehicle.code || 'Móvil')} (ID: {vehicle.id})
+                </option>
+              ))}
+            </select>
             <p className="text-xs text-zinc-400">
-              Vincula a un warehouse móvil si es aplicable
+              Vincula la cuadrilla a un móvil por nombre e ID
+            </p>
+          </div>
+
+          {/* Técnico inicial */}
+          <div className="space-y-2">
+            <label htmlFor="member_user_id" className="block text-sm font-medium text-zinc-300">
+              Técnico inicial (opcional)
+            </label>
+            <select
+              id="member_user_id"
+              name="member_user_id"
+              value={formData.member_user_id}
+              onChange={handleInputChange}
+              disabled={loadingUsers}
+              className="w-full bg-zinc-800 border border-zinc-700 text-white rounded px-3 py-2 focus:border-emerald-600 focus:outline-none"
+            >
+              <option value="">Seleccionar técnico...</option>
+              {availableUsers.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {(user.full_name || user.username || user.email)} (ID: {user.id})
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-zinc-400">
+              Se agregará automáticamente a la cuadrilla
             </p>
           </div>
 
