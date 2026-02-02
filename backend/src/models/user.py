@@ -112,6 +112,14 @@ class User(Base, TimestampMixin):
         lazy="joined"
     )
     
+    # Membresías en cuadrillas (teams)
+    team_memberships: Mapped[list["TeamMember"]] = relationship(
+        "TeamMember",
+        back_populates="user",
+        lazy="selectin",
+        cascade="all, delete-orphan"
+    )
+    
     def __repr__(self) -> str:
         return f"<User(id={self.id}, username='{self.username}', email='{self.email}')>"
     

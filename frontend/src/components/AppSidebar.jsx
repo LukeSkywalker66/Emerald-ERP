@@ -75,6 +75,12 @@ const MENU_ITEMS = [
         description: 'Gestión de reclamos',
       },
       {
+        title: 'Cuadrillas',
+        icon: Users,
+        href: '/app/cuadrillas',
+        description: 'Gestión de equipos',
+      },
+      {
         title: 'Coordinación',
         icon: Map,
         href: '/app/coordination',
