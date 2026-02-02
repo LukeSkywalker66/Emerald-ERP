@@ -17,6 +17,8 @@ const EditTeamDialog = ({
   onSubmit,
   availableUsers = [],
   loadingUsers = false,
+  availableVehicles = [],
+  loadingVehicles = false,
 }) => {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -86,20 +88,26 @@ const EditTeamDialog = ({
             />
           </div>
 
-          {/* Vehicle ID (Opcional) */}
+          {/* Móvil asignado (Opcional) */}
           <div className="space-y-2">
             <label htmlFor="edit_vehicle_id" className="block text-sm font-medium text-zinc-300">
-              ID de Vehículo (Opcional)
+              Móvil asignado (opcional)
             </label>
-            <Input
+            <select
               id="edit_vehicle_id"
               name="vehicle_id"
-              type="number"
-              placeholder="ID del warehouse móvil"
               value={formData.vehicle_id}
               onChange={handleInputChange}
-              className="bg-zinc-800 border-zinc-700 text-white focus:border-amber-600"
-            />
+              disabled={loadingVehicles}
+              className="w-full bg-zinc-800 border border-zinc-700 text-white rounded px-3 py-2 focus:border-amber-600 focus:outline-none"
+            >
+              <option value="">Sin móvil asignado</option>
+              {availableVehicles.map((vehicle) => (
+                <option key={vehicle.id} value={vehicle.id}>
+                  {(vehicle.name || vehicle.label || vehicle.code || 'Móvil')} (ID: {vehicle.id})
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Active */}

@@ -150,10 +150,7 @@ const CuadrillasPage = () => {
       setTeams(teams.map(t => t.id === teamId ? updated : t));
       setShowEditDialog(false);
       setSelectedTeam(null);
-      toast({
-        title: '✅ Cuadrilla actualizada',
-        description: `${teamData.name} fue actualizada exitosamente`,
-      });
+      alert(`✅ Cuadrilla "${teamData.name}" actualizada exitosamente`);
     } catch (err) {
       console.error('Error updating team:', err);
       alert(`❌ Error al actualizar: ${err.message}`);
@@ -297,6 +294,8 @@ const CuadrillasPage = () => {
           onSubmit={handleEditTeam}
           availableUsers={users}
           loadingUsers={loadingUsers}
+          availableVehicles={vehicles}
+          loadingVehicles={loadingVehicles}
         />
       )}
     </div>
