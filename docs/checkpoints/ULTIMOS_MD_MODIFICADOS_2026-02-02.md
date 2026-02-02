@@ -1,0 +1,8 @@
+# Últimos 6 archivos .md modificados (2026-02-02)
+
+1. docs/checkpoints/TODO_PROXIMA_SESION_COPILOT_2026-02-02.md
+2. AI_ARCHITECT_CONTEXT.md
+3. MASTER_CONTEXT.md
+4. docs/BASE_DATOS.md
+5. docs/CHECKPOINTS_INDEX.md
+6. docs/checkpoints/CHECKPOINT_2026-02-02_WORK_ORDERS_COORDINACION.md
