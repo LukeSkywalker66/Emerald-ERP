@@ -11,7 +11,6 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { useToast } from '@/hooks/use-toast';
 import coordinationService from '@/services/coordination.service';
 import AddMemberDialog from './AddMemberDialog';
 
@@ -22,7 +21,6 @@ const TeamCard = ({
   availableUsers = [],
   onTeamUpdated,
 }) => {
-  const { toast } = useToast();
   const [showAddMember, setShowAddMember] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState(null);
 
@@ -74,10 +72,7 @@ const TeamCard = ({
       setRemovingMemberId(userId);
       await coordinationService.removeTeamMember(team.id, userId);
       
-      toast({
-        title: '✅ Miembro removido',
-        description: 'El técnico fue removido de la cuadrilla',
-      });
+      alert('✅ Miembro removido de la cuadrilla');
 
       // Recargar datos
       if (onTeamUpdated) {
@@ -85,11 +80,7 @@ const TeamCard = ({
       }
     } catch (err) {
       console.error('Error removing member:', err);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'No se pudo remover el miembro',
-      });
+      alert(`❌ Error al remover miembro: ${err.message}`);
     } finally {
       setRemovingMemberId(null);
     }
@@ -105,10 +96,7 @@ const TeamCard = ({
         role,
       });
 
-      toast({
-        title: '✅ Miembro agregado',
-        description: 'El técnico fue agregado a la cuadrilla',
-      });
+      alert('✅ Miembro agregado a la cuadrilla');
 
       setShowAddMember(false);
       if (onTeamUpdated) {
@@ -116,11 +104,7 @@ const TeamCard = ({
       }
     } catch (err) {
       console.error('Error adding member:', err);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: err.response?.data?.detail || 'No se pudo agregar el miembro',
-      });
+      alert(`❌ Error al agregar miembro: ${err.message}`);
     }
   };
 

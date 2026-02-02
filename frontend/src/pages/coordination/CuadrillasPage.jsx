@@ -12,7 +12,6 @@ import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
 import coordinationService from '@/services/coordination.service';
 import usersService from '@/services/users.service';
 import TeamCard from '@/components/coordination/TeamCard';
@@ -21,7 +20,6 @@ import EditTeamDialog from '@/components/coordination/EditTeamDialog';
 
 const CuadrillasPage = () => {
   // ========== STATE ==========
-  const { toast } = useToast();
   const [teams, setTeams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -56,11 +54,7 @@ const CuadrillasPage = () => {
     } catch (err) {
       console.error('Error loading teams:', err);
       setError('No se pudieron cargar las cuadrillas');
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'No se pudieron cargar las cuadrillas',
-      });
+      alert('❌ Error al cargar las cuadrillas');
     } finally {
       setLoading(false);
     }
@@ -90,17 +84,10 @@ const CuadrillasPage = () => {
       const newTeam = await coordinationService.createTeam(teamData);
       setTeams([...teams, newTeam]);
       setShowCreateDialog(false);
-      toast({
-        title: '✅ Cuadrilla creada',
-        description: `${teamData.name} fue creada exitosamente`,
-      });
+      alert(`✅ Cuadrilla "${teamData.name}" creada exitosamente`);
     } catch (err) {
       console.error('Error creating team:', err);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: err.response?.data?.detail || 'Error al crear la cuadrilla',
-      });
+      alert(`❌ Error al crear cuadrilla: ${err.message}`);
     }
   };
 
@@ -119,11 +106,7 @@ const CuadrillasPage = () => {
       });
     } catch (err) {
       console.error('Error updating team:', err);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: err.response?.data?.detail || 'Error al actualizar la cuadrilla',
-      });
+      alert(`❌ Error al actualizar: ${err.message}`);
     }
   };
 
@@ -138,17 +121,10 @@ const CuadrillasPage = () => {
     try {
       await coordinationService.deleteTeam(teamId);
       setTeams(teams.filter(t => t.id !== teamId));
-      toast({
-        title: '✅ Cuadrilla eliminada',
-        description: `${teamName} fue eliminada`,
-      });
+      alert(`✅ Cuadrilla "${teamName}" eliminada`);
     } catch (err) {
       console.error('Error deleting team:', err);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: err.response?.data?.detail || 'Error al eliminar la cuadrilla',
-      });
+      alert(`❌ Error al eliminar: ${err.message}`);
     }
   };
 
