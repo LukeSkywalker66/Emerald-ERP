@@ -9,7 +9,6 @@ import { Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 
 const EditTeamDialog = ({
   open,
@@ -74,9 +73,9 @@ const EditTeamDialog = ({
         <div className="space-y-4 py-4">
           {/* Nombre */}
           <div className="space-y-2">
-            <Label htmlFor="edit_name" className="text-zinc-300">
+            <label htmlFor="edit_name" className="block text-sm font-medium text-zinc-300">
               Nombre de Cuadrilla *
-            </Label>
+            </label>
             <Input
               id="edit_name"
               name="name"
@@ -89,9 +88,9 @@ const EditTeamDialog = ({
 
           {/* Vehicle ID (Opcional) */}
           <div className="space-y-2">
-            <Label htmlFor="edit_vehicle_id" className="text-zinc-300">
+            <label htmlFor="edit_vehicle_id" className="block text-sm font-medium text-zinc-300">
               ID de Vehículo (Opcional)
-            </Label>
+            </label>
             <Input
               id="edit_vehicle_id"
               name="vehicle_id"
@@ -113,9 +112,9 @@ const EditTeamDialog = ({
               onChange={handleInputChange}
               className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 accent-amber-600"
             />
-            <Label htmlFor="edit_is_active" className="text-zinc-300 cursor-pointer">
+            <label htmlFor="edit_is_active" className="text-sm font-medium text-zinc-300 cursor-pointer">
               Cuadrilla activa
-            </Label>
+            </label>
           </div>
         </div>
 

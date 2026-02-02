@@ -8,14 +8,6 @@ import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 
 const AddMemberDialog = ({
   open,
@@ -66,50 +58,39 @@ const AddMemberDialog = ({
             <>
               {/* Usuario */}
               <div className="space-y-2">
-                <Label htmlFor="user_select" className="text-zinc-300">
+                <label htmlFor="user_select" className="block text-sm font-medium text-zinc-300">
                   Técnico *
-                </Label>
-                <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                  <SelectTrigger
-                    id="user_select"
-                    className="bg-zinc-800 border-zinc-700 text-white"
-                  >
-                    <SelectValue placeholder="Selecciona un técnico" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
-                    {availableUsers.map(user => (
-                      <SelectItem key={user.id} value={user.id.toString()}>
-                        <span className="text-zinc-100">
-                          {user.full_name || user.username}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                </label>
+                <select
+                  id="user_select"
+                  value={selectedUserId}
+                  onChange={(e) => setSelectedUserId(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 text-white rounded px-3 py-2 focus:border-emerald-600 focus:outline-none"
+                >
+                  <option value="">Selecciona un técnico...</option>
+                  {availableUsers.map(user => (
+                    <option key={user.id} value={user.id.toString()}>
+                      {user.full_name || user.username}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Role */}
               <div className="space-y-2">
-                <Label htmlFor="role_select" className="text-zinc-300">
+                <label htmlFor="role_select" className="block text-sm font-medium text-zinc-300">
                   Rol en la Cuadrilla *
-                </Label>
-                <Select value={selectedRole} onValueChange={setSelectedRole}>
-                  <SelectTrigger
-                    id="role_select"
-                    className="bg-zinc-800 border-zinc-700 text-white"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
-                    <SelectItem value="technician" className="text-zinc-100">
-                      Técnico
-                    </SelectItem>
-                    <SelectItem value="leader" className="text-zinc-100">
-                      Líder
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-zinc-400">
+                </label>
+                <select
+                  id="role_select"
+                  value={selectedRole}
+                  onChange={(e) => setSelectedRole(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 text-white rounded px-3 py-2 focus:border-emerald-600 focus:outline-none"
+                >
+                  <option value="technician">Técnico (ejecuta trabajos)</option>
+                  <option value="leader">Líder (responsable de cuadrilla)</option>
+                </select>
+                <p className="text-xs text-zinc-400 mt-1">
                   • <strong>Técnico:</strong> Ejecuta trabajos<br />
                   • <strong>Líder:</strong> Responsable de la cuadrilla
                 </p>

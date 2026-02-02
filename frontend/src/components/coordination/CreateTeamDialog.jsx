@@ -9,7 +9,6 @@ import { Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 
 const CreateTeamDialog = ({
   open,
@@ -70,9 +69,9 @@ const CreateTeamDialog = ({
         <div className="space-y-4 py-4">
           {/* Nombre */}
           <div className="space-y-2">
-            <Label htmlFor="name" className="text-zinc-300">
-              Nombre de Cuadrilla *
-            </Label>
+            <label htmlFor="name" className="block text-sm font-medium text-zinc-300">
+              Nombre de la Cuadrilla
+            </label>
             <Input
               id="name"
               name="name"
@@ -88,9 +87,9 @@ const CreateTeamDialog = ({
 
           {/* Vehicle ID (Opcional) */}
           <div className="space-y-2">
-            <Label htmlFor="vehicle_id" className="text-zinc-300">
+            <label htmlFor="vehicle_id" className="block text-sm font-medium text-zinc-300">
               ID de Vehículo (Opcional)
-            </Label>
+            </label>
             <Input
               id="vehicle_id"
               name="vehicle_id"
@@ -115,9 +114,9 @@ const CreateTeamDialog = ({
               onChange={handleInputChange}
               className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 accent-emerald-600"
             />
-            <Label htmlFor="is_active" className="text-zinc-300 cursor-pointer">
+            <label htmlFor="is_active" className="text-sm font-medium text-zinc-300 cursor-pointer">
               Cuadrilla activa
-            </Label>
+            </label>
           </div>
         </div>
 
