@@ -5,7 +5,7 @@ Define Teams (equipos de técnicos) y sus miembros con roles.
 """
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import String, Boolean, DateTime, ForeignKey, Integer, Enum as SQLEnum
+from sqlalchemy import String, Boolean, DateTime, ForeignKey, Integer, Enum as SQLEnum, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
 
@@ -77,8 +77,7 @@ class Team(Base):
         "TeamMember",
         back_populates="team",
         lazy="selectin",
-        cascade="all, delete-orphan",
-        comment="Miembros de la cuadrilla"
+        cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
@@ -162,10 +161,9 @@ class TeamMember(Base):
         lazy="joined"
     )
 
-    # Índices compuestos
+    # Índices compuestos: Un usuario solo puede estar una vez por cuadrilla
     __table_args__ = (
-        # Un usuario solo puede estar una vez por cuadrilla
-        ("idx_team_members_team_user", ["team_id", "user_id"]),
+        UniqueConstraint("team_id", "user_id", name="uq_team_members_team_user"),
     )
 
     def __repr__(self) -> str:
