@@ -10,7 +10,6 @@ import { Edit2, Trash2, Users, Plus, X } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import coordinationService from '@/services/coordination.service';
 import AddMemberDialog from './AddMemberDialog';
 
@@ -156,11 +155,11 @@ const TeamCard = ({
                   className="flex items-center justify-between p-2 rounded bg-zinc-800/30 border border-zinc-700/30 hover:border-emerald-600/30 transition-colors"
                 >
                   <div className="flex items-center gap-2 flex-1">
-                    <Avatar className="h-8 w-8 bg-emerald-600/20 border border-emerald-600/40">
-                      <AvatarFallback className="text-xs text-emerald-300">
+                    <div className="h-8 w-8 rounded bg-emerald-600/20 border border-emerald-600/40 flex items-center justify-center flex-shrink-0">
+                      <span className="text-xs font-bold text-emerald-300">
                         {getInitials(member.user_name)}
-                      </AvatarFallback>
-                    </Avatar>
+                      </span>
+                    </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-zinc-100 truncate">
                         {member.user_name}
