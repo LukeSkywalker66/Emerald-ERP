@@ -1,567 +1,419 @@
-# 🗄️ Arquitectura de Base de Datos
+# 🗄️ Arquitectura de Base de Datos - Emerald ERP
 
-## Diagrama de Entidades
+**Última actualización:** 2 de febrero de 2026  
+**Stack:** PostgreSQL 15 Alpine + SQLAlchemy 2.0 + Alembic  
+**Patrón:** Clean Slate (Mapped[], mapped_column(), JSONB flexible)
+
+---
+
+## 📐 Diagrama de Entidades Integral
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     CLIENTES (ISPCube)                         │
+│ 🔐 USUARIOS Y AUTENTICACIÓN                                    │
 ├─────────────────────────────────────────────────────────────────┤
-│ PK: id (UUID)                                                   │
-│ - code (STRING, UNIQUE)          # Código único de cliente      │
-│ - name (STRING)                  # Nombre del cliente           │
-│ - doc_number (STRING)            # DNI/CUIT                    │
-│ - address (STRING)               # Domicilio                    │
-│ - status (STRING)                # active/inactive/suspended    │
-│ - raw_data (JSONB)               # Datos originales de ISPCube │
-│ - created_at (TIMESTAMP)         # Fecha de creación           │
-│ - updated_at (TIMESTAMP)         # Última actualización        │
+│ USERS                           │ ROLES                         │
+│ ├─ id (INT PK)                  │ ├─ id (INT PK)               │
+│ ├─ email (VARCHAR UNIQUE)       │ ├─ name (VARCHAR UNIQUE)     │
+│ ├─ hashed_password (VARCHAR)    │ ├─ description (TEXT)        │
+│ ├─ role_id (FK→roles)           │ └─ permissions (JSONB)       │
+│ ├─ first_name (VARCHAR)         │                              │
+│ ├─ last_name (VARCHAR)          │ USER_ROLES (M2M)            │
+│ ├─ is_active (BOOL)             │ ├─ user_id (FK→users)       │
+│ ├─ team_memberships (REL)       │ └─ role_id (FK→roles)       │
+│ └─ created_at, updated_at       │                              │
 └─────────────────────────────────────────────────────────────────┘
-                           1 │ * (1:N)
-                             │
-                    ┌────────▼─────────┐
-                    │  CONNECTIONS     │
-                    │  (ISPCube)       │
-                    ├──────────────────┤
-                    │ PK: id           │
-                    │ FK: customer_id  │
-                    │ FK: node_id      │
-                    │ FK: plan_id      │
-                    │ - pppoe_username │
-                    │ - direccion      │
-                    │ - created_at     │
-                    └──────────────────┘
-                             │
-                    ┌────────┴─────────┐
-                    │                  │
-        ┌───────────▼──────────┐  ┌───▼──────────────────┐
-        │   SUBSCRIBERS        │  │  NODES               │
-        │ (SmartOLT/Mikrotik)  │  │ (ISPCube/Mikrotik)   │
-        ├──────────────────────┤  ├──────────────────────┤
-        │ PK: id               │  │ PK: node_id (STR)    │
-        │ - unique_external_id │  │ - name               │
-        │ - sn (ONU SN)        │  │ - ip_address         │
-        │ - olt_name           │  │ - puerto (API)       │
-        │ - olt_id             │  │ - created_at         │
-        │ - board              │  └──────────────────────┘
-        │ - port               │
-        │ - onu                │
-        │ - onu_type_id        │
-        │ - pppoe_username     │
-        │ - mode               │
-        │ - vlan               │
-        └──────────────────────┘
+                                   │
+                    ┌──────────────┘
+                    │
+┌───────────────────▼──────────────────────────────────────────────┐
+│ 🚗 COORDINACIÓN Y CUADRILLAS (NUEVO - 02/02/2026)              │
+├─────────────────────────────────────────────────────────────────┤
+│ TEAMS (Cuadrillas)         │ TEAM_MEMBERS (Asociación)         │
+│ ├─ id (INT PK)             │ ├─ id (INT PK)                     │
+│ ├─ name (VARCHAR UNIQUE)   │ ├─ team_id (FK→teams) CASCADE     │
+│ ├─ vehicle_id (INT)        │ ├─ user_id (FK→users) CASCADE     │
+│ ├─ is_active (BOOL)        │ ├─ role (ENUM: leader/tech)       │
+│ ├─ members (REL)           │ ├─ UC: (team_id, user_id)         │
+│ ├─ work_orders (REL)       │ └─ created_at, updated_at         │
+│ └─ created_at, updated_at  │                                   │
+└─────────────────────────────────────────────────────────────────┘
 
-        ┌──────────────────────┐
-        │ PPP_SECRETS          │
-        │ (Mikrotik)           │
-        ├──────────────────────┤
-        │ PK: id               │
-        │ FK: router_ip        │
-        │ - name (username)    │
-        │ - password           │
-        │ - profile            │
-        │ - service            │
-        │ - comment            │
-        │ - last_caller_id     │
-        │ - last_logged_out    │
-        │ - created_at         │
-        │ - updated_at         │
-        └──────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│ 🎫 SISTEMA DE TICKETS (Core 2.0)                              │
+├─────────────────────────────────────────────────────────────────┤
+│ TICKETS | TICKET_TIMELINE | WORK_ORDERS | WORK_ORDER_ITEMS    │
+│ (Ver diagrama expandido abajo)                                 │
+└─────────────────────────────────────────────────────────────────┘
 
-┌──────────────────────────────────────────────────────────┐
-│                 PLANS (ISPCube)                          │
-├──────────────────────────────────────────────────────────┤
-│ PK: plan_id (STRING, UNIQUE)                             │
-│ - name (STRING)          # Ej: "Plan 50MB"              │
-│ - speed (INT)            # Velocidad en Mbps            │
-│ - description (TEXT)     # Descripción                   │
-│ - created_at (TIMESTAMP) │
-└──────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────┐
-│              SYNC_STATUS (Auditoría)                     │
-├──────────────────────────────────────────────────────────┤
-│ PK: id                                                   │
-│ - fuente (STRING)        # ispcube / mikrotik / smartolt │
-│ - estado (STRING)        # success / error / partial     │
-│ - detalle (TEXT)         # Mensaje de error o resumen    │
-│ - registros_procesados   # Cantidad de filas             │
-│ - timestamp (TIMESTAMP)  │
-└──────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│ 📡 INTEGRACIONES EXTERNAS (ISPCube, Mikrotik, SmartOLT)        │
+├─────────────────────────────────────────────────────────────────┤
+│ CLIENTES | CONNECTIONS | SUBSCRIBERS | NODES | PPP_SECRETS    │
+│ (Ver diagrama de integraciones abajo)                          │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Relaciones Principales
+## 📋 Enumeraciones del Sistema
 
-### 1. Cliente → Conexión → Nodo
-```
-Cliente (ISPCube)
-  ↓ tiene
-Conexión
-  ↓ usa
-Node (Router)
-```
-
-### 2. Conexión → PPP Secret (Mikrotik)
-```
-Conexión (pppoe_username)
-  ↓ coincide con
-PPP_Secret (name)
-  ↓ en
-Router (router_ip)
+### TicketStatus (Estados de Tickets)
+```python
+open                  # Recién creado, sin asignación
+in_progress          # Operador en investigación
+pending              # Esperando acción (cliente, infraestructura)
+pending_infra        # Esperando acción de ingeniería/NOC
+waiting_internal     # Esperando acción interna
+attention_required   # Ingeniería completó, requiere revisión
+resolved             # Solucionado
+closed               # Archivado
 ```
 
-### 3. Conexión → Subscriber → ONU (SmartOLT)
+### WorkOrderStatus (Estados de Órdenes de Trabajo - NOVO 02/02)
+```python
+pending_planning   # Pendiente de planificar por coordinador
+coordinated        # 📅 Fecha pactada SIN cuadrilla (NUEVO)
+scheduled          # 📅 Fecha pactada CON cuadrilla (NUEVO)
+assigned           # Asignada a técnico individual (legacy)
+in_progress        # Técnico en sitio ejecutando
+completed          # Trabajo completado
+failed             # Fallo en ejecución
 ```
-Conexión (pppoe_username)
-  ↓ coincide con
-Subscriber (pppoe_username)
-  ↓ is
-ONU (unique_external_id)
+
+**Transiciones típicas coordinadas:**
+```
+pending_planning
+  → (coordinador pacta fecha)
+  → coordinated (scheduled_start definido)
+  → (coordinador asigna team)
+  → scheduled (team_id definido)
+  → (técnico comienza)
+  → in_progress
+  → (técnico termina)
+  → completed
+```
+
+### Otros Enums Importantes
+```python
+WorkOrderType: repair, install, pickup, infrastructure
+WorkOrderResolutionType: success, failed, rescheduled, partial
+ResolutionCategory: infrastructure, equipment, configuration, other
+TeamRole: leader, technician
+TicketType: technical, installation, withdrawal, relocation, administrative
+TicketPriority: low, medium, high, critical
 ```
 
 ---
 
-## Índices Críticos (Performance)
+## 🔗 Relaciones Principales
 
+### Flujo Central: Ticket → Timeline → WorkOrder
+```
+Ticket (incidente)
+  ├─ timeline: [TicketTimeline]      # Bitácora unificada
+  │  └─ meta_data: JSONB (contexto flexible)
+  │
+  ├─ work_orders: [WorkOrder]        # OT derivadas
+  │  ├─ status: pending_planning → coordinated → scheduled → in_progress → completed
+  │  ├─ team_id: FK→Teams (NUEVO 02/02)
+  │  ├─ scheduled_start: datetime UTC (fecha pactada)
+  │  ├─ scheduled_end: datetime (start + estimated_duration)
+  │  ├─ estimated_duration: int minutos
+  │  └─ work_order_items: [WorkOrderItem] (materiales consumidos)
+  │
+  └─ category: TicketCategory
+     └─ reasons: [TicketReason]
+```
+
+### Coordinación (NUEVO 02/02/2026)
+```
+Teams (Cuadrillas)
+  ├─ id, name (único), vehicle_id, is_active
+  ├─ members: [TeamMember] (usuario + rol)
+  └─ work_orders: [WorkOrder] (OT asignadas)
+     ├─ scheduled_start: fecha pactada con cliente
+     ├─ scheduled_end: calculado automático
+     └─ estimated_duration: minutos
+```
+
+### Integración Externa (ISPCube/Mikrotik/SmartOLT)
+```
+Cliente → Connection (pppoe_username clave)
+  → Subscriber (SmartOLT)
+  → PPP_Secret (Mikrotik)
+  → Node (Router)
+```
+
+---
+
+## 📊 Índices Críticos (Performance)
+
+### Tickets
 ```sql
--- Búsqueda rápida por username
-CREATE INDEX idx_connections_pppoe 
-ON connections(pppoe_username);
+CREATE INDEX idx_tickets_status ON tickets(status);
+CREATE INDEX idx_tickets_priority ON tickets(priority);
+CREATE INDEX idx_tickets_creator ON tickets(creator_id);
+CREATE INDEX idx_tickets_assigned ON tickets(assigned_to_id);
+CREATE INDEX ix_tickets_status_priority ON tickets(status, priority);
+```
 
--- Búsqueda rápida de secretos
-CREATE INDEX idx_ppp_secrets_name 
-ON ppp_secrets(name);
+### Timeline
+```sql
+CREATE INDEX idx_timeline_ticket ON ticket_timeline(ticket_id);
+CREATE INDEX idx_timeline_event_type ON ticket_timeline(event_type);
+CREATE INDEX ix_ticket_timeline_ticket_created ON ticket_timeline(ticket_id, created_at);
+```
 
--- Búsqueda de suscriptores
-CREATE INDEX idx_subscribers_pppoe 
-ON subscribers(pppoe_username);
+### WorkOrders
+```sql
+CREATE INDEX idx_work_orders_ticket ON work_orders(ticket_id);
+CREATE INDEX idx_work_orders_team ON work_orders(team_id);
+CREATE INDEX idx_work_orders_status ON work_orders(status);
+CREATE INDEX ix_work_orders_team_scheduled ON work_orders(team_id, scheduled_start);
+CREATE INDEX ix_work_orders_ticket_status ON work_orders(ticket_id, status);
+```
 
--- Búsqueda por IP de router
-CREATE INDEX idx_ppp_secrets_router_ip 
-ON ppp_secrets(router_ip);
-
--- Búsqueda de clientes activos
-CREATE INDEX idx_clientes_status 
-ON clientes(status) WHERE status = 'active';
+### Coordinación (NUEVO)
+```sql
+CREATE INDEX idx_teams_is_active ON teams(is_active);
+CREATE INDEX idx_team_members_team ON team_members(team_id);
+CREATE UNIQUE INDEX uq_team_members_team_user ON team_members(team_id, user_id);
 ```
 
 ---
 
-## Migraciones Históricas
+## 🔐 Foreign Keys y Constraints
 
-Todas las migraciones se encuentran en `backend/alembic/versions/`.
+| Entidad | Campo FK | Referencia | Comportamiento |
+|---------|----------|-----------|----------------|
+| Ticket | creator_id | users.id | SET NULL |
+| Ticket | assigned_to_id | users.id | SET NULL |
+| TicketTimeline | ticket_id | tickets.id | **CASCADE DELETE** |
+| TicketTimeline | author_id | users.id | SET NULL |
+| WorkOrder | ticket_id | tickets.id | **CASCADE DELETE** |
+| WorkOrder | team_id | teams.id | SET NULL (NUEVO) |
+| WorkOrder | technician_id | users.id | SET NULL (deprecated) |
+| WorkOrderItem | work_order_id | work_orders.id | **CASCADE DELETE** |
+| TeamMember | team_id | teams.id | **CASCADE DELETE** |
+| TeamMember | user_id | users.id | **CASCADE DELETE** |
 
-### Versiones Importantes
+**Notas:**
+- CASCADE en relaciones de entidades dependientes (timeline, items, miembros)
+- SET NULL en asignaciones dinámicas (flexibilidad de reasignación)
+- SOFT FK en campos con referencias a otros módulos
+
+---
+
+## 🚀 Migraciones
 
 | ID | Descripción | Fecha |
 |----|-------------|-------|
-| `221e88a56548` | Creación inicial de tablas | 2025-12-15 |
-| `678033205aa3` | Post-stamp de sincronización | 2025-12-20 |
+| `221e88a56548` | Creación inicial | 2025-12-15 |
+| `678033205aa3` | Post-stamp sync | 2025-12-20 |
+| `8bc58d283e34` | Tickets v2 | 2026-01-02 |
+| `7b7dfe8236f8` | Merge heads | 2026-02-02 |
+| `2026_02_02_002` | **Coordinación + team_id + scheduled_start/end** | **2026-02-02** |
 
-### Agregar una Nueva Migración
-
+**Aplicar migraciones:**
 ```bash
-# 1. Modifica backend/src/models.py
-# Ejemplo: agregar campo 'priority' a Subscriber
-
-# 2. Generar la migración
-docker compose exec backend alembic revision --autogenerate \
-  -m "agregar_priority_a_subscribers"
-
-# 3. Revisar el archivo generado
-cat backend/alembic/versions/xxxxx_agregar_priority_a_subscribers.py
-
-# 4. Aplicar la migración
 docker compose exec backend alembic upgrade head
 ```
 
 ---
 
-## Patrones de Consulta Común
+## 📝 Patrones de Consulta
 
-### Buscar cliente por PPPoE username
+### Obtener Ticket con Timeline
 ```python
-# SQL Puro
-SELECT c.* FROM clientes c
-JOIN connections conn ON c.id = conn.customer_id
-WHERE conn.pppoe_username = 'juan_perez'
-
-# SQLAlchemy
-from src import models
-from src.database import SessionLocal
-
-db = SessionLocal()
-cliente = db.query(models.Cliente)\
-  .join(models.Connection)\
-  .filter(models.Connection.pppoe_username == 'juan_perez')\
-  .first()
+ticket = db.query(Ticket).filter(Ticket.id == 123).first()
+for event in ticket.timeline:
+    print(f"[{event.created_at}] {event.event_type}: {event.content}")
 ```
 
-### Obtener estado completo de una conexión
+### WorkOrders de un Team (próximos 7 días)
 ```python
-def get_full_connection_status(pppoe_username: str):
-    return {
-        "cliente": db.query(models.Cliente)...,
-        "conexion": db.query(models.Connection)...,
-        "nodo": db.query(models.Node)...,
-        "ppp_secret": db.query(models.PPPSecret)...,
-        "subscriber": db.query(models.Subscriber)...,
-    }
+from datetime import datetime, timedelta
+
+today = datetime.utcnow()
+week = today + timedelta(days=7)
+
+ots = db.query(WorkOrder)\
+  .filter(
+    WorkOrder.team_id == 5,
+    WorkOrder.status.in_([WorkOrderStatus.scheduled, WorkOrderStatus.in_progress]),
+    WorkOrder.scheduled_start >= today,
+    WorkOrder.scheduled_start <= week
+  )\
+  .order_by(WorkOrder.scheduled_start)\
+  .all()
+```
+
+### Carga de Equipos
+```python
+from sqlalchemy import func
+
+team_load = db.query(
+    WorkOrder.team_id,
+    func.count(WorkOrder.id).label('ot_count'),
+    func.sum(WorkOrder.estimated_duration).label('total_minutes')
+)\
+  .filter(
+    func.date(WorkOrder.scheduled_start) == tomorrow,
+    WorkOrder.status.in_([WorkOrderStatus.scheduled, WorkOrderStatus.in_progress])
+  )\
+  .group_by(WorkOrder.team_id)\
+  .all()
 ```
 
 ---
 
-## Backup y Recovery
+## 🔧 Operaciones Administrativas
 
-### Hacer backup de PostgreSQL
+### Backup
 ```bash
-# Backup completo
-docker compose exec db pg_dump \
-  -U ${POSTGRES_USER} ${POSTGRES_DB} > backup.sql
+# SQL (legible)
+docker compose exec db pg_dump -U postgres emerald > backup.sql
 
-# Backup con compresión
-docker compose exec db pg_dump \
-  -U ${POSTGRES_USER} -Fc ${POSTGRES_DB} > backup.dump
+# Binario (rápido, comprimido)
+docker compose exec db pg_dump -U postgres -Fc emerald > backup.dump
 ```
 
-### Restaurar desde backup
+### Restaurar
 ```bash
-# Desde archivo SQL
-docker compose exec -T db psql \
-  -U ${POSTGRES_USER} ${POSTGRES_DB} < backup.sql
+docker compose exec -T db psql -U postgres emerald < backup.sql
+```
 
-# Desde archivo comprimido
-docker compose exec -T db pg_restore \
-  -U ${POSTGRES_USER} -d ${POSTGRES_DB} backup.dump
+### Monitoreo
+```bash
+# Tamaño tablas
+docker compose exec db psql -U postgres -d emerald -c \
+  "SELECT tablename, pg_size_pretty(pg_total_relation_size(tablename)) 
+   FROM pg_tables WHERE schemaname='public' ORDER BY pg_total_relation_size DESC;"
+
+# Tamaño total
+docker compose exec db psql -U postgres -c \
+  "SELECT pg_size_pretty(pg_database_size('emerald'));"
+
+# Vacuum
+docker compose exec db psql -U postgres -d emerald -c "VACUUM ANALYZE;"
 ```
 
 ---
 
-## Optimizaciones y Caché
+## 🧩 Patrón Clean Slate (SQLAlchemy 2.0)
 
-### Datos que cambian frecuentemente
-- **PPP Secrets** (estado de conexión) → Sin caché
-- **ONU Signals** (señales ópticas) → Caché 5 minutos
+**Reglas obligatorias:**
 
-### Datos que cambian raramente
-- **Clientes** → Caché 24 horas
-- **Planes** → Caché 24 horas
-- **Nodos** → Caché 12 horas
-
-### Implementar caché con Redis
+✅ **SIEMPRE:**
 ```python
-from src import config
+from sqlalchemy.orm import Mapped, mapped_column
+id: Mapped[int] = mapped_column(Integer, primary_key=True)
+nombre: Mapped[str] = mapped_column(String(100), nullable=False)
+```
+
+❌ **NUNCA:**
+```python
+id = Column(Integer, primary_key=True)  # NO
+```
+
+---
+
+## 📦 JSONB Flexible
+
+Usar JSONB para datos variantes:
+
+```python
+# WorkOrder.custom_data (diagnóstico técnico)
+{
+    "optical_signal_dbm": -25.5,
+    "speedtest_download_mbps": 45.2,
+    "onu_serial_installed": "GPON12AB34CD56"
+}
+
+# TicketTimeline.meta_data (contexto)
+{
+    "previous_status": "open",
+    "new_status": "in_progress",
+    "assigned_technician": {"id": 42, "name": "Juan"}
+}
+```
+
+---
+
+## 🔒 Seguridad
+
+### Nunca exponer:
+- PPPSecret.password
+- User.hashed_password
+- *.raw_data (datos sensitivos)
+
+### Timestamps (auditoría):
+- created_at: cuando se creó
+- updated_at: última modificación
+
+### Soft Delete (no borrar):
+```python
+# ❌ NO hacer
+db.delete(ticket)
+
+# ✅ SIEMPRE hacer
+ticket.is_deleted = True
+db.commit()
+```
+
+---
+
+## 📈 Caché
+
+**Sin caché (cambian frecuentemente):**
+- WorkOrder status/timeline
+- User state
+- Stock en tiempo real
+
+**Con caché 24h (rara vez cambian):**
+- TicketCategory
+- TicketReason
+- Plans
+- Roles
+
+```python
 import redis
-import json
-
 cache = redis.Redis(host='redis', port=6379, db=0)
 
-def get_cliente_cached(cliente_id):
-    key = f"cliente:{cliente_id}"
+def get_categories():
+    key = "ticket_categories"
     cached = cache.get(key)
     if cached:
         return json.loads(cached)
     
-    # Consultar BD
-    cliente = db.query(models.Cliente).get(cliente_id)
-    
-    # Guardar en caché 24h
-    cache.setex(key, 86400, json.dumps(cliente.to_dict()))
-    return cliente
+    categories = db.query(TicketCategory).all()
+    cache.setex(key, 86400, json.dumps([c.to_dict() for c in categories]))
+    return categories
 ```
 
 ---
 
-## Monitoreo de BD
+## 🎯 Checklist Pre-Cambio
 
-### Conexiones activas
-```bash
-docker compose exec db psql -U postgres -c \
-  "SELECT datname, count(*) FROM pg_stat_activity GROUP BY datname;"
-```
+Antes de modificar schema:
 
-### Tamaño de la BD
-```bash
-docker compose exec db psql -U postgres -c \
-  "SELECT pg_size_pretty(pg_database_size('emerald'));"
-```
-
-### Índices no utilizados
-```bash
-docker compose exec db psql -U postgres -d emerald -c \
-  "SELECT schemaname, tablename, indexname FROM pg_indexes 
-   WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-   ORDER BY tablename, indexname;"
-```
+- [ ] Revisar migraciones aplicadas: `alembic current`
+- [ ] Hacer backup: `pg_dump`
+- [ ] Generar migración: `alembic revision --autogenerate`
+- [ ] Revisar archivo migración (¿hay DROP TABLE?)
+- [ ] Probar local: `alembic upgrade head`
+- [ ] Verificar indices y constraints
+- [ ] Ejecutar queries críticas (COUNT en tablas principales)
+- [ ] Commit a git con mensaje claro
 
 ---
 
-## 🎫 Sistema de Tickets (renombrado 08/01/2026, antes "tickets_v2")
-
-### Diagrama de Entidades
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      TICKETS                               │
-├─────────────────────────────────────────────────────────────┤
-│ PK: id (UUID)                                               │
-│ - ticket_code (STRING, UNIQUE)  # CNX-XXXX                │
-│ - title (STRING)                # Título del ticket        │
-│ - description (TEXT)            # Descripción               │
-│ - status (ENUM)                 # OPEN/IN_PROGRESS/CLOSED │
-│ - priority (ENUM)               # LOW/MEDIUM/HIGH/CRITICAL │
-│ - assigned_to_id (UUID, FK)     # Técnico asignado        │
-│ - creator_id (UUID, FK)         # Operador que creó       │
-│ - created_at (TIMESTAMP)        │
-│ - updated_at (TIMESTAMP)        │
-└─────────────────────────────────────────────────────────────┘
-                         1 │ *
-                           │
-            ┌──────────────┴──────────────┐
-            │                             │
-    ┌───────▼──────────────┐   ┌────────▼──────────────────────────┐
-    │  TICKET_TIMELINE     │   │   WORK_ORDERS                    │
-    │ (Bitácora de Eventos)│   │ (Órdenes de Trabajo)             │
-    ├──────────────────────┤   ├───────────────────────────────────┤
-    │ PK: id               │   │ PK: id                            │
-    │ FK: ticket_id ◄──────┤   │ FK: ticket_id ◄────────────────────┤
-    │ FK: author_id        │   │ FK: technician_id                 │
-    │                      │   │ FK: team_id                       │
-    │ - event_type (ENUM)  │   │ - ot_type (ENUM)                  │
-    │ - content (TEXT)     │   │ - status (ENUM)                   │
-    │ - meta_data (JSONB)  │   │ - scheduled_at (TIMESTAMP)        │
-    │                      │   │ - scheduled_start (TIMESTAMP) *N* │
-    │                      │   │ - scheduled_end (TIMESTAMP) *N*   │
-    │                      │   │ - estimated_duration (INT) *N*    │
-    │                      │   │ - coordination_notes (TEXT) *N*   │
-    │ - created_at         │   │ - started_at (TIMESTAMP) *NUEVO*  │
-    │                      │   │ - completed_at (TIMESTAMP) *NUEVO*│
-    │                      │   │ - resolution_type (VARCHAR)       │
-    │                      │   │ - resolution_notes (TEXT) *NUEVO* │
-    │                      │   │ - resolution_category (ENUM) *NVO*│
-    │                      │   │ - photo_urls (JSONB) *NUEVO*      │
-    │                      │   │ - custom_data (JSONB)             │
-    │                      │   │ - notes (TEXT)                    │
-    │                      │   │ - created_at (TIMESTAMP)          │
-    │                      │   │ - updated_at (TIMESTAMP)          │
-    │                      │   └───────────────────────────────────┘
-    │                      │           │
-    │                      │           │ *
-    │                      │    ┌──────▼─────────────┐
-    │                      │    │  WORK_ORDER_ITEMS  │
-    │                      │    │ (Materiales usados)│
-    │                      │    ├────────────────────┤
-    │                      │    │ PK: id             │
-    │                      │    │ FK: work_order_id  │
-    │                      │    │ - product_id (SOFT)│
-    │                      │    │ - serial_number    │
-    │                      │    │ - quantity         │
-    │                      │    │ - consumed_at      │
-    │                      │    └────────────────────┘
-    │                      │
-    └──────────────────────┘
-
-FK: creator_id, assigned_to_id → users.id
-FK: ticket_id → tickets.id (CASCADE)
-FK: technician_id → users.id (SET NULL)
-FK: team_id → teams.id (SET NULL)
-FK: work_order_id → work_orders.id (CASCADE)
-```
-
-### Enums del Sistema de Tickets
-
-**TicketStatus:**
-```python
-class TicketStatus(str, Enum):
-    OPEN = "open"                    # Recién creado
-    IN_PROGRESS = "in_progress"      # Técnico asignado
-    WAITING_CUSTOMER = "waiting"     # Esperando cliente
-    CLOSED = "closed"                # Resuelto
-```
-
-**TicketPriority:**
-```python
-class TicketPriority(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
-```
-
-**TicketTimelineEventType:**
-```python
-class TicketTimelineEventType(str, Enum):
-    NOTE = "note"                    # Nota manual del operador
-    STATUS_CHANGE = "status_change"  # Cambio de estado
-    ASSIGNMENT = "assignment"        # Asignación a técnico
-    OT_CREATED = "ot_created"       # Orden de trabajo creada
-    OT_COMPLETED = "ot_completed"   # Orden completada
-    TELEMETRY_ALERT = "telemetry"  # Alerta de telemetría
-    CUSTOMER_CONTACTED = "contact"  # Contacto con cliente
-    CLOSED = "closed"                # Ticket cerrado
-```
-
-**WorkOrderStatus:**
-```python
-class WorkOrderStatus(str, Enum):
-    PENDING_PLANNING = "pending_planning"  # Pendiente de planificar
-  COORDINATED = "coordinated"            # Fecha pactada sin cuadrilla
-  SCHEDULED = "scheduled"                # Fecha pactada con cuadrilla
-  ASSIGNED = "assigned"                  # Asignada a técnico (legacy)
-  IN_PROGRESS = "in_progress"            # En ejecución
-  COMPLETED = "completed"                # Completada
-  FAILED = "failed"                      # Falló en ejecución
-```
-
-**WorkOrderType:**
-```python
-class WorkOrderType(str, Enum):
-  REPAIR = "repair"                # Diagnóstico/reparación
-  INSTALL = "install"              # Instalación
-  PICKUP = "pickup"                # Retiro de equipo
-  INFRASTRUCTURE = "infrastructure"# Cuadrilla de infraestructura
-```
-
-**ResolutionCategory:** *(Añadido 07/01/2026 - Cierre de Órdenes de Trabajo)*
-```python
-class ResolutionCategory(str, Enum):
-    INFRASTRUCTURE = "infrastructure"  # Problema de infraestructura (fibra, router, etc.)
-    EQUIPMENT = "equipment"            # Problema de equipo del cliente
-    CONFIGURATION = "configuration"    # Problema de configuración/software
-    OTHER = "other"                    # Otra causa
-```
-
-### Índices y Performance
-
-```sql
--- Búsqueda rápida por código de ticket
-CREATE INDEX idx_tickets_code ON tickets(ticket_code);
-
--- Búsqueda por estado
-CREATE INDEX idx_tickets_status ON tickets(status);
-
--- Búsqueda por prioridad
-CREATE INDEX idx_tickets_priority ON tickets(priority);
-
--- Búsqueda por técnico asignado
-CREATE INDEX idx_tickets_assigned ON tickets(assigned_to_id);
-
--- Búsqueda en timeline por ticket
-CREATE INDEX idx_timeline_ticket ON ticket_timeline(ticket_id);
-
--- Búsqueda en timeline por tipo de evento
-CREATE INDEX idx_timeline_event_type ON ticket_timeline(event_type);
-
--- Búsqueda de OT por ticket
-CREATE INDEX idx_work_orders_ticket ON work_orders(ticket_id);
-
--- Búsqueda de OT por técnico
-CREATE INDEX idx_work_orders_technician ON work_orders(technician_id);
-
--- Búsqueda de items por OT
-CREATE INDEX idx_work_order_items_ot ON work_order_items(work_order_id);
-
--- Búsqueda de items por serial (trazabilidad)
-CREATE INDEX idx_work_order_items_serial ON work_order_items(serial_number);
-```
-
-### Relaciones y Constraints
-
-| Relación | Tipo | Comportamiento |
-|----------|------|----------------|
-| ticket → creator (users.id) | FK | Requerido (NOT NULL) |
-| ticket → assigned_to (users.id) | FK | Opcional (asignación dinámica) |
-| ticket_timeline → ticket | FK | Requerido + **CASCADE DELETE** |
-| ticket_timeline → author (users.id) | FK | Optional + **SET NULL** (autor puede borrarse) |
-| work_order → ticket | FK | Requerido + **CASCADE DELETE** |
-| work_order → technician (users.id) | FK | Optional + **SET NULL** |
-| work_order_item → work_order | FK | Requerido + **CASCADE DELETE** |
-| work_order_item → product_id | SOFT FK | Sin constraint (flexible para futuros cambios) |
-
-### Campos JSONB (meta_data en ticket_timeline)
-
-**Propósito:** Almacenar datos variables según event_type sin cambios de schema.
-
-**Ejemplos por tipo de evento:**
-
-```python
-# NOTE: Simple
-{
-  "message": "Cliente confirma disponibilidad el viernes"
-}
-
-# STATUS_CHANGE: Con contexto
-{
-  "from_status": "open",
-  "to_status": "in_progress",
-  "reason": "Asignado a Técnico"
-}
-
-# OT_CREATED: Snapshot de OT
-{
-  "work_order_id": "550e8400-e29b-41d4-a716-446655440000",
-  "ot_type": "diagnosis",
-  "scheduled_date": "2026-01-04T10:00:00Z",
-  "technician": "Juan Técnico"
-}
-
-# TELEMETRY_ALERT: Datos de ONU
-{
-  "onu_sn": "GPON12AB34CD56",
-  "signal_dbm": -25,
-  "onu_status": "online",
-  "infraestructura": "PON-ZONA-3",
-  "threshold_exceeded": "signal_critical"
-}
-
-# CUSTOMER_CONTACTED: Log de contacto
-{
-  "contact_method": "phone",
-  "contact_date": "2026-01-03T15:30:00Z",
-  "response": "Cliente disponible el 04/01"
-}
-```
-
-### Migración SQL (Alembic)
-
-**Archivo:** `backend/alembic/versions/8bc58d283e34_crear_tablas_tickets_work_orders.py`  
-**Creada:** 02/01/2026  
-**Status:** ✅ Ejecutada exitosamente
-
-**Cambios aplicados:**
-```
-1. CREATE TABLE tickets_v2 (10 columnas, 5 índices, 2 FKs) → renombrada a `tickets` el 08/01/2026
-2. CREATE TABLE ticket_timeline (8 columnas, 3 índices, 2 FKs, JSONB meta_data)
-3. CREATE TABLE work_orders (10 columnas, 4 índices, 2 FKs)
-4. CREATE TABLE work_order_items (8 columnas, 3 índices, 1 FK)
-5. CREATE ENUMS: TicketStatus, TicketPriority, TicketTimelineEventType, WorkOrderStatus, WorkOrderType
-```
-
-**Reversi:** `alembic downgrade 324f44f48d0a` (vuelve a migración anterior)
-
-### Verificación Post-Migración
-
-```bash
-# Listar todas las tablas de tickets
-docker compose exec -T backend python -c "
-from src.database.session import engine
-from sqlalchemy import inspect
-inspector = inspect(engine)
-tables = [t for t in sorted(inspector.get_table_names()) 
-          if 'ticket' in t.lower() or 'work_order' in t.lower()]
-for t in tables:
-    print(f'✓ {t}')
-"
-
-# Resultado esperado:
-# ✓ ticket_categories
-# ✓ ticket_events
-# ✓ ticket_timeline
-# ✓ tickets
-# ✓ tickets_legacy (solo si existía la tabla legacy)
-# ✓ work_order_items
-# ✓ work_orders
-```
-
+**⚠️ CAMBIOS RECIENTES (02/02/2026):**
+- ✅ Team → WorkOrder (N:1 FK)
+- ✅ scheduled_start/end (datetime con timezone UTC)
+- ✅ estimated_duration (int minutos)
+- ✅ coordination_notes (texto)
+- ✅ Estados nuevos: coordinated, scheduled
+- ✅ Índice compuesto: (team_id, scheduled_start)
+- ✅ Migración 2026_02_02_002 aplicada ✓
