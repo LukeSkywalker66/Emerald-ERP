@@ -23,18 +23,7 @@ const TeamCard = ({
 }) => {
   const [showAddMember, setShowAddMember] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState(null);
-
-  /**
-   * Obtener iniciales del nombre de usuario
-   */
-  const getInitials = (name) => {
-    return name
-      ?.split(' ')
-      .slice(0, 2)
-      .map(n => n[0])
-      .join('')
-      .toUpperCase() || '?';
-  };
+  const [updatingMemberId, setUpdatingMemberId] = useState(null);
 
   /**
    * Obtener color de rol
@@ -47,20 +36,6 @@ const TeamCard = ({
         return 'bg-emerald-600/20 text-emerald-300 border-emerald-600/40';
       default:
         return 'bg-zinc-600/20 text-zinc-300 border-zinc-600/40';
-    }
-  };
-
-  /**
-   * Traducir rol al español
-   */
-  const getRoleLabel = (role) => {
-    switch (role) {
-      case 'leader':
-        return 'Líder';
-      case 'technician':
-        return 'Técnico';
-      default:
-        return role;
     }
   };
 
@@ -105,6 +80,55 @@ const TeamCard = ({
     } catch (err) {
       console.error('Error adding member:', err);
       alert(`❌ Error al agregar miembro: ${err.message}`);
+    }
+  };
+
+  /**
+   * Actualizar rol de un miembro (solo 1 líder por cuadrilla)
+   */
+  const handleRoleChange = async (member, newRole) => {
+    if (!member || member.role === newRole) return;
+
+    const currentLeader = team.members?.find((m) => m.role === 'leader');
+    const promotingToLeader =
+      newRole === 'leader' &&
+      currentLeader &&
+      currentLeader.user_id !== member.user_id;
+
+    if (promotingToLeader) {
+      const confirm = window.confirm(
+        `Esta cuadrilla ya tiene líder (${currentLeader.user_name}). ¿Querés reemplazarlo?`
+      );
+      if (!confirm) return;
+    }
+
+    try {
+      setUpdatingMemberId(member.user_id);
+
+      if (promotingToLeader) {
+        await coordinationService.updateMemberRole(
+          team.id,
+          currentLeader.user_id,
+          'technician'
+        );
+      }
+
+      await coordinationService.updateMemberRole(
+        team.id,
+        member.user_id,
+        newRole
+      );
+
+      alert('✅ Rol actualizado correctamente');
+
+      if (onTeamUpdated) {
+        onTeamUpdated();
+      }
+    } catch (err) {
+      console.error('Error updating member role:', err);
+      alert(`❌ Error al actualizar rol: ${err.message}`);
+    } finally {
+      setUpdatingMemberId(null);
     }
   };
 
@@ -173,9 +197,16 @@ const TeamCard = ({
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Badge className={`text-xs ${getRoleColor(member.role)}`}>
-                      {getRoleLabel(member.role)}
-                    </Badge>
+                    <select
+                      value={member.role}
+                      onChange={(e) => handleRoleChange(member, e.target.value)}
+                      disabled={updatingMemberId === member.user_id}
+                      className={`text-xs px-2 py-1 rounded border bg-zinc-900 ${getRoleColor(member.role)}`}
+                      title="Cambiar rol"
+                    >
+                      <option value="technician">Técnico</option>
+                      <option value="leader">Líder</option>
+                    </select>
                     <Button
                       variant="ghost"
                       size="sm"

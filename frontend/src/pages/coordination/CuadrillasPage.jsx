@@ -183,6 +183,26 @@ const CuadrillasPage = () => {
     setShowEditDialog(true);
   };
 
+  // ========== DERIVADOS ==========
+  const assignedVehicleIds = new Set(
+    teams
+      .map((t) => t.vehicle_id)
+      .filter((id) => id !== null && id !== undefined)
+      .map((id) => Number(id))
+  );
+
+  const availableVehiclesForCreate = vehicles.filter(
+    (v) => !assignedVehicleIds.has(Number(v.id))
+  );
+
+  const availableVehiclesForEdit = selectedTeam
+    ? vehicles.filter(
+        (v) =>
+          !assignedVehicleIds.has(Number(v.id)) ||
+          Number(v.id) === Number(selectedTeam.vehicle_id)
+      )
+    : vehicles;
+
   // ========== RENDER ==========
 
   return (
@@ -280,7 +300,7 @@ const CuadrillasPage = () => {
           onSubmit={handleCreateTeam}
           availableUsers={users}
           loadingUsers={loadingUsers}
-          availableVehicles={vehicles}
+          availableVehicles={availableVehiclesForCreate}
           loadingVehicles={loadingVehicles}
         />
       )}
@@ -294,7 +314,7 @@ const CuadrillasPage = () => {
           onSubmit={handleEditTeam}
           availableUsers={users}
           loadingUsers={loadingUsers}
-          availableVehicles={vehicles}
+          availableVehicles={availableVehiclesForEdit}
           loadingVehicles={loadingVehicles}
         />
       )}
