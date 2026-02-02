@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import coordinationService from '@/services/coordination.service';
 import usersService from '@/services/users.service';
+import rolesService from '@/services/roles.service';
 import { getWarehouses } from '@/services/inventory.service';
 import TeamCard from '@/components/coordination/TeamCard';
 import CreateTeamDialog from '@/components/coordination/CreateTeamDialog';
@@ -70,8 +71,27 @@ const CuadrillasPage = () => {
   const loadUsers = async () => {
     try {
       setLoadingUsers(true);
-      const data = await usersService.getAllUsers();
-      setUsers(Array.isArray(data) ? data : []);
+      const [usersData, rolesData] = await Promise.all([
+        usersService.getAllUsers(),
+        rolesService.getAllRoles(),
+      ]);
+
+      const usersList = Array.isArray(usersData) ? usersData : [];
+      const rolesList = Array.isArray(rolesData) ? rolesData : [];
+      const tecnicoRole = rolesList.find((role) =>
+        String(role.name || '').toLowerCase().includes('tecnic')
+      );
+
+      const filteredUsers = usersList.filter((user) => {
+        const roleName = String(user.role?.name || '').toLowerCase();
+        const matchesByName = roleName.includes('tecnic');
+        const matchesById = tecnicoRole
+          ? (user.role_id === tecnicoRole.id || user.role?.id === tecnicoRole.id)
+          : false;
+        return matchesByName || matchesById;
+      });
+
+      setUsers(filteredUsers);
     } catch (err) {
       console.error('Error loading users:', err);
       // No mostrar error aquí, es secundario
