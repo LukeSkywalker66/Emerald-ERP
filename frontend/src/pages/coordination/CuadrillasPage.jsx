@@ -203,6 +203,18 @@ const CuadrillasPage = () => {
       )
     : vehicles;
 
+  const assignedUserIds = new Set(
+    teams
+      .flatMap((t) => t.members || [])
+      .map((m) => m.user_id)
+      .filter((id) => id !== null && id !== undefined)
+      .map((id) => Number(id))
+  );
+
+  const availableUsersForAssign = users.filter(
+    (u) => !assignedUserIds.has(Number(u.id))
+  );
+
   // ========== RENDER ==========
 
   return (
@@ -285,7 +297,7 @@ const CuadrillasPage = () => {
               team={team}
               onEdit={handleOpenEditDialog}
               onDelete={handleDeleteTeam}
-              availableUsers={users}
+              availableUsers={availableUsersForAssign}
               onTeamUpdated={loadTeams}
             />
           ))}
@@ -298,7 +310,7 @@ const CuadrillasPage = () => {
           open={showCreateDialog}
           onOpenChange={setShowCreateDialog}
           onSubmit={handleCreateTeam}
-          availableUsers={users}
+          availableUsers={availableUsersForAssign}
           loadingUsers={loadingUsers}
           availableVehicles={availableVehiclesForCreate}
           loadingVehicles={loadingVehicles}
