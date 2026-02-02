@@ -292,9 +292,27 @@ EngineeringTasks → Tickets (N:1, opcional)
 **WarehouseType:** CENTRAL, MOBILE, VIRTUAL  
 **ProductType:** SERIALIZED, BULK
 
----
+### D13: Agendamiento de Órdenes de Trabajo con Coordinación
 
-## 🔐 Seguridad & Auth
+**Decisión:** WorkOrder soporta agendamiento independiente de ejecución:
+1. Coordinador pacta fecha con cliente → `scheduled_start` (estado: COORDINATED)
+2. Coordinador asigna cuadrilla → `team_id` (estado: SCHEDULED automáticamente)
+3. Técnico ejecuta en fecha pactada → `in_progress` → `completed`
+
+**Campos nuevos:**
+- `team_id` (FK a Teams, nullable)
+- `scheduled_start` / `scheduled_end` (datetime timezone-aware)
+- `estimated_duration` (minutos, default 60)
+- `coordination_notes` (ej: "Llave en portería")
+
+**Lógica automática:**
+- Si se actualiza `scheduled_start` + `estimated_duration` → calcula `scheduled_end` automáticamente
+- Si asigna `scheduled_start` sin `team_id` → transición a estado COORDINATED
+- Si asigna `team_id` + existe `scheduled_start` → transición a estado SCHEDULED
+
+**Ventaja:** Flujo de coordinación independiente del técnico individual (legacy `technician_id` deprecated).
+
+---
 
 ### JWT Flow
 

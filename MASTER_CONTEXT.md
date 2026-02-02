@@ -420,10 +420,12 @@ APIKey (Claves para integraciones)
 - `relocation` - Mudanza
 - `administrative` - Gestión administrativa
 
-**WorkOrderStatus:**
-- `pending_planning` - Planificador asigna
-- `assigned` - Asignada a técnico
-- `in_progress` - En ejecución
+**WorkOrderStatus:** (actualizado para coordinación)
+- `pending_planning` - Aguardando asignación del planificador
+- `coordinated` - Fecha pactada con cliente, SIN cuadrilla
+- `scheduled` - Fecha pactada Y cuadrilla asignada
+- `assigned` - Asignada a técnico individual (legacy)
+- `in_progress` - Técnico trabajando en sitio
 - `completed` - Finalizada
 - `failed` - Falló
 
