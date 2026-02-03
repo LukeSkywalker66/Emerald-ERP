@@ -37,11 +37,9 @@ const OT_TYPE_CONFIG = {
   infrastructure: { label: 'Infraestructura', icon: Wrench, color: 'bg-purple-600/80' },
 };
 
-// Slots de 1 hora: mostrar bloques de 5 horas (mañana y tarde)
-const MORNING_SLOTS = ['08:00', '09:00', '10:00', '11:00', '12:00']; // 5 horas
-const AFTERNOON_SLOTS = ['13:00', '14:00', '15:00', '16:00', '17:00', '18:00']; // 6 horas
-const TIME_SLOTS = [...MORNING_SLOTS, ...AFTERNOON_SLOTS];
-const VISIBLE_SLOTS = 5; // Mostrar 5 slots a la vez sin scroll
+// Slots de 1 hora: 5 horas por bloque (mañana y tarde)
+const MORNING_SLOTS = ['08:00', '09:00', '10:00', '11:00', '12:00'];
+const AFTERNOON_SLOTS = ['13:00', '14:00', '15:00', '16:00', '17:00'];
 
 // ========== HELPERS ==========
 
@@ -379,7 +377,7 @@ export default function CoordinationGridPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-emerald-400">📱 Coordinación de Tareas</h1>
-            <p className="text-xs text-zinc-400">Despacho por móvil • Hoy: {format(currentDate, 'dd MMM yyyy', { locale: es })}</p>
+            <p className="text-xs text-zinc-400">Despacho por móvil • {format(currentDate, 'EEEE dd MMM yyyy', { locale: es })}</p>
           </div>
           <Button onClick={() => loadCoordinationGrid()} disabled={isLoading} variant="outline" size="sm">
             <RotateCcw size={16} />
@@ -493,21 +491,21 @@ export default function CoordinationGridPage() {
               onClick={() => setActiveTimeBlock('afternoon')}
               className={`px-4 py-2 rounded-lg transition-all text-sm font-medium ${activeTimeBlock === 'afternoon' ? 'bg-emerald-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}
             >
-              ☀️ Tarde (13:00-18:00)
+                ☀️ Tarde (13:00-17:00)
             </button>
           </div>
 
           {/* Grid scrolleable */}
-          <div className="flex-1 overflow-x-auto overflow-y-auto">
-            <div className="min-w-full">
+          <div className="flex-1 overflow-x-hidden overflow-y-auto">
+            <div className="w-full">
               {/* Header de horarios */}
               <div className="sticky top-0 z-10 bg-zinc-900 border-b-2 border-zinc-700 flex">
                 <div className="w-40 flex-shrink-0 p-3 border-r border-zinc-800 bg-zinc-950">
                   <p className="text-xs font-bold text-zinc-300">Móviles</p>
                 </div>
-                <div className="flex">
+                <div className="grid grid-cols-5 flex-1 min-w-0">
                   {(activeTimeBlock === 'morning' ? MORNING_SLOTS : AFTERNOON_SLOTS).map((slot) => (
-                    <div key={slot} className="w-32 flex-shrink-0 p-3 border-r border-zinc-700 text-center bg-zinc-950">
+                    <div key={slot} className="p-3 border-r border-zinc-700 text-center bg-zinc-950 min-w-0">
                       <p className="text-sm font-bold text-emerald-400">{slot}</p>
                       <p className="text-xs text-zinc-500">1 hora</p>
                     </div>
@@ -526,7 +524,7 @@ export default function CoordinationGridPage() {
                     </div>
 
                     {/* Celdas de horarios */}
-                    <div className="flex">
+                    <div className="grid grid-cols-5 flex-1 min-w-0">
                       {(activeTimeBlock === 'morning' ? MORNING_SLOTS : AFTERNOON_SLOTS).map((slot) => {
                         const dayStr = format(currentDate, 'yyyy-MM-dd');
                         const cellKey = `${dayStr}_${team.id}_${slot}`;
@@ -543,7 +541,7 @@ export default function CoordinationGridPage() {
                         });
 
                         return (
-                          <div key={cellKey} className="w-32 flex-shrink-0 border-r border-zinc-700/50 p-2">
+                          <div key={cellKey} className="border-r border-zinc-700/50 p-2 min-w-0">
                             <div
                               className={`
                                 min-h-16 p-2 rounded-lg border-2 transition-all space-y-1 cursor-drop
