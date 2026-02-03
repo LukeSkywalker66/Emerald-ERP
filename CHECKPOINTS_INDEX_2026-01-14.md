@@ -1,13 +1,34 @@
 # 📑 ÍNDICE DE CHECKPOINTS - Emerald ERP
 
-**Última Actualización:** 16 de enero de 2026  
-**Status General:** 🟢 TABLERO KANBAN NOC IMPLEMENTADO
+**Última Actualización:** 3 de febrero de 2026  
+**Status General:** 🟢 COORDINATION GRID CON EJES CORRECTOS Y RESIZE
 
 ---
 
 ## 📚 CHECKPOINTS ACTIVOS (2026)
 
-### 🟢 SESIÓN ACTUAL (16-ENE-2026) - TABLERO KANBAN NOC
+### 🟢 SESIÓN ACTUAL (03-FEB-2026) - COORDINATION GRID
+**Documento:** `CHECKPOINT_2026-02-03_COORDINATION_GRID.md`  
+**Commit:** `53ed81d`
+
+**Qué se completó:**
+- ✅ ImprovedCoordinationGrid.jsx (320 líneas) - Grid con ejes correctos
+- ✅ Orientación: X = Tiempo (horizontal fijo), Y = Equipos (vertical variable)
+- ✅ Tabs mañana/tarde restaurados (08:00-12:00, 13:00-17:00)
+- ✅ Resize horizontal con handles emerald (1.5px)
+- ✅ Drag & drop entre equipos y timeslots
+- ✅ Fix resize vs drag conflict (listeners globales + bloqueador)
+- ✅ CoordinationGridPage.jsx actualizado (273 líneas)
+- ✅ Documentación completa (295 líneas)
+
+**Para próxima sesión:**
+- Testing de resize/drag en runtime
+- Implementar drag desde sidebar al grid
+- Collision detection visual
+
+---
+
+### 🟡 16-ENE-2026 - TABLERO KANBAN NOC
 **Documento:** `CHANGELOG_2026-01-16_KANBAN.md`  
 **Documentación Técnica:** `docs/KANBAN_NOC_IMPLEMENTATION.md`
 
