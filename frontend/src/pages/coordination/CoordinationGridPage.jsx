@@ -37,10 +37,11 @@ const OT_TYPE_CONFIG = {
   infrastructure: { label: 'Infraestructura', icon: Wrench, color: 'bg-purple-600/80' },
 };
 
-const TIME_SLOTS = [
-  '08:00', '09:00', '10:00', '11:00', '12:00',
-  '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'
-];
+// Slots de 1 hora: mostrar bloques de 5 horas (mañana y tarde)
+const MORNING_SLOTS = ['08:00', '09:00', '10:00', '11:00', '12:00']; // 5 horas
+const AFTERNOON_SLOTS = ['13:00', '14:00', '15:00', '16:00', '17:00', '18:00']; // 6 horas
+const TIME_SLOTS = [...MORNING_SLOTS, ...AFTERNOON_SLOTS];
+const VISIBLE_SLOTS = 5; // Mostrar 5 slots a la vez sin scroll
 
 // ========== HELPERS ==========
 
@@ -267,6 +268,7 @@ export default function CoordinationGridPage() {
   const [draggedItem, setDraggedItem] = useState(null);
   const [selectedWorkOrder, setSelectedWorkOrder] = useState(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [activeTimeBlock, setActiveTimeBlock] = useState('morning');
   const [isAssigning, setIsAssigning] = useState(false);
   const [assignmentError, setAssignmentError] = useState(null);
 
@@ -478,73 +480,110 @@ export default function CoordinationGridPage() {
         </div>
 
         {/* GRID */}
-        <div className="flex-1 overflow-auto">
-          <div className="min-w-full border-collapse">
-            {/* Header */}
-            <div className="sticky top-0 z-10 bg-zinc-900 border-b border-zinc-800">
-              <div className="flex">
-                <div className="w-32 p-3 border-r border-zinc-800 flex-shrink-0">
-                  <p className="text-xs text-zinc-500">Teams</p>
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {/* Tabs para cambiar entre Mañana y Tarde */}
+          <div className="flex gap-2 p-3 border-b border-zinc-800 bg-zinc-900/30">
+            <button 
+              onClick={() => setActiveTimeBlock('morning')}
+              className={`px-4 py-2 rounded-lg transition-all text-sm font-medium ${activeTimeBlock === 'morning' ? 'bg-emerald-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}
+            >
+              🌅 Mañana (08:00-12:00)
+            </button>
+            <button 
+              onClick={() => setActiveTimeBlock('afternoon')}
+              className={`px-4 py-2 rounded-lg transition-all text-sm font-medium ${activeTimeBlock === 'afternoon' ? 'bg-emerald-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}
+            >
+              ☀️ Tarde (13:00-18:00)
+            </button>
+          </div>
+
+          {/* Grid scrolleable */}
+          <div className="flex-1 overflow-x-auto overflow-y-auto">
+            <div className="min-w-full">
+              {/* Header de horarios */}
+              <div className="sticky top-0 z-10 bg-zinc-900 border-b-2 border-zinc-700 flex">
+                <div className="w-40 flex-shrink-0 p-3 border-r border-zinc-800 bg-zinc-950">
+                  <p className="text-xs font-bold text-zinc-300">Móviles</p>
                 </div>
-                <div className="flex-1 flex">
-                  {weekDays.map((day) => (
-                    <div key={day.toString()} className="flex-1 p-3 border-r border-zinc-700/50 text-center">
-                      <p className="text-xs font-bold text-emerald-400">{format(day, 'EEEE', { locale: es }).toUpperCase()}</p>
-                      <p className="text-sm text-white">{format(day, 'dd MMMM yyyy', { locale: es })}</p>
+                <div className="flex">
+                  {(activeTimeBlock === 'morning' ? MORNING_SLOTS : AFTERNOON_SLOTS).map((slot) => (
+                    <div key={slot} className="w-32 flex-shrink-0 p-3 border-r border-zinc-700 text-center bg-zinc-950">
+                      <p className="text-sm font-bold text-emerald-400">{slot}</p>
+                      <p className="text-xs text-zinc-500">1 hora</p>
                     </div>
                   ))}
                 </div>
               </div>
-            </div>
 
-            {/* Body */}
-            <div className="divide-y divide-zinc-800">
-              {gridData?.teams?.map((team) => (
-                <div key={team.id} className="flex min-h-96">
-                  <div className="w-32 p-3 border-r border-zinc-800 bg-zinc-900/50 flex-shrink-0">
-                    <p className="text-xs font-bold">{team.name}</p>
-                    <p className="text-xs text-zinc-500 mt-1">{team.members?.length} técnicos</p>
-                  </div>
+              {/* Filas de equipos */}
+              <div className="divide-y divide-zinc-800">
+                {gridData?.teams?.map((team) => (
+                  <div key={team.id} className="flex min-h-24 hover:bg-zinc-900/30 transition-colors">
+                    {/* Nombre del equipo */}
+                    <div className="w-40 flex-shrink-0 p-3 border-r border-zinc-800 bg-zinc-900/50 flex flex-col justify-center">
+                      <p className="text-sm font-bold text-white">{team.name}</p>
+                      <p className="text-xs text-zinc-400">{team.members?.length} técnicos</p>
+                    </div>
 
-                  <div className="flex-1 flex divide-x divide-zinc-700/50">
-                    {weekDays.map((day) => (
-                      <div key={day.toString()} className="flex-1 divide-y divide-zinc-700/30">
-                        {TIME_SLOTS.map((slot) => {
-                          const dayStr = format(day, 'yyyy-MM-dd');
-                          const cellKey = `${dayStr}_${team.id}_${slot}`;
-                          const workOrdersInCell = gridData.allocations.filter((wo) => {
-                            if (wo.team_id !== team.id) return false;
-                            if (!wo.scheduled_start) return false;
-                            const woDay = format(new Date(wo.scheduled_start), 'yyyy-MM-dd');
-                            const woHour = format(new Date(wo.scheduled_start), 'HH');
-                            const slotMatch = woDay === dayStr && woHour === slot.split(':')[0];
-                            if (slotMatch) {
-                              console.log('✅ OT encontrada en slot:', { woId: wo.id, team: team.name, slot, woStart: wo.scheduled_start });
-                            }
-                            return slotMatch;
-                          });
+                    {/* Celdas de horarios */}
+                    <div className="flex">
+                      {(activeTimeBlock === 'morning' ? MORNING_SLOTS : AFTERNOON_SLOTS).map((slot) => {
+                        const dayStr = format(currentDate, 'yyyy-MM-dd');
+                        const cellKey = `${dayStr}_${team.id}_${slot}`;
+                        const workOrdersInCell = gridData.allocations.filter((wo) => {
+                          if (wo.team_id !== team.id) return false;
+                          if (!wo.scheduled_start) return false;
+                          const woDay = format(new Date(wo.scheduled_start), 'yyyy-MM-dd');
+                          const woHour = format(new Date(wo.scheduled_start), 'HH');
+                          const slotMatch = woDay === dayStr && woHour === slot.split(':')[0];
+                          if (slotMatch) {
+                            console.log('✅ OT encontrada en slot:', { woId: wo.id, team: team.name, slot, woStart: wo.scheduled_start });
+                          }
+                          return slotMatch;
+                        });
 
-                          return (
-                            <GridCell
-                              key={cellKey}
-                              teamId={team.id}
-                              timeSlot={slot}
-                              workOrders={workOrdersInCell}
-                              onDrop={handleDropOnGrid}
-                              onDetail={(wo) => {
-                                setSelectedWorkOrder(wo);
-                                setIsDetailOpen(true);
+                        return (
+                          <div key={cellKey} className="w-32 flex-shrink-0 border-r border-zinc-700/50 p-2">
+                            <div
+                              className={`
+                                min-h-16 p-2 rounded-lg border-2 transition-all space-y-1 cursor-drop
+                                ${draggedItem && !draggedItem.team_id ? 'bg-emerald-950/40 border-emerald-500/50 hover:bg-emerald-900/50' : 'bg-zinc-800/30 border-zinc-700/30 hover:bg-zinc-800/50'}
+                              `}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = 'move';
                               }}
-                              onDeleteCard={handleUnassignWorkOrder}
-                              draggedItem={draggedItem}
-                            />
-                          );
-                        })}
-                      </div>
-                    ))}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                const data = e.dataTransfer.getData('application/json');
+                                if (data) {
+                                  const payload = JSON.parse(data);
+                                  handleDropOnGrid(team.id, slot, payload);
+                                }
+                              }}
+                            >
+                              {workOrdersInCell.map((wo) => (
+                                <div
+                                  key={wo.id}
+                                  onClick={() => {
+                                    setSelectedWorkOrder(wo);
+                                    setIsDetailOpen(true);
+                                  }}
+                                  className="p-1.5 rounded bg-amber-600/80 hover:bg-amber-700 cursor-pointer transition-colors border border-amber-500/50"
+                                >
+                                  <p className="text-xs font-bold text-white truncate">{wo.client_name || 'S/N'}</p>
+                                  <p className="text-xs text-white/80 truncate">{wo.address || '—'}</p>
+                                  <p className="text-xs text-white/60 mt-0.5">OT #{wo.id}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         </div>
