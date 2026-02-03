@@ -99,6 +99,11 @@ export const groupWorkOrdersByNeighborhood = (workOrders = [], filters = {}) => 
   // 5. Ordenar OTs dentro de cada grupo por antigüedad (más viejas primero)
   Object.keys(grouped).forEach(neighborhood => {
     grouped[neighborhood].sort((a, b) => {
+      // Validar fechas antes de parsear
+      if (!a.created_at && !b.created_at) return 0;
+      if (!a.created_at) return 1; // Sin fecha va al final
+      if (!b.created_at) return -1;
+      
       const dateA = parseISO(a.created_at);
       const dateB = parseISO(b.created_at);
       return compareAsc(dateA, dateB); // Ascendente: más viejas primero

@@ -50,12 +50,11 @@ export default function DraggableWorkOrderCard({
   const priority = workOrder.ticket?.priority || 'low';
   const priorityConfig = PRIORITY_CONFIG[priority] || PRIORITY_CONFIG.low;
 
-  // Calcular antigüedad
-  const createdAt = new Date(workOrder.created_at);
-  const ageText = formatDistanceToNow(createdAt, { 
-    addSuffix: true, 
-    locale: es 
-  });
+  // Calcular antigüedad (validar fecha)
+  const createdAt = workOrder.created_at ? new Date(workOrder.created_at) : null;
+  const ageText = createdAt 
+    ? formatDistanceToNow(createdAt, { addSuffix: true, locale: es })
+    : 'Fecha desconocida';
 
   const handleDragStart = (e) => {
     e.dataTransfer.effectAllowed = 'move';
