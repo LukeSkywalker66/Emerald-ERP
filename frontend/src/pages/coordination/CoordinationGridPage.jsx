@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import api from '@/api/client';
 import { useNavigate } from 'react-router-dom';
+import CoordinationSidebar from '@/components/coordination/CoordinationSidebar';
 
 // ========== CONSTANTES ==========
 
@@ -269,6 +270,7 @@ export default function CoordinationGridPage() {
   const [activeTimeBlock, setActiveTimeBlock] = useState('morning');
   const [isAssigning, setIsAssigning] = useState(false);
   const [assignmentError, setAssignmentError] = useState(null);
+  const [noAnswerLog, setNoAnswerLog] = useState([]);
 
   useEffect(() => {
     loadCoordinationGrid();
@@ -354,6 +356,16 @@ export default function CoordinationGridPage() {
     }
   };
 
+  const handleQuickAction = (workOrderId, action) => {
+    console.log(`⚡ Quick Action: OT ${workOrderId} → ${action}`);
+    
+    if (action === 'no-answer') {
+      // Log local para referencia
+      setNoAnswerLog(prev => [...prev, { workOrderId, timestamp: new Date() }]);
+      // Aquí se podría también agregar una notificación o cambiar estado
+    }
+  };
+
   // Grid solo para HOY (no para la semana)
   const weekDays = useMemo(() => {
     return [currentDate];
@@ -419,62 +431,14 @@ export default function CoordinationGridPage() {
 
       {/* Main Layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* SIDEBAR */}
-        <div className="w-1/5 border-r border-zinc-800 bg-zinc-900/30 overflow-y-auto p-4 space-y-4">
-          {/* Carga */}
-          <div className="space-y-2">
-            <p className="text-xs text-zinc-500 uppercase tracking-wide">📊 Carga</p>
-            
-            {gridData?.team_load?.map((load) => {
-              const utilColor = 
-                load.utilization_percentage > 90 ? 'bg-red-600' :
-                load.utilization_percentage > 70 ? 'bg-amber-600' :
-                'bg-emerald-600';
-              
-              return (
-                <div key={load.team_id} className="p-2 rounded-lg bg-zinc-800/50 border border-zinc-700/50">
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-xs font-medium">{load.team_name}</p>
-                    <span className="text-xs text-zinc-400">{load.assigned_ots_count}</span>
-                  </div>
-                  
-                  <div className="w-full h-2 bg-zinc-700 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full ${utilColor} transition-all`}
-                      style={{ width: `${load.utilization_percentage}%` }}
-                    />
-                  </div>
-                  
-                  <p className="text-xs text-zinc-400 mt-1">{load.utilization_percentage}%</p>
-                </div>
-              );
-            })}
-          </div>
-
-          <hr className="border-zinc-700/50" />
-
-          {/* Backlog */}
-          <div className="space-y-2">
-            <p className="text-xs text-zinc-500 uppercase tracking-wide">📋 Backlog</p>
-          </div>
-
-          <div className="space-y-2">
-            {gridData?.backlog?.map((wo) => (
-              <BacklogCard
-                key={wo.id}
-                workOrder={wo}
-                isDragging={draggedItem?.id === wo.id}
-                onDragStart={setDraggedItem}
-              />
-            ))}
-
-            {!gridData?.backlog?.length && (
-              <div className="p-4 rounded-lg border border-dashed border-zinc-700 text-center">
-                <CheckCircle size={20} className="mx-auto text-emerald-400 mb-2" />
-                <p className="text-xs text-zinc-500">✨ Sin tareas</p>
-              </div>
-            )}
-          </div>
+        {/* SIDEBAR TÁCTICO */}
+        <div className="w-80 flex-shrink-0 overflow-hidden">
+          <CoordinationSidebar
+            workOrders={gridData?.backlog || []}
+            cities={[]}
+            onQuickAction={handleQuickAction}
+            defaultCity={null}
+          />
         </div>
 
         {/* GRID */}
