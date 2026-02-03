@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { addDays, format, startOfWeek, eachDayOfInterval } from 'date-fns';
+import { addDays, format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
   ChevronLeft,
@@ -279,14 +279,16 @@ export default function CoordinationGridPage() {
       setIsLoading(true);
       setError(null);
 
-      const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
-      const startDateStr = format(weekStart, 'yyyy-MM-dd');
-      const endDateStr = format(addDays(weekStart, 6), 'yyyy-MM-dd');
+      // Grid solo por HOY (no por semana)
+      const startDateStr = format(currentDate, 'yyyy-MM-dd');
+      const endDateStr = format(currentDate, 'yyyy-MM-dd');
 
+      console.log('📊 Cargando grid para:', startDateStr);
       const { data } = await api.get('/v2/work-orders/coordination/grid', {
         params: { start_date: startDateStr, end_date: endDateStr },
       });
 
+      console.log('✅ Grid cargado:', data);
       setGridData(data);
     } catch (err) {
       console.error('Error loading grid:', err);
@@ -305,6 +307,7 @@ export default function CoordinationGridPage() {
       const hasCollision = simulateCollisionCheck(gridData.allocations, teamId, timeSlot, estimatedDuration);
 
       if (hasCollision) {
+        console.warn('⚠️ Colisión detectada!');
         setAssignmentError('❌ Conflicto de horarios');
         return;
       }
@@ -313,15 +316,24 @@ export default function CoordinationGridPage() {
       const scheduledStart = new Date(currentDate);
       scheduledStart.setHours(parseInt(hours), parseInt(minutes), 0, 0);
 
-      await api.patch(`/v2/work-orders/${workOrder.id}/assign`, {
+      console.log('🔄 Asignando OT:', {
+        workOrderId: workOrder.id,
+        teamId,
+        timeSlot,
+        scheduledStart: scheduledStart.toISOString(),
+        estimatedDuration,
+      });
+
+      const response = await api.patch(`/v2/work-orders/${workOrder.id}/assign`, {
         team_id: teamId,
         scheduled_start: scheduledStart.toISOString(),
         estimated_duration: estimatedDuration,
       });
 
+      console.log('✅ Asignación exitosa:', response.data);
       await loadCoordinationGrid();
     } catch (err) {
-      console.error('Error:', err);
+      console.error('❌ Error en asignación:', err);
       setAssignmentError(err.response?.data?.detail || 'Error al asignar');
     } finally {
       setIsAssigning(false);
@@ -342,9 +354,9 @@ export default function CoordinationGridPage() {
     }
   };
 
+  // Grid solo para HOY (no para la semana)
   const weekDays = useMemo(() => {
-    const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
-    return eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) });
+    return [currentDate];
   }, [currentDate]);
 
   if (isLoading) {
@@ -364,23 +376,28 @@ export default function CoordinationGridPage() {
       <div className="border-b border-zinc-800 bg-zinc-900/50 backdrop-blur p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-emerald-400">🎭 The Grid</h1>
-            <p className="text-xs text-zinc-400">Despacho de Cuadrillas</p>
+            <h1 className="text-2xl font-bold text-emerald-400">📱 Coordinación de Tareas</h1>
+            <p className="text-xs text-zinc-400">Despacho por móvil • Hoy: {format(currentDate, 'dd MMM yyyy', { locale: es })}</p>
           </div>
           <Button onClick={() => loadCoordinationGrid()} disabled={isLoading} variant="outline" size="sm">
             <RotateCcw size={16} />
           </Button>
         </div>
 
-        <div className="flex items-center justify-between">
-          <Button onClick={() => setCurrentDate(addDays(currentDate, -7))} variant="ghost" size="sm">
-            <ChevronLeft size={18} />
+        <div className="flex items-center justify-between gap-4">
+          <Button onClick={() => setCurrentDate(addDays(currentDate, -1))} variant="ghost" size="sm">
+            <ChevronLeft size={18} /> Anterior
           </Button>
-          <div className="text-sm font-medium text-white">
-            {format(weekDays[0], 'dd MMM', { locale: es })} - {format(weekDays[6], 'dd MMM yyyy', { locale: es })}
-          </div>
-          <Button onClick={() => setCurrentDate(addDays(currentDate, 7))} variant="ghost" size="sm">
-            <ChevronRight size={18} />
+          <Button
+            onClick={() => setCurrentDate(new Date())}
+            variant="outline"
+            size="sm"
+            className="border-emerald-600 text-emerald-400"
+          >
+            Hoy
+          </Button>
+          <Button onClick={() => setCurrentDate(addDays(currentDate, 1))} variant="ghost" size="sm">
+            Siguiente <ChevronRight size={18} />
           </Button>
         </div>
       </div>
@@ -472,8 +489,8 @@ export default function CoordinationGridPage() {
                 <div className="flex-1 flex">
                   {weekDays.map((day) => (
                     <div key={day.toString()} className="flex-1 p-3 border-r border-zinc-700/50 text-center">
-                      <p className="text-xs font-bold text-emerald-400">{format(day, 'EEE', { locale: es }).toUpperCase()}</p>
-                      <p className="text-sm text-white">{format(day, 'dd MMM')}</p>
+                      <p className="text-xs font-bold text-emerald-400">{format(day, 'EEEE', { locale: es }).toUpperCase()}</p>
+                      <p className="text-sm text-white">{format(day, 'dd MMMM yyyy', { locale: es })}</p>
                     </div>
                   ))}
                 </div>
@@ -497,9 +514,14 @@ export default function CoordinationGridPage() {
                           const cellKey = `${dayStr}_${team.id}_${slot}`;
                           const workOrdersInCell = gridData.allocations.filter((wo) => {
                             if (wo.team_id !== team.id) return false;
+                            if (!wo.scheduled_start) return false;
                             const woDay = format(new Date(wo.scheduled_start), 'yyyy-MM-dd');
-                            const woSlot = format(new Date(wo.scheduled_start), 'HH:00');
-                            return woDay === dayStr && woSlot === `${slot}:00`;
+                            const woHour = format(new Date(wo.scheduled_start), 'HH');
+                            const slotMatch = woDay === dayStr && woHour === slot.split(':')[0];
+                            if (slotMatch) {
+                              console.log('✅ OT encontrada en slot:', { woId: wo.id, team: team.name, slot, woStart: wo.scheduled_start });
+                            }
+                            return slotMatch;
                           });
 
                           return (
