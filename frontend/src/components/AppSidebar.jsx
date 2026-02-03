@@ -81,6 +81,12 @@ const MENU_ITEMS = [
         description: 'Gestión de equipos',
       },
       {
+        title: '🎭 The Grid',
+        icon: Map,
+        href: '/app/coordination-grid',
+        description: 'Despacho de cuadrillas',
+      },
+      {
         title: 'Coordinación',
         icon: Map,
         href: '/app/coordination',

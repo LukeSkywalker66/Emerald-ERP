@@ -417,3 +417,5 @@ Antes de modificar schema:
 - ✅ Estados nuevos: coordinated, scheduled
 - ✅ Índice compuesto: (team_id, scheduled_start)
 - ✅ Migración 2026_02_02_002 aplicada ✓
+
+

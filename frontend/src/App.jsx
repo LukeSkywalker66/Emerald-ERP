@@ -34,6 +34,7 @@ import EngineeringBoardPage from './pages/engineering/EngineeringBoardPage';
 
 // Coordination Module Pages
 import CuadrillasPage from './pages/coordination/CuadrillasPage';
+import CoordinationGridPage from './pages/coordination/CoordinationGridPage';
 
 const PrivateRoute = ({ children }) => {
   const { isAuthenticated } = useAuth();
@@ -70,6 +71,7 @@ const AppRoutes = () => (
         
         {/* Coordination Module Routes */}
         <Route path="cuadrillas" element={<CuadrillasPage />} />
+        <Route path="coordination-grid" element={<CoordinationGridPage />} />
         
         {/* Inventory Module Routes */}
         <Route path="inventory" element={<InventoryDashboard />} />

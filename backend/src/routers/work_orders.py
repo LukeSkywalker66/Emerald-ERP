@@ -664,3 +664,319 @@ def _wo_to_list_response(wo: WorkOrder, db: Session) -> WorkOrderListResponse:
         completed_at=wo.completed_at,
         created_at=wo.created_at,
     )
+
+
+# ========== COORDINACIÓN / GRID ==========
+
+from pydantic import BaseModel, Field, ConfigDict
+from src.models.coordination import Team, TeamMember
+
+
+class TeamLoadMetrics(BaseModel):
+    """Métricas de carga para un equipo."""
+    team_id: int
+    team_name: str
+    assigned_ots_count: int
+    total_duration_minutes: int
+    utilization_percentage: float
+    available_capacity: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CoordinationGridResponse(BaseModel):
+    """Response del grid de coordinación."""
+    teams: list = Field(default_factory=list)
+    allocations: list = Field(default_factory=list)
+    backlog: list = Field(default_factory=list)
+    team_load: list[TeamLoadMetrics] = Field(default_factory=list)
+
+
+def check_scheduling_conflicts(
+    db: Session,
+    team_id: int,
+    scheduled_start: datetime,
+    estimated_duration: int,
+    exclude_work_order_id: Optional[int] = None,
+) -> tuple:
+    """
+    Verificar colisión de horarios para un equipo.
+    Retorna: (has_conflict: bool, conflicting_id: Optional[int])
+    """
+    if not estimated_duration:
+        estimated_duration = 60
+    
+    scheduled_end = scheduled_start + timedelta(minutes=estimated_duration)
+    
+    query = db.query(WorkOrder).filter(
+        WorkOrder.team_id == team_id,
+        WorkOrder.status.in_([WorkOrderStatus.scheduled, WorkOrderStatus.in_progress]),
+    )
+    
+    if exclude_work_order_id:
+        query = query.filter(WorkOrder.id != exclude_work_order_id)
+    
+    existing = query.all()
+    
+    for wo in existing:
+        if not wo.scheduled_start or not wo.scheduled_end:
+            continue
+        
+        if scheduled_start < wo.scheduled_end and scheduled_end > wo.scheduled_start:
+            return (True, wo.id)
+    
+    return (False, None)
+
+
+@router.get("/coordination/grid", response_model=CoordinationGridResponse)
+def get_coordination_grid(
+    start_date: str = Query(..., description="Fecha inicio (YYYY-MM-DD)", regex=r"^\d{4}-\d{2}-\d{2}$"),
+    end_date: str = Query(..., description="Fecha fin (YYYY-MM-DD)", regex=r"^\d{4}-\d{2}-\d{2}$"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Obtener datos del grid de coordinación con métricas de carga.
+    
+    **Params:**
+    - start_date: YYYY-MM-DD
+    - end_date: YYYY-MM-DD
+    
+    **Response:**
+    - teams: Equipos activos con miembros
+    - allocations: OTs asignadas en el rango
+    - backlog: OTs sin asignar
+    - team_load: Métricas de utilización
+    """
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+        
+        # Teams activos
+        teams = db.query(Team).filter(Team.is_active == True)\
+            .options(selectinload(Team.members)).all()
+        
+        teams_data = []
+        for team in teams:
+            teams_data.append({
+                "id": team.id,
+                "name": team.name,
+                "members": [
+                    {
+                        "id": m.user.id,
+                        "name": m.user.full_name or m.user.email,
+                        "role": m.role.value if hasattr(m.role, 'value') else str(m.role),
+                    }
+                    for m in team.members
+                ]
+            })
+        
+        # Allocations (scheduled/in_progress en rango)
+        allocations = db.query(WorkOrder)\
+            .filter(
+                WorkOrder.team_id.isnot(None),
+                WorkOrder.status.in_([WorkOrderStatus.scheduled, WorkOrderStatus.in_progress]),
+                WorkOrder.scheduled_start.isnot(None),
+                WorkOrder.scheduled_start >= start,
+                WorkOrder.scheduled_start <= end,
+            )\
+            .options(
+                joinedload(WorkOrder.ticket),
+                joinedload(WorkOrder.team)
+            ).all()
+        
+        allocations_data = []
+        for wo in allocations:
+            allocations_data.append({
+                "id": wo.id,
+                "ticket_id": wo.ticket_id,
+                "team_id": wo.team_id,
+                "ot_type": wo.ot_type.value if wo.ot_type else "unknown",
+                "status": wo.status.value if wo.status else "unknown",
+                "client_name": wo.ticket.subject if wo.ticket else "S/N",
+                "address": getattr(wo.ticket, "availability_note", None) or "-",
+                "scheduled_start": wo.scheduled_start.isoformat() if wo.scheduled_start else None,
+                "scheduled_end": wo.scheduled_end.isoformat() if wo.scheduled_end else None,
+                "estimated_duration": wo.estimated_duration or 60,
+                "coordination_notes": getattr(wo, "coordination_notes", None),
+            })
+        
+        # Backlog (pending_planning o coordinated sin team)
+        backlog = db.query(WorkOrder)\
+            .filter(
+                WorkOrder.team_id.is_(None),
+                WorkOrder.status.in_([WorkOrderStatus.pending_planning, WorkOrderStatus.coordinated])
+            )\
+            .options(joinedload(WorkOrder.ticket)).all()
+        
+        backlog_data = []
+        for wo in backlog:
+            backlog_data.append({
+                "id": wo.id,
+                "ticket_id": wo.ticket_id,
+                "team_id": None,
+                "ot_type": wo.ot_type.value if wo.ot_type else "unknown",
+                "status": wo.status.value if wo.status else "unknown",
+                "client_name": wo.ticket.subject if wo.ticket else "S/N",
+                "address": getattr(wo.ticket, "availability_note", None) or "-",
+                "scheduled_start": wo.scheduled_start.isoformat() if wo.scheduled_start else None,
+                "scheduled_end": wo.scheduled_end.isoformat() if wo.scheduled_end else None,
+                "estimated_duration": wo.estimated_duration or 60,
+                "coordination_notes": getattr(wo, "coordination_notes", None),
+            })
+        
+        # Team Load Metrics
+        WORKING_HOURS_PER_DAY = 10  # 8:00 a 18:00
+        DAYS_IN_RANGE = max(1, (end - start).days)
+        total_capacity = WORKING_HOURS_PER_DAY * 60 * DAYS_IN_RANGE
+        
+        team_load_data = []
+        for team in teams:
+            total_duration = sum(
+                wo.estimated_duration or 0
+                for wo in allocations
+                if wo.team_id == team.id
+            )
+            
+            ot_count = sum(1 for wo in allocations if wo.team_id == team.id)
+            utilization = (total_duration / total_capacity * 100) if total_capacity > 0 else 0
+            utilization = min(utilization, 100)
+            
+            team_load_data.append(
+                TeamLoadMetrics(
+                    team_id=team.id,
+                    team_name=team.name,
+                    assigned_ots_count=ot_count,
+                    total_duration_minutes=total_duration,
+                    utilization_percentage=round(utilization, 1),
+                    available_capacity=max(0, total_capacity - total_duration),
+                )
+            )
+        
+        return CoordinationGridResponse(
+            teams=teams_data,
+            allocations=allocations_data,
+            backlog=backlog_data,
+            team_load=team_load_data,
+        )
+    
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Formato de fecha inválido: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener grid: {str(e)}")
+
+
+@router.patch("/{work_order_id}/assign", response_model=dict)
+def assign_work_order_to_team(
+    work_order_id: int,
+    payload: WorkOrderUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Asignar OT a un Team con fecha/hora (desde Grid).
+    
+    **Request:**
+    ```json
+    {
+        "team_id": 5,
+        "scheduled_start": "2026-02-15T10:00:00Z",
+        "estimated_duration": 60
+    }
+    ```
+    """
+    wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id)\
+        .options(joinedload(WorkOrder.ticket)).first()
+    
+    if not wo:
+        raise HTTPException(status_code=404, detail="OT no encontrada")
+    
+    if not payload.team_id or not payload.scheduled_start:
+        raise HTTPException(status_code=400, detail="Requiere team_id y scheduled_start")
+    
+    team = db.query(Team).filter(Team.id == payload.team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail=f"Team {payload.team_id} no existe")
+    
+    # Validar colisión
+    estimated_duration = payload.estimated_duration or wo.estimated_duration or 60
+    has_conflict, conflicting_id = check_scheduling_conflicts(
+        db, payload.team_id, payload.scheduled_start, estimated_duration, work_order_id
+    )
+    
+    if has_conflict:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Conflicto de horarios: equipo tiene OT #{conflicting_id}"
+        )
+    
+    # Actualizar
+    wo.team_id = payload.team_id
+    wo.scheduled_start = payload.scheduled_start
+    wo.estimated_duration = estimated_duration
+    wo.scheduled_end = payload.scheduled_start + timedelta(minutes=estimated_duration)
+    wo.status = WorkOrderStatus.scheduled
+    
+    # Timeline
+    db.add(TicketTimeline(
+        ticket_id=wo.ticket_id,
+        author_id=current_user.id,
+        event_type=TicketTimelineEventType.ot_event,
+        content=f"OT asignada a {team.name}",
+        meta_data={
+            "work_order_id": wo.id,
+            "team_id": wo.team_id,
+            "team_name": team.name,
+            "scheduled_start": wo.scheduled_start.isoformat(),
+        }
+    ))
+    
+    db.commit()
+    db.refresh(wo)
+    
+    return {
+        "id": wo.id,
+        "status": wo.status.value,
+        "team_id": wo.team_id,
+        "scheduled_start": wo.scheduled_start.isoformat() if wo.scheduled_start else None,
+        "scheduled_end": wo.scheduled_end.isoformat() if wo.scheduled_end else None,
+    }
+
+
+@router.patch("/{work_order_id}/unassign", response_model=dict)
+def unassign_work_order(
+    work_order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Devolver OT al backlog (quitar team)."""
+    wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id)\
+        .options(joinedload(WorkOrder.ticket)).first()
+    
+    if not wo:
+        raise HTTPException(status_code=404, detail="OT no encontrada")
+    
+    old_team_id = wo.team_id
+    old_team_name = wo.team.name if wo.team else "Unknown"
+    
+    wo.team_id = None
+    wo.status = WorkOrderStatus.coordinated if wo.scheduled_start else WorkOrderStatus.pending_planning
+    
+    db.add(TicketTimeline(
+        ticket_id=wo.ticket_id,
+        author_id=current_user.id,
+        event_type=TicketTimelineEventType.ot_event,
+        content=f"OT desasignada de {old_team_name}",
+        meta_data={
+            "work_order_id": wo.id,
+            "unassigned_team_id": old_team_id,
+        }
+    ))
+    
+    db.commit()
+    db.refresh(wo)
+    
+    return {
+        "id": wo.id,
+        "status": wo.status.value,
+        "team_id": None,
+    }
