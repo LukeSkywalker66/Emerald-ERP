@@ -1,0 +1,128 @@
+/* ========== CALENDARIO BASE ========== */
+.rbc-calendar {
+  font-family: inherit;
+  height: 100% !important;
+  background: #18181b;
+}
+
+/* ========== HEADER ========== */
+.rbc-header {
+  background: #09090b !important;
+  color: #10b981 !important;
+  border-color: #3f3f46 !important;
+  padding: 12px 8px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+
+.rbc-time-header {
+  background: #09090b !important;
+}
+
+.rbc-time-header-content {
+  border-left: 1px solid #3f3f46 !important;
+}
+
+/* ========== TIME GUTTER (Columna de horas) ========== */
+.rbc-time-gutter {
+  background: #18181b !important;
+  color: #71717a !important;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.rbc-time-slot {
+  border-color: rgba(113, 113, 122, 0.1) !important;
+  border-style: dashed !important;
+}
+
+/* ========== CELDAS DE TIEMPO ========== */
+.rbc-day-slot {
+  background: #18181b !important;
+}
+
+.rbc-time-column {
+  border-left: 1px solid #3f3f46 !important;
+}
+
+.rbc-timeslot-group {
+  border-bottom: 1px dashed rgba(113, 113, 122, 0.1) !important;
+  min-height: 60px !important;
+}
+
+/* ========== EVENTOS (Tareas) ========== */
+.rbc-event {
+  border: none !important;
+  border-radius: 6px !important;
+  padding: 4px 6px !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  transition: all 0.2s ease;
+}
+
+.rbc-event:hover {
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4) !important;
+  transform: translateY(-1px);
+}
+
+.rbc-event.rbc-selected {
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.5) !important;
+}
+
+/* ========== DRAG & DROP ========== */
+.rbc-addons-dnd-drag-preview {
+  opacity: 0.6 !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+  transform: scale(1.05);
+}
+
+.rbc-addons-dnd-over {
+  background: rgba(16, 185, 129, 0.1) !important;
+  border: 2px dashed #10b981 !important;
+}
+
+/* ========== RESIZE HANDLES ========== */
+.rbc-addons-dnd-resize-ns-anchor {
+  cursor: ns-resize !important;
+  background: rgba(16, 185, 129, 0.5) !important;
+  height: 8px !important;
+}
+
+.rbc-addons-dnd-resize-ns-anchor:hover {
+  background: rgba(16, 185, 129, 0.8) !important;
+}
+
+/* ========== SCROLLBAR CUSTOM ========== */
+.rbc-time-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.rbc-time-content::-webkit-scrollbar-track {
+  background: #18181b;
+}
+
+.rbc-time-content::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 4px;
+}
+
+.rbc-time-content::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+}
+
+/* ========== TODAY HIGHLIGHT ========== */
+.rbc-today {
+  background: rgba(16, 185, 129, 0.05) !important;
+}
+
+/* ========== CURRENT TIME INDICATOR ========== */
+.rbc-current-time-indicator {
+  background-color: #10b981 !important;
+  height: 2px !important;
+}
+
+/* ========== TOOLBAR (si se usa) ========== */
+.rbc-toolbar {
+  display: none !important;
+}

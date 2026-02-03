@@ -1,10 +1,10 @@
 /**
  * CoordinationGridPage.jsx
- * "The Grid" - Despacho de cuadrillas con Drag & Drop
- * 3 de febrero de 2026
+ * Coordinación de Tareas con Calendario Fluido (15min granularidad)
+ * 4 de febrero de 2026
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { addDays, format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
@@ -13,14 +13,10 @@ import {
   AlertCircle,
   Loader,
   RotateCcw,
-  Wrench,
-  Home,
-  Package,
+  X,
   MapPin,
   Clock,
-  X,
-  AlertTriangle,
-  CheckCircle,
+  ExternalLink,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -28,162 +24,27 @@ import { Badge } from '@/components/ui/badge';
 import api from '@/api/client';
 import { useNavigate } from 'react-router-dom';
 import CoordinationSidebar from '@/components/coordination/CoordinationSidebar';
+import ImprovedCoordinationGrid from '@/components/coordination/ImprovedCoordinationGrid';
 
-// ========== CONSTANTES ==========
-
-const OT_TYPE_CONFIG = {
-  repair: { label: 'Reparación', icon: Wrench, color: 'bg-amber-600/80' },
-  install: { label: 'Instalación', icon: Home, color: 'bg-emerald-600/80' },
-  pickup: { label: 'Retiro', icon: Package, color: 'bg-blue-600/80' },
-  infrastructure: { label: 'Infraestructura', icon: Wrench, color: 'bg-purple-600/80' },
-};
-
-// Slots de 1 hora: 5 horas por bloque (mañana y tarde)
-const MORNING_SLOTS = ['08:00', '09:00', '10:00', '11:00', '12:00'];
-const AFTERNOON_SLOTS = ['13:00', '14:00', '15:00', '16:00', '17:00'];
-
-// ========== HELPERS ==========
-
-function simulateCollisionCheck(allocations, teamId, timeSlot, estimatedDuration = 60) {
-  const [hours, minutes] = timeSlot.split(':');
-  const slotStart = parseInt(hours) * 60 + parseInt(minutes);
-  const slotEnd = slotStart + estimatedDuration;
-
-  return allocations.some((wo) => {
-    if (wo.team_id !== teamId) return false;
-    
-    const woStart = new Date(wo.scheduled_start);
-    const woEnd = new Date(wo.scheduled_end || wo.scheduled_start);
-    const woStartMinutes = woStart.getHours() * 60 + woStart.getMinutes();
-    const woEndMinutes = woEnd.getHours() * 60 + woEnd.getMinutes();
-
-    return slotStart < woEndMinutes && slotEnd > woStartMinutes;
-  });
-}
 
 // ========== COMPONENTES ==========
-
-function BacklogCard({ workOrder, isDragging, onDragStart }) {
-  const typeConfig = OT_TYPE_CONFIG[workOrder.ot_type] || OT_TYPE_CONFIG.repair;
-  const TypeIcon = typeConfig.icon;
-
-  return (
-    <div
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('application/json', JSON.stringify(workOrder));
-        if (onDragStart) {
-          onDragStart(workOrder);
-        }
-      }}
-      className={`
-        p-3 rounded-lg border-2 border-dashed cursor-grab active:cursor-grabbing
-        transition-all ${isDragging ? 'opacity-50 scale-95' : 'opacity-100'}
-        ${typeConfig.color} hover:shadow-lg hover:shadow-emerald-500/30
-      `}
-    >
-      <div className="flex items-start gap-2">
-        <TypeIcon size={16} className="flex-shrink-0 mt-0.5" />
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-bold truncate">{workOrder.client_name || 'S/N'}</p>
-          <p className="text-xs opacity-90 truncate">{workOrder.address || '—'}</p>
-          {workOrder.scheduled_start && (
-            <p className="text-xs mt-1 opacity-75">
-              📅 {format(new Date(workOrder.scheduled_start), 'HH:mm')}
-            </p>
-          )}
-        </div>
-      </div>
-      <div className="mt-2 text-xs opacity-75">OT #{workOrder.id} • {workOrder.estimated_duration}min</div>
-    </div>
-  );
-}
-
-function GridCard({ workOrder, onDelete, onDetail, hasCollision }) {
-  const typeConfig = OT_TYPE_CONFIG[workOrder.ot_type] || OT_TYPE_CONFIG.repair;
-
-  return (
-    <div
-      onClick={() => onDetail(workOrder)}
-      className={`
-        p-2 rounded border-2 cursor-pointer
-        transition-all group
-        ${hasCollision ? 'border-red-500/80 bg-red-950/40 ring-2 ring-red-500/30' : `border-zinc-700/50 ${typeConfig.color}`}
-      `}
-    >
-      <div className="flex items-start gap-1">
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-bold truncate leading-tight">{workOrder.client_name || 'S/N'}</p>
-          <p className="text-xs opacity-90 truncate leading-tight">OT #{workOrder.id}</p>
-        </div>
-        {hasCollision && <AlertTriangle size={12} className="text-red-400" />}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(workOrder.id);
-          }}
-          className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-black/30 rounded"
-        >
-          <X size={12} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function GridCell({ teamId, timeSlot, workOrders, onDrop, onDetail, onDeleteCard, draggedItem }) {
-  const isOverlapping = workOrders.length > 1;
-  
-  let wouldCollide = false;
-  if (draggedItem) {
-    wouldCollide = simulateCollisionCheck(workOrders, teamId, timeSlot, draggedItem.estimated_duration || 60);
-  }
-
-  return (
-    <div
-      className={`
-        min-h-14 p-2 border rounded transition-all space-y-1
-        ${wouldCollide ? 'bg-red-900/30 border-red-500/50' : 'bg-zinc-900/20 border-zinc-700/30'}
-      `}
-      onDragOver={(e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-      }}
-      onDrop={(e) => {
-        e.preventDefault();
-        const data = e.dataTransfer.getData('application/json');
-        if (data) {
-          const payload = JSON.parse(data);
-          onDrop(teamId, timeSlot, payload);
-        }
-      }}
-    >
-      {workOrders.map((wo) => (
-        <GridCard
-          key={wo.id}
-          workOrder={wo}
-          onDetail={onDetail}
-          onDeleteCard={onDeleteCard}
-          onDelete={onDeleteCard}
-          hasCollision={isOverlapping}
-        />
-      ))}
-
-      {wouldCollide && !workOrders.length && (
-        <div className="text-xs text-red-300 flex items-center gap-1">
-          <AlertTriangle size={12} />
-          Conflicto
-        </div>
-      )}
-    </div>
-  );
-}
 
 function DetailSheet({ workOrder, isOpen, onClose, onUnassign, onNavigate }) {
   if (!isOpen || !workOrder) return null;
 
-  const typeConfig = OT_TYPE_CONFIG[workOrder.ot_type] || OT_TYPE_CONFIG.repair;
+  const typeLabels = {
+    repair: 'Reparación',
+    install: 'Instalación',
+    pickup: 'Retiro',
+    infrastructure: 'Infraestructura',
+  };
+
+  const typeColors = {
+    repair: 'bg-amber-600',
+    install: 'bg-emerald-600',
+    pickup: 'bg-blue-600',
+    infrastructure: 'bg-purple-600',
+  };
 
   return (
     <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={onClose}>
@@ -204,7 +65,9 @@ function DetailSheet({ workOrder, isOpen, onClose, onUnassign, onNavigate }) {
         <div className="p-4 space-y-4">
           <div>
             <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Tipo</p>
-            <Badge className={`${typeConfig.color} border-0`}>{typeConfig.label}</Badge>
+            <Badge className={`${typeColors[workOrder.ot_type] || 'bg-zinc-600'} border-0`}>
+              {typeLabels[workOrder.ot_type] || workOrder.ot_type}
+            </Badge>
           </div>
 
           <div>
@@ -234,18 +97,38 @@ function DetailSheet({ workOrder, isOpen, onClose, onUnassign, onNavigate }) {
               </div>
             </div>
           )}
+
+          {workOrder.estimated_duration && (
+            <div>
+              <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Duración Estimada</p>
+              <p className="text-sm text-zinc-300">{workOrder.estimated_duration} min</p>
+            </div>
+          )}
         </div>
 
         <div className="sticky bottom-0 border-t border-zinc-800 bg-zinc-950/80 p-4 space-y-2">
           <Button
             onClick={() => {
-              onUnassign(workOrder.id);
-              onClose();
+              if (onNavigate) {
+                onNavigate(`/work-orders/${workOrder.id}`);
+              }
             }}
-            className="w-full bg-red-600 hover:bg-red-700"
+            className="w-full bg-emerald-600 hover:bg-emerald-700"
           >
-            Devolver al Backlog
+            <ExternalLink size={16} className="mr-2" />
+            Ejecutar OT
           </Button>
+          {workOrder.team_id && (
+            <Button
+              onClick={() => {
+                onUnassign(workOrder.id);
+                onClose();
+              }}
+              className="w-full bg-red-600 hover:bg-red-700"
+            >
+              Devolver al Backlog
+            </Button>
+          )}
           <Button onClick={onClose} variant="ghost" className="w-full">
             Cerrar
           </Button>
@@ -264,294 +147,177 @@ export default function CoordinationGridPage() {
   const [gridData, setGridData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [draggedItem, setDraggedItem] = useState(null);
   const [selectedWorkOrder, setSelectedWorkOrder] = useState(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [activeTimeBlock, setActiveTimeBlock] = useState('morning');
-  const [isAssigning, setIsAssigning] = useState(false);
-  const [assignmentError, setAssignmentError] = useState(null);
-  const [noAnswerLog, setNoAnswerLog] = useState([]);
 
   useEffect(() => {
     loadCoordinationGrid();
   }, [currentDate]);
 
-  const loadCoordinationGrid = async () => {
+  async function loadCoordinationGrid() {
+    setIsLoading(true);
+    setError(null);
     try {
-      setIsLoading(true);
-      setError(null);
-
-      // Grid solo por HOY (no por semana)
-      const startDateStr = format(currentDate, 'yyyy-MM-dd');
-      const endDateStr = format(currentDate, 'yyyy-MM-dd');
-
-      console.log('📊 Cargando grid para:', startDateStr);
-      const { data } = await api.get('/v2/work-orders/coordination/grid', {
-        params: { start_date: startDateStr, end_date: endDateStr },
+      const dateParam = format(currentDate, 'yyyy-MM-dd');
+      const response = await api.get('/v2/work-orders/coordination/grid', {
+        params: {
+          start_date: dateParam,
+          end_date: dateParam,
+        },
       });
-
-      console.log('✅ Grid cargado:', data);
-      setGridData(data);
+      setGridData(response.data);
     } catch (err) {
-      console.error('Error loading grid:', err);
-      setError(err.message || 'Error al cargar el grid');
+      console.error('Error cargando grid:', err);
+      const errorMsg = err.response?.data?.detail || err.message || 'Error al cargar la coordinación';
+      setError(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleDropOnGrid = async (teamId, timeSlot, workOrder) => {
-    try {
-      setIsAssigning(true);
-      setAssignmentError(null);
-
-      const estimatedDuration = workOrder.estimated_duration || 60;
-      const hasCollision = simulateCollisionCheck(gridData.allocations, teamId, timeSlot, estimatedDuration);
-
-      if (hasCollision) {
-        console.warn('⚠️ Colisión detectada!');
-        setAssignmentError('❌ Conflicto de horarios');
-        return;
-      }
-
-      const [hours, minutes] = timeSlot.split(':');
-      const scheduledStart = new Date(currentDate);
-      scheduledStart.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-
-      console.log('🔄 Asignando OT:', {
-        workOrderId: workOrder.id,
-        teamId,
-        timeSlot,
-        scheduledStart: scheduledStart.toISOString(),
-        estimatedDuration,
-      });
-
-      const response = await api.patch(`/v2/work-orders/${workOrder.id}/assign`, {
-        team_id: teamId,
-        scheduled_start: scheduledStart.toISOString(),
-        estimated_duration: estimatedDuration,
-      });
-
-      console.log('✅ Asignación exitosa:', response.data);
-      await loadCoordinationGrid();
-    } catch (err) {
-      console.error('❌ Error en asignación:', err);
-      setAssignmentError(err.response?.data?.detail || 'Error al asignar');
-    } finally {
-      setIsAssigning(false);
-      setDraggedItem(null);
-    }
-  };
-
-  const handleUnassignWorkOrder = async (workOrderId) => {
-    try {
-      setIsAssigning(true);
-      await api.patch(`/v2/work-orders/${workOrderId}/unassign`);
-      await loadCoordinationGrid();
-    } catch (err) {
-      console.error('Error:', err);
-      setError(err.message);
-    } finally {
-      setIsAssigning(false);
-    }
-  };
-
-  const handleQuickAction = (workOrderId, action) => {
-    console.log(`⚡ Quick Action: OT ${workOrderId} → ${action}`);
-    
-    if (action === 'no-answer') {
-      // Log local para referencia
-      setNoAnswerLog(prev => [...prev, { workOrderId, timestamp: new Date() }]);
-      // Aquí se podría también agregar una notificación o cambiar estado
-    }
-  };
-
-  // Grid solo para HOY (no para la semana)
-  const weekDays = useMemo(() => {
-    return [currentDate];
-  }, [currentDate]);
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-zinc-950">
-        <div className="flex flex-col items-center gap-3">
-          <Loader size={32} className="animate-spin text-emerald-400" />
-          <p className="text-zinc-400">Cargando "The Grid"...</p>
-        </div>
-      </div>
-    );
   }
 
+  async function handleUnassignWorkOrder(woId) {
+    try {
+      await api.patch(`/v2/work-orders/${woId}/unassign`);
+      loadCoordinationGrid();
+    } catch (err) {
+      console.error('Error al desasignar OT:', err);
+      alert('No se pudo devolver al backlog: ' + (err.response?.data?.detail || err.message));
+    }
+  }
+
+  function handleEventClick(event) {
+    setSelectedWorkOrder(event);
+    setIsDetailOpen(true);
+  }
+
+  const isToday = format(currentDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+
   return (
-    <div className="h-screen bg-zinc-950 flex flex-col">
-      {/* Header */}
-      <div className="border-b border-zinc-800 bg-zinc-900/50 backdrop-blur p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-emerald-400">📱 Coordinación de Tareas</h1>
-            <p className="text-xs text-zinc-400">Despacho por móvil • {format(currentDate, 'EEEE dd MMM yyyy', { locale: es })}</p>
+    <div className="flex h-screen bg-zinc-950 text-zinc-100 overflow-hidden">
+      {/* SIDEBAR TÁCTICO */}
+      {gridData && (
+        <CoordinationSidebar
+          workOrders={gridData?.backlog || []}
+          onQuickAction={() => {}}
+        />
+      )}
+
+      {/* CONTENIDO PRINCIPAL */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* HEADER CON NAVEGACIÓN DE FECHA */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-900/50">
+          <div className="flex items-center gap-4">
+            <h1 className="text-xl font-bold text-emerald-400">
+              📱 Coordinación de Tareas
+            </h1>
           </div>
-          <Button onClick={() => loadCoordinationGrid()} disabled={isLoading} variant="outline" size="sm">
-            <RotateCcw size={16} />
-          </Button>
+
+          <div className="flex items-center gap-3">
+            <Button
+              onClick={() => setCurrentDate(addDays(currentDate, -1))}
+              variant="ghost"
+              size="sm"
+              className="hover:bg-zinc-800"
+            >
+              <ChevronLeft size={18} />
+            </Button>
+
+            <Button
+              onClick={() => setCurrentDate(new Date())}
+              variant={isToday ? 'default' : 'ghost'}
+              size="sm"
+              className={isToday ? 'bg-emerald-600 hover:bg-emerald-700' : 'hover:bg-zinc-800'}
+            >
+              {isToday ? 'Hoy' : format(currentDate, 'dd MMM', { locale: es })}
+            </Button>
+
+            <Button
+              onClick={() => setCurrentDate(addDays(currentDate, 1))}
+              variant="ghost"
+              size="sm"
+              className="hover:bg-zinc-800"
+            >
+              <ChevronRight size={18} />
+            </Button>
+
+            <Button
+              onClick={loadCoordinationGrid}
+              variant="ghost"
+              size="sm"
+              disabled={isLoading}
+              className="hover:bg-zinc-800"
+            >
+              {isLoading ? <Loader size={18} className="animate-spin" /> : <RotateCcw size={18} />}
+            </Button>
+          </div>
         </div>
 
-        <div className="flex items-center justify-between gap-4">
-          <Button onClick={() => setCurrentDate(addDays(currentDate, -1))} variant="ghost" size="sm">
-            <ChevronLeft size={18} /> Anterior
-          </Button>
-          <Button
-            onClick={() => setCurrentDate(new Date())}
-            variant="outline"
-            size="sm"
-            className="border-emerald-600 text-emerald-400"
-          >
-            {format(currentDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd') ? '🏠 Hoy' : format(currentDate, 'EEEE dd MMM yyyy', { locale: es })}
-          </Button>
-          <Button onClick={() => setCurrentDate(addDays(currentDate, 1))} variant="ghost" size="sm">
-            Siguiente <ChevronRight size={18} />
-          </Button>
-        </div>
-      </div>
-
-      {/* Errores */}
-      {error && (
-        <div className="mx-4 mt-4 p-3 rounded-lg border border-red-900/50 bg-red-950/30 flex items-center gap-2 text-red-300 text-sm">
-          <AlertCircle size={16} />
-          {error}
-        </div>
-      )}
-      
-      {assignmentError && (
-        <div className="mx-4 mt-4 p-3 rounded-lg border border-amber-900/50 bg-amber-950/30 flex items-center gap-2 text-amber-300 text-sm">
-          <AlertTriangle size={16} />
-          {assignmentError}
-        </div>
-      )}
-
-      {/* Main Layout */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* SIDEBAR TÁCTICO */}
-        <div className="w-80 flex-shrink-0 overflow-hidden">
-          <CoordinationSidebar
-            workOrders={gridData?.backlog || []}
-            cities={[]}
-            onQuickAction={handleQuickAction}
-            defaultCity={null}
-          />
-        </div>
-
-        {/* GRID */}
+        {/* ÁREA DE CALENDARIO */}
         <div className="flex-1 overflow-hidden flex flex-col">
-          {/* Tabs para cambiar entre Mañana y Tarde */}
-          <div className="flex gap-2 p-3 border-b border-zinc-800 bg-zinc-900/30">
-            <button 
+          {/* Tabs mañana/tarde */}
+          <div className="flex gap-2 p-3 border-b border-zinc-800 bg-zinc-900/30 flex-shrink-0">
+            <button
               onClick={() => setActiveTimeBlock('morning')}
-              className={`px-4 py-2 rounded-lg transition-all text-sm font-medium ${activeTimeBlock === 'morning' ? 'bg-emerald-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}
+              className={`px-4 py-2 rounded-lg transition-all text-sm font-medium ${
+                activeTimeBlock === 'morning'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+              }`}
             >
               🌅 Mañana (08:00-12:00)
             </button>
-            <button 
+            <button
               onClick={() => setActiveTimeBlock('afternoon')}
-              className={`px-4 py-2 rounded-lg transition-all text-sm font-medium ${activeTimeBlock === 'afternoon' ? 'bg-emerald-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}
+              className={`px-4 py-2 rounded-lg transition-all text-sm font-medium ${
+                activeTimeBlock === 'afternoon'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+              }`}
             >
-                ☀️ Tarde (13:00-17:00)
+              ☀️ Tarde (13:00-17:00)
             </button>
           </div>
 
-          {/* Grid scrolleable */}
-          <div className="flex-1 overflow-x-hidden overflow-y-auto">
-            <div className="w-full">
-              {/* Header de horarios */}
-              <div className="sticky top-0 z-10 bg-zinc-900 border-b-2 border-zinc-700 flex">
-                <div className="w-40 flex-shrink-0 p-3 border-r border-zinc-800 bg-zinc-950">
-                  <p className="text-xs font-bold text-zinc-300">Móviles</p>
-                </div>
-                <div className="grid grid-cols-5 flex-1 min-w-0">
-                  {(activeTimeBlock === 'morning' ? MORNING_SLOTS : AFTERNOON_SLOTS).map((slot) => (
-                    <div key={slot} className="p-3 border-r border-zinc-700 text-center bg-zinc-950 min-w-0">
-                      <p className="text-sm font-bold text-emerald-400">{slot}</p>
-                      <p className="text-xs text-zinc-500">1 hora</p>
-                    </div>
-                  ))}
+          {/* Grid */}
+          <div className="flex-1 overflow-hidden">
+            {isLoading && !gridData ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                  <Loader className="mx-auto animate-spin text-emerald-400" size={48} />
+                  <p className="mt-4 text-zinc-400">Consultando al Orquestador...</p>
                 </div>
               </div>
-
-              {/* Filas de equipos */}
-              <div className="divide-y divide-zinc-800">
-                {gridData?.teams?.map((team) => (
-                  <div key={team.id} className="flex min-h-24 hover:bg-zinc-900/30 transition-colors">
-                    {/* Nombre del equipo */}
-                    <div className="w-40 flex-shrink-0 p-3 border-r border-zinc-800 bg-zinc-900/50 flex flex-col justify-center">
-                      <p className="text-sm font-bold text-white">{team.name}</p>
-                      <p className="text-xs text-zinc-400">{team.members?.length} técnicos</p>
-                    </div>
-
-                    {/* Celdas de horarios */}
-                    <div className="grid grid-cols-5 flex-1 min-w-0">
-                      {(activeTimeBlock === 'morning' ? MORNING_SLOTS : AFTERNOON_SLOTS).map((slot) => {
-                        const dayStr = format(currentDate, 'yyyy-MM-dd');
-                        const cellKey = `${dayStr}_${team.id}_${slot}`;
-                        const workOrdersInCell = gridData.allocations.filter((wo) => {
-                          if (wo.team_id !== team.id) return false;
-                          if (!wo.scheduled_start) return false;
-                          const woDay = format(new Date(wo.scheduled_start), 'yyyy-MM-dd');
-                          const woHour = format(new Date(wo.scheduled_start), 'HH');
-                          const slotMatch = woDay === dayStr && woHour === slot.split(':')[0];
-                          if (slotMatch) {
-                            console.log('✅ OT encontrada en slot:', { woId: wo.id, team: team.name, slot, woStart: wo.scheduled_start });
-                          }
-                          return slotMatch;
-                        });
-
-                        return (
-                          <div key={cellKey} className="border-r border-zinc-700/50 p-2 min-w-0">
-                            <div
-                              className={`
-                                min-h-16 p-2 rounded-lg border-2 transition-all space-y-1 cursor-drop
-                                ${draggedItem && !draggedItem.team_id ? 'bg-emerald-950/40 border-emerald-500/50 hover:bg-emerald-900/50' : 'bg-zinc-800/30 border-zinc-700/30 hover:bg-zinc-800/50'}
-                              `}
-                              onDragOver={(e) => {
-                                e.preventDefault();
-                                e.dataTransfer.dropEffect = 'move';
-                              }}
-                              onDrop={(e) => {
-                                e.preventDefault();
-                                const data = e.dataTransfer.getData('application/json');
-                                if (data) {
-                                  const payload = JSON.parse(data);
-                                  handleDropOnGrid(team.id, slot, payload);
-                                }
-                              }}
-                            >
-                              {workOrdersInCell.map((wo) => (
-                                <div
-                                  key={wo.id}
-                                  onClick={() => {
-                                    setSelectedWorkOrder(wo);
-                                    setIsDetailOpen(true);
-                                  }}
-                                  className="p-1.5 rounded bg-amber-600/80 hover:bg-amber-700 cursor-pointer transition-colors border border-amber-500/50"
-                                >
-                                  <p className="text-xs font-bold text-white truncate">{wo.client_name || 'S/N'}</p>
-                                  <p className="text-xs text-white/80 truncate">{wo.address || '—'}</p>
-                                  <p className="text-xs text-white/60 mt-0.5">OT #{wo.id}</p>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+            ) : error ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center max-w-md p-6">
+                  <AlertCircle className="mx-auto text-red-400" size={48} />
+                  <div className="mt-4 text-zinc-300 text-sm">
+                    <p className="font-semibold mb-2">Error al cargar coordinación</p>
+                    <code className="block bg-red-950/50 p-2 rounded text-xs overflow-auto max-h-24">
+                      {String(error).substring(0, 200)}
+                    </code>
                   </div>
-                ))}
+                  <Button onClick={loadCoordinationGrid} className="mt-4 bg-emerald-600 hover:bg-emerald-700">
+                    Reintentar
+                  </Button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <ImprovedCoordinationGrid
+                teams={gridData?.teams || []}
+                workOrders={gridData?.allocations || []}
+                currentDate={currentDate}
+                onWorkOrderUpdated={loadCoordinationGrid}
+                onEventClick={handleEventClick}
+                activeTimeBlock={activeTimeBlock}
+              />
+            )}
           </div>
         </div>
       </div>
 
-      {/* Detail Sheet */}
+      {/* DETALLE SHEET */}
       <DetailSheet
         workOrder={selectedWorkOrder}
         isOpen={isDetailOpen}
@@ -560,18 +326,10 @@ export default function CoordinationGridPage() {
           setSelectedWorkOrder(null);
         }}
         onUnassign={handleUnassignWorkOrder}
-        onNavigate={navigate}
+        onNavigate={(path) => {
+          navigate(path);
+        }}
       />
-
-      {/* Loading */}
-      {isAssigning && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
-            <Loader size={32} className="animate-spin text-emerald-400" />
-            <p className="text-white text-sm">Asignando...</p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

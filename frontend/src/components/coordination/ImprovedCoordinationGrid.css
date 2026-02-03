@@ -1,0 +1,82 @@
+/**
+ * ImprovedCoordinationGrid.css
+ * Estilos para la grid mejorada
+ */
+
+.improved-grid {
+  position: relative;
+}
+
+/* Líneas sutiles de rejilla */
+.improved-grid-time-slot {
+  border-right: 1px solid rgba(113, 113, 122, 0.1);
+  position: relative;
+}
+
+/* Hover en celdas */
+.improved-grid-time-slot:hover {
+  background-color: rgba(39, 39, 42, 0.3);
+  transition: background-color 0.2s ease;
+}
+
+/* Indicador de drop zone */
+.improved-grid-time-slot.drag-over {
+  background-color: rgba(5, 150, 105, 0.15);
+  border-right-color: rgba(5, 150, 105, 0.3);
+}
+
+/* Work order cards */
+.work-order-card {
+  position: absolute;
+  cursor: move;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.work-order-card:hover {
+  z-index: 10;
+  box-shadow: 0 10px 25px rgba(5, 150, 105, 0.2);
+}
+
+.work-order-card.dragging {
+  opacity: 0.7;
+  z-index: 50;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* Asa de redimensionamiento */
+.resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+  background-color: rgba(16, 185, 129, 0.5);
+  opacity: 0;
+  transition: all 0.2s ease;
+}
+
+.work-order-card:hover .resize-handle {
+  opacity: 1;
+  background-color: rgba(16, 185, 129, 0.8);
+}
+
+.resize-handle:active {
+  background-color: rgba(16, 185, 129, 1);
+  width: 6px;
+}
+
+/* Animación de asignación */
+@keyframes pulse-assign {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.assigning {
+  animation: pulse-assign 0.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
