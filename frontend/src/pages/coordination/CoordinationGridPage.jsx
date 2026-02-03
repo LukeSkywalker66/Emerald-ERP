@@ -63,7 +63,7 @@ function simulateCollisionCheck(allocations, teamId, timeSlot, estimatedDuration
 
 // ========== COMPONENTES ==========
 
-function BacklogCard({ workOrder, isDragging }) {
+function BacklogCard({ workOrder, isDragging, onDragStart }) {
   const typeConfig = OT_TYPE_CONFIG[workOrder.ot_type] || OT_TYPE_CONFIG.repair;
   const TypeIcon = typeConfig.icon;
 
@@ -73,6 +73,9 @@ function BacklogCard({ workOrder, isDragging }) {
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('application/json', JSON.stringify(workOrder));
+        if (onDragStart) {
+          onDragStart(workOrder);
+        }
       }}
       className={`
         p-3 rounded-lg border-2 border-dashed cursor-grab active:cursor-grabbing
@@ -141,7 +144,6 @@ function GridCell({ teamId, timeSlot, workOrders, onDrop, onDetail, onDeleteCard
     <div
       className={`
         min-h-14 p-2 border rounded transition-all space-y-1
-        ${isDragOver && !wouldCollide ? 'bg-emerald-900/40 border-emerald-500/50' : ''}
         ${wouldCollide ? 'bg-red-900/30 border-red-500/50' : 'bg-zinc-900/20 border-zinc-700/30'}
       `}
       onDragOver={(e) => {
@@ -441,7 +443,12 @@ export default function CoordinationGridPage() {
 
           <div className="space-y-2">
             {gridData?.backlog?.map((wo) => (
-              <BacklogCard key={wo.id} workOrder={wo} isDragging={draggedItem?.id === wo.id} />
+              <BacklogCard
+                key={wo.id}
+                workOrder={wo}
+                isDragging={draggedItem?.id === wo.id}
+                onDragStart={setDraggedItem}
+              />
             ))}
 
             {!gridData?.backlog?.length && (
