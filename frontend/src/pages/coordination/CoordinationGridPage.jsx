@@ -394,7 +394,7 @@ export default function CoordinationGridPage() {
             size="sm"
             className="border-emerald-600 text-emerald-400"
           >
-            Hoy
+            {format(currentDate, 'EEEE dd MMM yyyy', { locale: es })}
           </Button>
           <Button onClick={() => setCurrentDate(addDays(currentDate, 1))} variant="ghost" size="sm">
             Siguiente <ChevronRight size={18} />
