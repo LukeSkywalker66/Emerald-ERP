@@ -90,4 +90,9 @@ RelationshipProperty.__init__() got an unexpected keyword argument 'comment'
 
 ---
 
+## ✅ Actualización 2026-02-05
+- UI de agenda de cuadrillas con drag & drop funcional.
+- Drop capturado a nivel de fila para permitir soltar sobre la misma OT sin bloquear eventos.
+- Se mantiene granularidad de 5 minutos, validación de colisiones y resize existentes.
+
 **Estado final:** Sistema operativo, backend estable, modelos listos para agenda de coordinación.
