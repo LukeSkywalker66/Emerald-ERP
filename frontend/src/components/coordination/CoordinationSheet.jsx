@@ -194,7 +194,23 @@ export default function CoordinationSheet({
         </SheetHeader>
 
         {/* ========== CONTENIDO ========== */}
-        <div className="space-y-6 py-6">
+        <div className="space-y-5 py-4">
+          {/* ========== TELÉFONO DESTACADO ========== */}
+          {clientPhone && (
+            <a
+              href={`tel:${formatPhone(clientPhone)}`}
+              className="block group"
+            >
+              <button
+                className="w-full rounded-lg bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white font-bold py-4 px-4 flex items-center justify-center gap-3 transition-all shadow-lg hover:shadow-emerald-600/50"
+              >
+                <Phone size={20} className="flex-shrink-0" />
+                <span className="text-base font-mono">{clientPhone}</span>
+                <ChevronRight size={18} className="ml-auto opacity-0 group-hover:opacity-100 transition" />
+              </button>
+            </a>
+          )}
+
           {/* SECCIÓN 1: CLIENTE Y CONTACTO */}
           <div className="space-y-3">
             <h3 className="text-sm font-bold text-white uppercase tracking-wide flex items-center gap-2">
@@ -212,22 +228,6 @@ export default function CoordinationSheet({
                 </p>
               )}
             </div>
-
-            {/* Teléfono de contacto */}
-            {clientPhone && (
-              <a
-                href={`tel:${formatPhone(clientPhone)}`}
-                className="block group"
-              >
-                <button
-                  className="w-full rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3 flex items-center justify-center gap-2 transition-colors"
-                >
-                  <Phone size={18} />
-                  <span className="text-sm">{clientPhone}</span>
-                  <ChevronRight size={16} className="opacity-0 group-hover:opacity-100 transition" />
-                </button>
-              </a>
-            )}
 
             {/* Intento fallido */}
             <Button

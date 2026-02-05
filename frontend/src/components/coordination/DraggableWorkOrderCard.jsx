@@ -26,31 +26,31 @@ import CoordinationSheet from './CoordinationSheet';
 const PRIORITY_CONFIG = {
   critical: {
     label: 'Crítica',
-    color: 'border-l-4 border-red-600 bg-red-950/20',
+    borderColor: 'border-l-red-500',
+    bgColor: 'bg-red-950/40',
     textColor: 'text-red-300',
     badgeClass: 'bg-red-600 text-red-100',
-    icon: AlertTriangle,
   },
   high: {
     label: 'Alta',
-    color: 'border-l-4 border-orange-600 bg-orange-950/20',
+    borderColor: 'border-l-orange-500',
+    bgColor: 'bg-orange-950/40',
     textColor: 'text-orange-300',
     badgeClass: 'bg-orange-600 text-orange-100',
-    icon: AlertCircle,
   },
   medium: {
     label: 'Media',
-    color: 'border-l-4 border-amber-600 bg-amber-950/20',
-    textColor: 'text-amber-300',
-    badgeClass: 'bg-amber-600 text-amber-100',
-    icon: Clock,
+    borderColor: 'border-l-emerald-600',
+    bgColor: 'bg-zinc-900',
+    textColor: 'text-emerald-300',
+    badgeClass: 'bg-emerald-600 text-emerald-100',
   },
   low: {
     label: 'Baja',
-    color: 'border-l-4 border-emerald-600 bg-emerald-950/20',
+    borderColor: 'border-l-emerald-600',
+    bgColor: 'bg-zinc-900',
     textColor: 'text-emerald-300',
     badgeClass: 'bg-emerald-600 text-emerald-100',
-    icon: Clock,
   },
 };
 
@@ -85,89 +85,81 @@ export default function DraggableWorkOrderCard({
 
   return (
     <>
-      {/* TARJETA PRINCIPAL */}
+      {/* TARJETA COMPACTA REDISEÑADA */}
       <div
         draggable
         onDragStart={handleDragStart}
         className={cn(
-          'rounded-lg transition-all border-2 border-dashed',
-          priorityConfig.color,
+          'rounded border-l-4 transition-all overflow-hidden',
+          priorityConfig.borderColor,
+          priorityConfig.bgColor,
           isDragging && 'opacity-50 scale-95 shadow-lg'
         )}
       >
         <div className="flex gap-0">
-          {/* ========== DRAG HANDLE (Izquierda) ========== */}
+          {/* DRAG HANDLE (izquierda) */}
           <div
             className={cn(
-              'flex items-center justify-center py-3 px-2 cursor-grab active:cursor-grabbing flex-shrink-0',
+              'flex items-center justify-center py-2 px-1.5 cursor-grab active:cursor-grabbing flex-shrink-0',
               'border-r border-zinc-700/50 hover:bg-zinc-800/40'
             )}
           >
             <GripVertical
-              size={16}
+              size={14}
               className={cn(
                 'transition-colors',
-                isDragging ? 'text-emerald-400' : 'text-zinc-600 group-hover:text-zinc-400'
+                isDragging ? 'text-emerald-400' : 'text-zinc-600'
               )}
             />
           </div>
 
-          {/* ========== CONTENIDO (Centro-Derecha) ========== */}
+          {/* CONTENIDO (clickeable) */}
           <button
             onClick={() => setShowCoordinationSheet(true)}
-            className="flex-1 text-left p-3 hover:bg-zinc-800/20 transition-colors rounded-r-lg"
+            className="flex-1 text-left p-2 hover:bg-zinc-800/20 transition-colors"
           >
             {/* Header: ID + Prioridad */}
-            <div className="flex items-center justify-between mb-2 gap-2">
+            <div className="flex items-center justify-between mb-1 gap-1.5">
               <span className="text-xs font-bold text-white">OT #{workOrder.id}</span>
-              <div className="flex items-center gap-1">
-                <PriorityIcon size={12} className={priorityConfig.textColor} />
-                <Badge className={`text-xs font-semibold ${priorityConfig.badgeClass}`}>
-                  {priorityConfig.label}
-                </Badge>
-              </div>
+              <Badge className={`text-[10px] font-semibold px-1.5 py-0 ${priorityConfig.badgeClass}`}>
+                {priorityConfig.label}
+              </Badge>
             </div>
 
-            {/* Dirección */}
-            <div className="mb-2">
-              <p className="text-xs text-zinc-300 line-clamp-2 font-medium">
-                {workOrder.ticket?.address || 'Sin dirección'}
-              </p>
-            </div>
+            {/* Dirección (truncada) */}
+            <p className="text-xs text-zinc-300 truncate font-medium mb-1">
+              {workOrder.ticket?.address || 'Sin dirección'}
+            </p>
 
             {/* Cliente */}
             {(workOrder.ticket?.client_name || workOrder.client_name) && (
-              <div className="flex items-center gap-1 mb-2 text-xs text-zinc-400">
-                <User size={12} />
+              <div className="flex items-center gap-1 mb-1 text-[11px] text-zinc-400">
+                <User size={10} />
                 <span className="truncate">
                   {workOrder.ticket?.client_name || workOrder.client_name}
                 </span>
               </div>
             )}
 
-            {/* Antigüedad + Duración */}
-            <div className="flex items-center justify-between text-xs text-zinc-500 mb-2">
-              <span>📅 {ageText}</span>
+            {/* Footer: Antigüedad + Duración */}
+            <div className="flex items-center justify-between text-[10px] text-zinc-500">
+              <span className="truncate">📅 {ageText}</span>
               <Badge
                 variant="secondary"
-                className="bg-zinc-700/50 text-zinc-300 text-xs font-mono"
+                className="bg-zinc-700/50 text-zinc-300 text-[10px] font-mono px-1.5 py-0"
               >
-                <Clock size={10} className="mr-1" />
+                <Clock size={8} className="mr-0.5" />
                 {duration}m
               </Badge>
             </div>
 
             {/* Indicadores especiales */}
-            <div className="flex items-center gap-2 text-xs">
-              {/* Disponibilidad del cliente */}
+            <div className="flex items-center gap-1.5 mt-1.5">
               {workOrder.ticket?.availability_note && (
-                <Badge
-                  variant="outline"
-                  className="border-emerald-700/50 text-emerald-300 text-xs"
-                >
-                  <Clock size={10} className="mr-1" />
-                  Disponibilidad
-                </Badge>
+                <div className="flex items-center gap-0.5 text-[10px] text-emerald-400 bg-emerald-950/30 px-1.5 py-0.5 rounded">
+                  <Clock size={8} />
+                  <span>Disp.</span>
+                </div>
               )}
             </div>
           </button>
