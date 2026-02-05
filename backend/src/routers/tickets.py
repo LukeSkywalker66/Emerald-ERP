@@ -167,6 +167,7 @@ def _ticket_to_response(
         destination_connection_id=ticket.destination_connection_id,
         installation_tech=ticket.installation_tech,
         availability_note=ticket.availability_note,
+        contact_info=ticket.connection_details,  # JSONB del modelo → schema contact_info
         created_at=ticket.created_at,
         updated_at=ticket.updated_at,
         creator_name=_safe_name(ticket.creator),

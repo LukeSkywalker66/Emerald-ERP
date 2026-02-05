@@ -167,15 +167,15 @@ export default function CoordinationSheet({
   const typeLabel = OT_TYPE_LABELS[workOrder.ot_type] || 'Tarea';
   const typeColor = OT_TYPE_COLORS[workOrder.ot_type] || 'bg-zinc-600';
   const hasAvailability = ticket?.availability_note;
-  const clientPhone = ticket?.connection_details?.phone;
-  const clientName = ticket?.connection_details?.client_name || workOrder.client_name;
+  const clientPhone = ticket?.contact_info?.phone;
+  const clientName = ticket?.contact_info?.client_name || workOrder.client_name;
 
   // DEBUG: Ver qué datos tenemos
   console.log('🔍 CoordinationSheet Debug:', {
     workOrder_id: workOrder.id,
     ticket_id: ticket?.id,
     has_ticket: !!ticket,
-    connection_details: ticket?.connection_details,
+    contact_info: ticket?.contact_info,
     clientPhone,
     clientName,
     full_ticket: ticket,

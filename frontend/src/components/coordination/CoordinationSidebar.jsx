@@ -46,7 +46,7 @@ export default function CoordinationSidebar({
   const availableCities = useMemo(() => {
     const citiesSet = new Set();
     workOrders.forEach(wo => {
-      const city = wo.ticket?.city || wo.ticket?.connection_details?.city;
+      const city = wo.ticket?.city || wo.ticket?.contact_info?.city;
       if (city && city.trim()) {
         citiesSet.add(city.trim());
       }

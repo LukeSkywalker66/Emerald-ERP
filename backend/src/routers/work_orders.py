@@ -637,7 +637,7 @@ def _wo_to_list_response(wo: WorkOrder, db: Session) -> WorkOrderListResponse:
             destination_connection_id=wo.ticket.destination_connection_id,
             installation_tech=wo.ticket.installation_tech,
             availability_note=wo.ticket.availability_note,
-            connection_details=wo.ticket.connection_details,  # JSONB con phone, etc
+            contact_info=wo.ticket.connection_details,  # JSONB del modelo → schema contact_info
             created_at=wo.ticket.created_at,
             updated_at=wo.ticket.updated_at,
             creator_name=wo.ticket.creator.full_name if wo.ticket.creator else None,

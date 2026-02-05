@@ -264,7 +264,7 @@ class TicketResponse(BaseModel):
     destination_connection_id: Optional[int] = None  # NUEVO
     installation_tech: Optional[str] = None  # NUEVO
     availability_note: Optional[str] = None
-    connection_details: Optional[dict] = None  # JSONB con phone, client_name, address, city, etc
+    contact_info: Optional[dict] = None  # JSONB con phone, client_name, address, city (renombrado para evitar conflicto)
     created_at: datetime
     updated_at: datetime
     creator_name: Optional[str] = None
