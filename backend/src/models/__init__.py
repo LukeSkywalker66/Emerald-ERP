@@ -25,6 +25,7 @@ from .tickets import (
 	ticket_tags_association,
 )
 from .ticket_attachments import TicketAttachment
+from .contact_attempts import ContactAttempt, ContactAttemptResult
 from .engineering import (
 	# Gestión de Tareas de Ingeniería/NOC
 	EngineeringTask,

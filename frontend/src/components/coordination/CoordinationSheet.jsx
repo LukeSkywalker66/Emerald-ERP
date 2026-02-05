@@ -55,7 +55,8 @@ export default function CoordinationSheet({
 }) {
   const [duration, setDuration] = useState(workOrder?.estimated_duration || 60);
   const [isSavingDuration, setIsSavingDuration] = useState(false);
-  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [contactAttempts, setContactAttempts] = useState([]);
+  const [isLoadingAttempts, setIsLoadingAttempts] = useState(false);
   const [durationChanged, setDurationChanged] = useState(false);
   const [ticket, setTicket] = useState(null);
   const [isLoadingTicket, setIsLoadingTicket] = useState(false);
@@ -67,6 +68,12 @@ export default function CoordinationSheet({
       loadTicketDetails();
     }
   }, [isOpen, workOrder?.ticket_id]);
+
+  useEffect(() => {
+    if (isOpen && workOrder?.id) {
+      loadContactAttempts();
+    }
+  }, [isOpen, workOrder?.id]);
 
   useEffect(() => {
     setDuration(workOrder?.estimated_duration || 60);
@@ -84,6 +91,18 @@ export default function CoordinationSheet({
       console.error('Error loading ticket details:', err);
     } finally {
       setIsLoadingTicket(false);
+    }
+  };
+
+  const loadContactAttempts = async () => {
+    try {
+      setIsLoadingAttempts(true);
+      const { data } = await api.get(`/v2/work-orders/${workOrder.id}/contact-attempts`);
+      setContactAttempts(data);
+    } catch (err) {
+      console.error('Error loading contact attempts:', err);
+    } finally {
+      setIsLoadingAttempts(false);
     }
   };
 
@@ -116,12 +135,24 @@ export default function CoordinationSheet({
     }
   };
 
-  const registerFailedAttempt = () => {
-    const newCount = failedAttempts + 1;
-    setFailedAttempts(newCount);
-    console.log(`⚠️ Intento fallido registrado (${newCount})`);
-    
-    // Aquí se podría guardar en backend si es necesario
+  const registerFailedAttempt = async () => {
+    try {
+      const { data } = await api.post(
+        `/v2/work-orders/${workOrder.id}/contact-attempts`,
+        {
+          result: 'no_answer',
+          phone_number: clientPhone || undefined,
+          notes: 'Sin respuesta - Coordinador',
+        }
+      );
+      
+      // Actualizar lista de intentos
+      setContactAttempts([data, ...contactAttempts]);
+      console.log(`✅ Intento de contacto registrado`);
+    } catch (err) {
+      console.error('Error registering contact attempt:', err);
+      alert('Error al registrar el intento de contacto');
+    }
   };
 
   const formatPhone = (phone) => {
@@ -205,18 +236,41 @@ export default function CoordinationSheet({
               className="w-full border-amber-700/50 text-amber-300 hover:bg-amber-950/30"
             >
               <AlertTriangle size={16} className="mr-2" />
-              {failedAttempts > 0
-                ? `Reintentar (${failedAttempts})`
+              {contactAttempts.length > 0
+                ? `Reintentar (${contactAttempts.length})`
                 : 'Registrar intento fallido'}
             </Button>
 
-            {/* Indicador de intentos fallidos */}
-            {failedAttempts > 0 && (
-              <div className="flex items-center gap-2 text-xs text-amber-300 bg-amber-950/30 rounded p-2">
-                <AlertTriangle size={14} />
-                <span>
-                  {failedAttempts} intento{failedAttempts > 1 ? 's' : ''} fallido{failedAttempts > 1 ? 's' : ''}
-                </span>
+            {/* Historial de intentos */}
+            {contactAttempts.length > 0 && (
+              <div className="space-y-2 border-t border-zinc-700/50 pt-2">
+                <p className="text-xs font-semibold text-zinc-400">Historial de contactos:</p>
+                <div className="max-h-24 overflow-y-auto space-y-1">
+                  {contactAttempts.slice(0, 5).map((attempt) => (
+                    <div
+                      key={attempt.id}
+                      className="text-[10px] text-zinc-300 bg-zinc-800/30 rounded px-2 py-1 flex items-start gap-1.5"
+                    >
+                      <span className="flex-shrink-0 mt-0.5">
+                        {attempt.result === 'no_answer' && '📵'}
+                        {attempt.result === 'successful' && '✅'}
+                        {attempt.result === 'busy' && '📞'}
+                        {attempt.result === 'rescheduled' && '🔄'}
+                        {attempt.result === 'refused' && '❌'}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="truncate font-mono">
+                          {new Date(attempt.created_at).toLocaleTimeString('es-AR', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: false,
+                          })}
+                        </p>
+                        {attempt.notes && <p className="truncate text-zinc-500">{attempt.notes}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

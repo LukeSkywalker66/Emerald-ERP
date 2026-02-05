@@ -60,7 +60,6 @@ export default function DraggableWorkOrderCard({
   isDragging = false,
 }) {
   const [showCoordinationSheet, setShowCoordinationSheet] = useState(false);
-  const [failedAttempts, setFailedAttempts] = useState(0);
   const [duration, setDuration] = useState(workOrder?.estimated_duration || 60);
   
   const priority = workOrder.ticket?.priority || 'low';
@@ -169,16 +168,6 @@ export default function DraggableWorkOrderCard({
                   <Clock size={10} className="mr-1" />
                   Disponibilidad
                 </Badge>
-              )}
-
-              {/* Intentos fallidos */}
-              {failedAttempts > 0 && (
-                <div className="flex items-center gap-1 px-2 py-1 rounded bg-red-950/30 text-red-300">
-                  <div className="w-2 h-2 rounded-full bg-red-500" />
-                  <span>
-                    {failedAttempts} intento{failedAttempts > 1 ? 's' : ''}
-                  </span>
-                </div>
               )}
             </div>
           </button>

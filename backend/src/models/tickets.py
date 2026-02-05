@@ -772,6 +772,13 @@ class WorkOrder(Base, TimestampMixin):
         lazy="select",
         cascade="all, delete-orphan"
     )
+    contact_attempts: Mapped[list["ContactAttempt"]] = relationship(
+        "ContactAttempt",
+        back_populates="work_order",
+        lazy="select",
+        cascade="all, delete-orphan",
+        order_by="ContactAttempt.created_at.desc()"
+    )
 
     # Índices compuestos
     __table_args__ = (

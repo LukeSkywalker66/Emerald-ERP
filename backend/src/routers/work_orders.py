@@ -26,6 +26,12 @@ from src.schemas.tickets import (
     WorkOrderItemResponse,
     WorkOrderListResponse,
 )
+from src.schemas.contact_attempts import (
+    ContactAttemptCreate,
+    ContactAttemptResponse,
+    ContactAttemptsStatsResponse,
+)
+from src.models.contact_attempts import ContactAttempt, ContactAttemptResult
 
 
 from .work_orders_snapshot_helper import build_connection_snapshot
@@ -980,3 +986,179 @@ def unassign_work_order(
         "status": wo.status.value,
         "team_id": None,
     }
+
+
+# ========================================
+# CONTACT ATTEMPTS - Intentos de Contacto
+# ========================================
+
+@router.post(
+    "/{work_order_id}/contact-attempts",
+    response_model=ContactAttemptResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Registrar intento de contacto",
+    description="""
+    Registra un intento de contacto telefónico con el cliente.
+    
+    Permite trackear:
+    - Llamadas sin respuesta
+    - Números ocupados
+    - Contactos exitosos
+    - Reprogramaciones solicitadas por el cliente
+    
+    Útil para auditoría y seguimiento del proceso de coordinación.
+    """
+)
+def create_contact_attempt(
+    work_order_id: int,
+    payload: ContactAttemptCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Registrar un nuevo intento de contacto para una OT."""
+    
+    # Verificar que la OT existe
+    wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
+    if not wo:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Work Order {work_order_id} not found"
+        )
+    
+    # Crear el intento
+    attempt = ContactAttempt(
+        work_order_id=work_order_id,
+        attempted_by=current_user.id,
+        result=payload.result,
+        phone_number=payload.phone_number,
+        notes=payload.notes,
+    )
+    
+    db.add(attempt)
+    
+    # Registrar en timeline del ticket (opcional pero útil)
+    result_labels = {
+        ContactAttemptResult.no_answer: "No contesta",
+        ContactAttemptResult.busy: "Ocupado",
+        ContactAttemptResult.wrong_number: "Número equivocado",
+        ContactAttemptResult.voicemail: "Buzón de voz",
+        ContactAttemptResult.successful: "Contacto exitoso",
+        ContactAttemptResult.rescheduled: "Cliente solicita reprogramar",
+        ContactAttemptResult.refused: "Cliente rechaza visita",
+    }
+    
+    timeline_content = f"Intento de contacto: {result_labels.get(payload.result, payload.result)}"
+    if payload.notes:
+        timeline_content += f" - {payload.notes}"
+    
+    db.add(TicketTimeline(
+        ticket_id=wo.ticket_id,
+        author_id=current_user.id,
+        event_type=TicketTimelineEventType.note,
+        content=timeline_content,
+        meta_data={
+            "work_order_id": work_order_id,
+            "contact_attempt_id": None,  # Se actualizará después del flush
+            "contact_result": payload.result.value,
+            "phone_number": payload.phone_number,
+        }
+    ))
+    
+    db.commit()
+    db.refresh(attempt)
+    
+    # Construir respuesta con nombre del coordinador
+    response_data = ContactAttemptResponse.model_validate(attempt)
+    if attempt.coordinator:
+        response_data.coordinator_name = attempt.coordinator.username
+    
+    return response_data
+
+
+@router.get(
+    "/{work_order_id}/contact-attempts",
+    response_model=list[ContactAttemptResponse],
+    summary="Obtener historial de intentos de contacto",
+    description="Lista todos los intentos de contacto realizados para una OT específica, ordenados por más reciente primero."
+)
+def get_contact_attempts(
+    work_order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Obtener historial completo de intentos de contacto para una OT."""
+    
+    # Verificar que la OT existe
+    wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
+    if not wo:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Work Order {work_order_id} not found"
+        )
+    
+    # Obtener todos los intentos
+    attempts = db.query(ContactAttempt)\
+        .filter(ContactAttempt.work_order_id == work_order_id)\
+        .order_by(ContactAttempt.created_at.desc())\
+        .all()
+    
+    # Construir respuestas con nombres de coordinadores
+    results = []
+    for attempt in attempts:
+        response_data = ContactAttemptResponse.model_validate(attempt)
+        if attempt.coordinator:
+            response_data.coordinator_name = attempt.coordinator.username
+        results.append(response_data)
+    
+    return results
+
+
+@router.get(
+    "/{work_order_id}/contact-attempts/stats",
+    response_model=ContactAttemptsStatsResponse,
+    summary="Obtener estadísticas de intentos de contacto",
+    description="Retorna estadísticas agregadas: total de intentos, último intento y breakdown por tipo de resultado."
+)
+def get_contact_attempts_stats(
+    work_order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Obtener estadísticas de intentos de contacto para una OT."""
+    
+    # Verificar que la OT existe
+    wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
+    if not wo:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Work Order {work_order_id} not found"
+        )
+    
+    # Obtener todos los intentos
+    attempts = db.query(ContactAttempt)\
+        .filter(ContactAttempt.work_order_id == work_order_id)\
+        .order_by(ContactAttempt.created_at.desc())\
+        .all()
+    
+    # Calcular estadísticas
+    total_attempts = len(attempts)
+    last_attempt = None
+    results_breakdown = {}
+    
+    if attempts:
+        last_attempt_obj = attempts[0]
+        last_attempt = ContactAttemptResponse.model_validate(last_attempt_obj)
+        if last_attempt_obj.coordinator:
+            last_attempt.coordinator_name = last_attempt_obj.coordinator.username
+        
+        # Contar por tipo de resultado
+        for attempt in attempts:
+            result_key = attempt.result.value
+            results_breakdown[result_key] = results_breakdown.get(result_key, 0) + 1
+    
+    return ContactAttemptsStatsResponse(
+        work_order_id=work_order_id,
+        total_attempts=total_attempts,
+        last_attempt=last_attempt,
+        results_breakdown=results_breakdown,
+    )
