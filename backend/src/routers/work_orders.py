@@ -621,8 +621,35 @@ def _wo_to_list_response(wo: WorkOrder, db: Session) -> WorkOrderListResponse:
 
     address = getattr(wo.ticket, "availability_note", None)
 
-    # Enriquecer con datos de conexión si existe
-    if wo.ticket and wo.ticket.connection_id:
+    # Construir ticket_response si existe
+    ticket_response = None
+    if wo.ticket:
+        from src.schemas.tickets import TicketResponse
+        ticket_response = TicketResponse(
+            id=wo.ticket.id,
+            subject=wo.ticket.subject,
+            status=wo.ticket.status,
+            priority=wo.ticket.priority,
+            ticket_type=wo.ticket.ticket_type,
+            administrative_subtype=wo.ticket.administrative_subtype,
+            connection_id=wo.ticket.connection_id,
+            origin_connection_id=wo.ticket.origin_connection_id,
+            destination_connection_id=wo.ticket.destination_connection_id,
+            installation_tech=wo.ticket.installation_tech,
+            availability_note=wo.ticket.availability_note,
+            connection_details=wo.ticket.connection_details,  # JSONB con phone, etc
+            created_at=wo.ticket.created_at,
+            updated_at=wo.ticket.updated_at,
+            creator_name=wo.ticket.creator.full_name if wo.ticket.creator else None,
+            assigned_to_name=wo.ticket.assigned_to.full_name if wo.ticket.assigned_to else None,
+            client_name=client_name,
+            category_name=wo.ticket.category.name if wo.ticket.category else None,
+            reason_name=wo.ticket.reason.name if wo.ticket.reason else None,
+            tags=[],  # Por performance, no cargamos tags en listado
+        )
+
+    # Enriquecer con datos de conexión si existe (fallback si no hay connection_details)
+    if wo.ticket and wo.ticket.connection_id and not wo.ticket.connection_details:
         try:
             conn_row = db.execute(
                 text(
@@ -660,6 +687,7 @@ def _wo_to_list_response(wo: WorkOrder, db: Session) -> WorkOrderListResponse:
         id=wo.id,
         ticket_id=wo.ticket_id,
         ticket_title=ticket_title,
+        ticket=ticket_response,  # Incluir objeto ticket completo
         ot_type=wo.ot_type.value if wo.ot_type else "unknown",
         status=wo.status.value if wo.status else WorkOrderStatus.pending_planning.value,
         client_name=client_name or "Sin cliente",

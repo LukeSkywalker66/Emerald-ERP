@@ -112,6 +112,7 @@ class WorkOrderListResponse(BaseModel):
     id: int
     ticket_id: Optional[int] = None
     ticket_title: Optional[str] = None
+    ticket: Optional["TicketResponse"] = None  # Objeto ticket completo
     ot_type: str
     status: str
     client_name: Optional[str] = None
@@ -263,6 +264,7 @@ class TicketResponse(BaseModel):
     destination_connection_id: Optional[int] = None  # NUEVO
     installation_tech: Optional[str] = None  # NUEVO
     availability_note: Optional[str] = None
+    connection_details: Optional[dict] = None  # JSONB con phone, client_name, address, city, etc
     created_at: datetime
     updated_at: datetime
     creator_name: Optional[str] = None

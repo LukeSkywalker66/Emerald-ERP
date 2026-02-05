@@ -51,7 +51,11 @@ export default function CoordinationSidebar({
         citiesSet.add(city.trim());
       }
     });
-    return Array.from(citiesSet).sort();
+    const cities = Array.from(citiesSet).sort();
+    console.log('🏙️ Ciudades extraídas:', cities);
+    console.log('📦 Total WOs:', workOrders.length);
+    console.log('🎫 WO con ticket ejemplo:', workOrders[0]?.ticket);
+    return cities;
   }, [workOrders]);
 
   // ========== COMPUTADOS ==========

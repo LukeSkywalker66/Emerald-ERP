@@ -170,6 +170,17 @@ export default function CoordinationSheet({
   const clientPhone = ticket?.connection_details?.phone;
   const clientName = ticket?.connection_details?.client_name || workOrder.client_name;
 
+  // DEBUG: Ver qué datos tenemos
+  console.log('🔍 CoordinationSheet Debug:', {
+    workOrder_id: workOrder.id,
+    ticket_id: ticket?.id,
+    has_ticket: !!ticket,
+    connection_details: ticket?.connection_details,
+    clientPhone,
+    clientName,
+    full_ticket: ticket,
+  });
+
   return (
     <Sheet open={isOpen} onOpenChange={onClose}>
       <SheetContent side="right" className="w-full sm:w-96 bg-zinc-900 border-l border-zinc-800 overflow-y-auto">
