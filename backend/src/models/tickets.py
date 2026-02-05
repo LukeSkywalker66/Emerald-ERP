@@ -327,6 +327,13 @@ class Ticket(Base, TimestampMixin):
         comment="Nota sobre disponibilidad horaria del cliente (ej: 'Solo mañanas')"
     )
 
+    # Detalles de contacto del cliente (JSONB)
+    connection_details: Mapped[Optional[dict]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Datos de contacto del cliente: {phone, client_name, client_dni, address, city, ...}"
+    )
+
     # Categoría funcional del ticket
     category_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("ticket_categories.id", name="fk_tickets_category_id", ondelete="SET NULL"),
