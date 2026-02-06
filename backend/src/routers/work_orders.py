@@ -814,25 +814,12 @@ def get_coordination_grid(
                 WorkOrder.scheduled_start <= end,
             )\
             .options(
-                joinedload(WorkOrder.ticket),
-                joinedload(WorkOrder.team)
+                selectinload(WorkOrder.ticket).selectinload(Ticket.creator),
+                selectinload(WorkOrder.team),
+                selectinload(WorkOrder.technician),
             ).all()
         
-        allocations_data = []
-        for wo in allocations:
-            allocations_data.append({
-                "id": wo.id,
-                "ticket_id": wo.ticket_id,
-                "team_id": wo.team_id,
-                "ot_type": wo.ot_type.value if wo.ot_type else "unknown",
-                "status": wo.status.value if wo.status else "unknown",
-                "client_name": wo.ticket.subject if wo.ticket else "S/N",
-                "address": getattr(wo.ticket, "availability_note", None) or "-",
-                "scheduled_start": wo.scheduled_start.isoformat() if wo.scheduled_start else None,
-                "scheduled_end": wo.scheduled_end.isoformat() if wo.scheduled_end else None,
-                "estimated_duration": wo.estimated_duration or 60,
-                "coordination_notes": getattr(wo, "coordination_notes", None),
-            })
+        allocations_data = [_wo_to_list_response(wo, db).model_dump() for wo in allocations]
         
         # Backlog (pending_planning o coordinated sin team)
         backlog = db.query(WorkOrder)\
@@ -840,23 +827,12 @@ def get_coordination_grid(
                 WorkOrder.team_id.is_(None),
                 WorkOrder.status.in_([WorkOrderStatus.pending_planning, WorkOrderStatus.coordinated])
             )\
-            .options(joinedload(WorkOrder.ticket)).all()
+            .options(
+                selectinload(WorkOrder.ticket).selectinload(Ticket.creator),
+                selectinload(WorkOrder.technician),
+            ).all()
         
-        backlog_data = []
-        for wo in backlog:
-            backlog_data.append({
-                "id": wo.id,
-                "ticket_id": wo.ticket_id,
-                "team_id": None,
-                "ot_type": wo.ot_type.value if wo.ot_type else "unknown",
-                "status": wo.status.value if wo.status else "unknown",
-                "client_name": wo.ticket.subject if wo.ticket else "S/N",
-                "address": getattr(wo.ticket, "availability_note", None) or "-",
-                "scheduled_start": wo.scheduled_start.isoformat() if wo.scheduled_start else None,
-                "scheduled_end": wo.scheduled_end.isoformat() if wo.scheduled_end else None,
-                "estimated_duration": wo.estimated_duration or 60,
-                "coordination_notes": getattr(wo, "coordination_notes", None),
-            })
+        backlog_data = [_wo_to_list_response(wo, db).model_dump() for wo in backlog]
         
         # Team Load Metrics
         WORKING_HOURS_PER_DAY = 10  # 8:00 a 18:00
