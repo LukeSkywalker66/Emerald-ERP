@@ -113,12 +113,12 @@ export default function CoordinationSidebar({
             <label className="text-[10px] text-zinc-500 uppercase tracking-wide mb-1 block">
               📍 Ciudad/Localidad
             </label>
-            <Select value={selectedCity} onValueChange={setSelectedCity}>
+            <Select value={selectedCity || "ALL_CITIES"} onValueChange={(val) => setSelectedCity(val === "ALL_CITIES" ? "" : val)}>
               <SelectTrigger className="h-7 text-xs bg-zinc-800 border-zinc-700">
                 <SelectValue placeholder="Todas las localidades" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">
+                <SelectItem value="ALL_CITIES">
                   <span className="text-xs">Todas las localidades</span>
                 </SelectItem>
                 {availableCities.map((city) => (
