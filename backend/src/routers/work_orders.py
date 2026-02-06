@@ -614,9 +614,6 @@ def reopen_work_order(
 
 def _wo_to_list_response(wo: WorkOrder, db: Session) -> WorkOrderListResponse:
     """Construye la respuesta resumida para listado, enriquecida con datos de conexión."""
-    import logging
-    logger = logging.getLogger("Emerald.WorkOrders")
-    
     ticket_title = wo.ticket.subject if wo.ticket else "Sin ticket"
     client_name = None
     if wo.ticket and wo.ticket.creator:
@@ -628,9 +625,6 @@ def _wo_to_list_response(wo: WorkOrder, db: Session) -> WorkOrderListResponse:
     ticket_response = None
     if wo.ticket:
         from src.schemas.tickets import TicketResponse
-        
-        # DEBUG: Log connection_details
-        logger.info(f"🔍 WO #{wo.id} → Ticket #{wo.ticket.id}: connection_details = {wo.ticket.connection_details}")
         
         ticket_response = TicketResponse(
             id=wo.ticket.id,
