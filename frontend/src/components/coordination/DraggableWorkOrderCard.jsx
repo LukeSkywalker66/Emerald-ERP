@@ -1,11 +1,11 @@
 /**
- * DraggableWorkOrderCard.jsx - TACTICAL VIEW (HOTFIX)
+ * DraggableWorkOrderCard.jsx - TACTICAL VIEW (FINAL POLISH)
  * 
  * Tarjeta ultra-compacta: 48px altura máxima.
  * - Título: SOLO barrio/dirección (NUNCA availability_note)
  * - Layout: Flex row con items-center
  * - Padding: Mínimo (px-2 py-1)
- * - Tooltip: Info completa al hover
+ * - Tooltip: LIMPIO - Solo datos operacionales (cliente, dirección, problema)
  */
 
 import React, { useState } from 'react';
@@ -17,8 +17,6 @@ import {
   Wifi,
   Truck,
   AlertTriangle,
-  Package,
-  Home,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -94,14 +92,17 @@ export default function DraggableWorkOrderCard({
   const daysSinceCreation = createdAt ? differenceInDays(new Date(), createdAt) : 0;
   const isOld = daysSinceCreation > 7;
 
-  // Datos para tooltip
+  // ========== DATOS PARA TOOLTIP (LIMPIO) ==========
   const clientName = 
     workOrder.ticket?.client_name || 
     workOrder.client_name || 
     'Sin cliente';
-  const creatorName = workOrder.ticket?.creator_name || 'Sistema';
-  const city = workOrder.ticket?.city || '—';
-  const availability = workOrder.ticket?.availability_note || 'Sin preferencia';
+  
+  // Descripción del problema (si existe y no es muy larga)
+  const problemDescription = workOrder.ticket?.description || '';
+  const displayDescription = problemDescription.length > 100 
+    ? problemDescription.substring(0, 100) + '...'
+    : problemDescription;
 
   // ========== HANDLERS ==========
 
@@ -190,39 +191,45 @@ export default function DraggableWorkOrderCard({
             </div>
           </TooltipTrigger>
 
-          {/* ========== TOOLTIP (HOVER) ========== */}
+          {/* ========== TOOLTIP (LIMPIO - SIN DATOS ADMINISTRATIVOS) ========== */}
           <TooltipContent 
             side="right" 
             className="bg-zinc-900 border-zinc-700 text-xs max-w-xs"
           >
-            <div className="space-y-1.5">
-              <p className="font-semibold text-white">
-                OT #{workOrder.id}
-              </p>
-              <p className="text-zinc-300">
-                <span className="text-zinc-500">Cliente:</span> {clientName}
-              </p>
-              <p className="text-zinc-300 text-[11px]">
-                <span className="text-zinc-500">Dirección:</span> {address || '—'}
-              </p>
-              {neighborhood && (
-                <p className="text-zinc-300 text-[11px]">
-                  <span className="text-zinc-500">Zona:</span> {neighborhood}
+            <div className="space-y-2">
+              {/* Cliente */}
+              <div>
+                <p className="text-zinc-500 text-[10px] uppercase tracking-wide mb-0.5">
+                  Cliente
                 </p>
-              )}
-              {city !== '—' && (
-                <p className="text-zinc-300 text-[11px]">
-                  <span className="text-zinc-500">Ciudad:</span> {city}
+                <p className="font-semibold text-white">
+                  {clientName}
                 </p>
+              </div>
+
+              {/* Dirección */}
+              {address && (
+                <div>
+                  <p className="text-zinc-500 text-[10px] uppercase tracking-wide mb-0.5">
+                    Dirección
+                  </p>
+                  <p className="text-zinc-300">
+                    {address}
+                  </p>
+                </div>
               )}
-              {availability && availability !== 'Sin preferencia' && (
-                <p className="text-emerald-300 text-[11px] border-t border-zinc-800 pt-1">
-                  <span className="text-emerald-500">Disponibilidad:</span> {availability}
-                </p>
+
+              {/* Problema/Descripción */}
+              {displayDescription && (
+                <div className="pt-1 border-t border-zinc-700">
+                  <p className="text-zinc-500 text-[10px] uppercase tracking-wide mb-0.5">
+                    Problema
+                  </p>
+                  <p className="text-zinc-300 text-[11px] leading-snug">
+                    {displayDescription}
+                  </p>
+                </div>
               )}
-              <p className="text-zinc-400 text-[10px] pt-1 border-t border-zinc-800">
-                Creado por: {creatorName}
-              </p>
             </div>
           </TooltipContent>
         </Tooltip>
