@@ -2,7 +2,7 @@
  * DraggableWorkOrderCard.jsx - TACTICAL VIEW
  * 
  * Tarjeta ultra-compacta orientada a ruteo y coordinación táctica.
- * Altura máxima: 68px | Color semáforo por prioridad | Sin texto redundante.
+ * Altura objetivo: 48-54px | Color semáforo por prioridad | Sin texto redundante.
  * 
  * Jerarquía visual:
  * - Fila superior: Barrio/Dirección + Duración
@@ -83,10 +83,10 @@ export default function DraggableWorkOrderCard({
   const otType = workOrder.ot_type || 'repair';
   const TypeIcon = TYPE_ICONS[otType] || Wrench;
 
-  // Título: Barrio > Dirección truncada
+  // Título: Barrio > Dirección > Ubicación desconocida
   const neighborhood = workOrder.ticket?.neighborhood;
-  const address = workOrder.address || workOrder.ticket?.availability_note || 'Sin dirección';
-  const displayTitle = neighborhood || address;
+  const address = workOrder.address || workOrder.ticket?.availability_note;
+  const displayTitle = neighborhood || address || 'Ubicación desconocida';
 
   // Antigüedad
   const createdAt = workOrder.created_at ? new Date(workOrder.created_at) : null;
@@ -128,7 +128,7 @@ export default function DraggableWorkOrderCard({
               draggable
               onDragStart={handleDragStart}
               className={cn(
-                'h-[68px] rounded border-l-4 transition-all overflow-hidden',
+                'rounded-r-md border-l-4 transition-all overflow-hidden mb-1',
                 priorityConfig.borderColor,
                 priorityConfig.bgColor,
                 'hover:shadow-md hover:shadow-emerald-500/10',
@@ -155,25 +155,25 @@ export default function DraggableWorkOrderCard({
                 {/* ========== CONTENIDO ========== */}
                 <button
                   onClick={() => setShowCoordinationSheet(true)}
-                  className="flex-1 text-left px-2.5 py-2 hover:bg-zinc-800/20 transition-colors flex flex-col justify-between"
+                  className="flex-1 text-left px-2 py-1.5 hover:bg-zinc-800/20 transition-colors flex flex-col justify-between"
                 >
                   {/* FILA SUPERIOR: Título + Duración */}
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <h3 className="font-bold text-sm text-gray-100 truncate flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="font-bold text-xs text-gray-200 truncate flex-1 leading-tight">
                       {displayTitle}
                     </h3>
                     <Badge
                       variant="secondary"
-                      className="bg-zinc-800 text-zinc-300 text-xs px-2 py-0.5 font-mono flex-shrink-0"
+                      className="bg-zinc-800 text-zinc-400 text-[10px] px-1.5 py-0.5 font-mono flex-shrink-0 rounded"
                     >
                       {duration}m
                     </Badge>
                   </div>
 
                   {/* FILA INFERIOR: Tipo + Antigüedad + ID */}
-                  <div className="flex items-center gap-2 text-xs">
+                  <div className="flex items-center gap-2 text-[10px] text-zinc-500 leading-none mt-1">
                     {/* Icono de tipo */}
-                    <TypeIcon size={12} className="text-zinc-500 flex-shrink-0" />
+                    <TypeIcon size={10} className="text-zinc-500 flex-shrink-0" />
 
                     {/* Antigüedad (con color condicional) */}
                     <span className={cn(
