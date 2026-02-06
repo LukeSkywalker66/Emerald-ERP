@@ -614,7 +614,8 @@ def reopen_work_order(
 
 def _wo_to_list_response(wo: WorkOrder, db: Session) -> WorkOrderListResponse:
     """Construye la respuesta resumida para listado, enriquecida con datos de conexión."""
-    from src.core.logger import logger
+    import logging
+    logger = logging.getLogger("Emerald.WorkOrders")
     
     ticket_title = wo.ticket.subject if wo.ticket else "Sin ticket"
     client_name = None
