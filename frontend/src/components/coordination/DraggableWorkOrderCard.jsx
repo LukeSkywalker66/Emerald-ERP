@@ -1,12 +1,10 @@
 /**
- * DraggableWorkOrderCard.jsx - TACTICAL VIEW
+ * DraggableWorkOrderCard.jsx - TACTICAL VIEW (HOTFIX)
  * 
- * Tarjeta ultra-compacta orientada a ruteo y coordinación táctica.
- * Altura objetivo: 48-54px | Color semáforo por prioridad | Sin texto redundante.
- * 
- * Jerarquía visual:
- * - Fila superior: Barrio/Dirección + Duración
- * - Fila inferior: Tipo + Antigüedad + ID
+ * Tarjeta ultra-compacta: 48px altura máxima.
+ * - Título: SOLO barrio/dirección (NUNCA availability_note)
+ * - Layout: Flex row con items-center
+ * - Padding: Mínimo (px-2 py-1)
  * - Tooltip: Info completa al hover
  */
 
@@ -56,12 +54,10 @@ const PRIORITY_CONFIG = {
 // ========== CONFIGURACIÓN DE TIPO ==========
 
 const TYPE_ICONS = {
-  installation: Wifi,
   repair: Wrench,
-  relocation: Truck,
-  pickup: Package,
+  install: Wifi,
+  pickup: Truck,
   infrastructure: AlertTriangle,
-  administrative: Home,
 };
 
 // ========== COMPONENTE PRINCIPAL ==========
@@ -83,9 +79,10 @@ export default function DraggableWorkOrderCard({
   const otType = workOrder.ot_type || 'repair';
   const TypeIcon = TYPE_ICONS[otType] || Wrench;
 
-  // Título: Barrio > Dirección > Ubicación desconocida
+  // ========== TÍTULO: BARRIO > DIRECCIÓN > FALLBACK ==========
+  // NUNCA mostrar availability_note, notas, u otros campos aquí
   const neighborhood = workOrder.ticket?.neighborhood;
-  const address = workOrder.address || workOrder.ticket?.availability_note;
+  const address = workOrder.ticket?.address;
   const displayTitle = neighborhood || address || 'Ubicación desconocida';
 
   // Antigüedad
@@ -98,12 +95,13 @@ export default function DraggableWorkOrderCard({
   const isOld = daysSinceCreation > 7;
 
   // Datos para tooltip
-  const clientName = workOrder.ticket?.contact_info?.client_name || 
-                     workOrder.ticket?.client_name || 
-                     workOrder.client_name || 
-                     'Sin cliente';
+  const clientName = 
+    workOrder.ticket?.client_name || 
+    workOrder.client_name || 
+    'Sin cliente';
   const creatorName = workOrder.ticket?.creator_name || 'Sistema';
-  const city = workOrder.ticket?.contact_info?.city || workOrder.ticket?.city || '—';
+  const city = workOrder.ticket?.city || '—';
+  const availability = workOrder.ticket?.availability_note || 'Sin preferencia';
 
   // ========== HANDLERS ==========
 
@@ -124,72 +122,71 @@ export default function DraggableWorkOrderCard({
       <TooltipProvider delayDuration={300}>
         <Tooltip>
           <TooltipTrigger asChild>
+            {/* CONTENEDOR PRINCIPAL: Altura fija 48px, flex row */}
             <div
               draggable
               onDragStart={handleDragStart}
               className={cn(
-                'rounded-r-md border-l-4 transition-all overflow-hidden mb-1',
+                'h-12 rounded border-l-4 transition-all overflow-hidden flex items-center gap-0',
                 priorityConfig.borderColor,
                 priorityConfig.bgColor,
-                'hover:shadow-md hover:shadow-emerald-500/10',
+                'hover:shadow-md',
                 isDragging && 'opacity-50 scale-95 shadow-lg'
               )}
             >
-              <div className="flex gap-0 h-full">
-                {/* ========== DRAG HANDLE ========== */}
-                <div
+              {/* ========== DRAG HANDLE ========== */}
+              <div
+                className={cn(
+                  'flex items-center justify-center px-1 cursor-grab active:cursor-grabbing flex-shrink-0',
+                  'border-r border-zinc-700/50 hover:bg-zinc-800/40'
+                )}
+              >
+                <GripVertical
+                  size={12}
                   className={cn(
-                    'flex items-center justify-center px-1.5 cursor-grab active:cursor-grabbing flex-shrink-0',
-                    'border-r border-zinc-700/50 hover:bg-zinc-800/40'
+                    'transition-colors',
+                    isDragging ? 'text-emerald-400' : 'text-zinc-600'
                   )}
-                >
-                  <GripVertical
-                    size={14}
-                    className={cn(
-                      'transition-colors',
-                      isDragging ? 'text-emerald-400' : 'text-zinc-600'
-                    )}
-                  />
-                </div>
-
-                {/* ========== CONTENIDO ========== */}
-                <button
-                  onClick={() => setShowCoordinationSheet(true)}
-                  className="flex-1 text-left px-2 py-1.5 hover:bg-zinc-800/20 transition-colors flex flex-col justify-between"
-                >
-                  {/* FILA SUPERIOR: Título + Duración */}
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="font-bold text-xs text-gray-200 truncate flex-1 leading-tight">
-                      {displayTitle}
-                    </h3>
-                    <Badge
-                      variant="secondary"
-                      className="bg-zinc-800 text-zinc-400 text-[10px] px-1.5 py-0.5 font-mono flex-shrink-0 rounded"
-                    >
-                      {duration}m
-                    </Badge>
-                  </div>
-
-                  {/* FILA INFERIOR: Tipo + Antigüedad + ID */}
-                  <div className="flex items-center gap-2 text-[10px] text-zinc-500 leading-none mt-1">
-                    {/* Icono de tipo */}
-                    <TypeIcon size={10} className="text-zinc-500 flex-shrink-0" />
-
-                    {/* Antigüedad (con color condicional) */}
-                    <span className={cn(
-                      'truncate',
-                      isOld ? 'text-orange-400 font-semibold' : 'text-zinc-500'
-                    )}>
-                      {ageText}
-                    </span>
-
-                    {/* ID */}
-                    <span className="text-zinc-600 ml-auto font-mono">
-                      #{workOrder.id}
-                    </span>
-                  </div>
-                </button>
+                />
               </div>
+
+              {/* ========== CONTENIDO CENTRAL ========== */}
+              <button
+                onClick={() => setShowCoordinationSheet(true)}
+                className="flex-1 text-left px-2 py-1 hover:bg-zinc-800/20 transition-colors flex flex-col justify-center gap-0.5 min-w-0"
+              >
+                {/* FILA SUPERIOR: Título (solo una línea, truncado) */}
+                <h3 className="font-bold text-xs text-gray-100 truncate leading-tight">
+                  {displayTitle}
+                </h3>
+
+                {/* FILA INFERIOR: Tipo + Antigüedad + ID */}
+                <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 leading-none">
+                  {/* Icono de tipo */}
+                  <TypeIcon size={10} className="text-zinc-600 flex-shrink-0" />
+
+                  {/* Antigüedad (con color condicional) */}
+                  <span className={cn(
+                    'truncate text-[10px]',
+                    isOld ? 'text-orange-400 font-semibold' : 'text-zinc-500'
+                  )}>
+                    {ageText}
+                  </span>
+
+                  {/* ID (extremo derecho, antes del badge) */}
+                  <span className="text-zinc-600 font-mono text-[10px] ml-auto flex-shrink-0">
+                    #{workOrder.id}
+                  </span>
+                </div>
+              </button>
+
+              {/* ========== BADGE DE DURACIÓN (Derecha) ========== */}
+              <Badge
+                variant="secondary"
+                className="bg-zinc-800 text-zinc-400 text-[10px] px-1.5 py-0 font-mono flex-shrink-0 mr-1 h-fit"
+              >
+                {duration}m
+              </Badge>
             </div>
           </TooltipTrigger>
 
@@ -198,24 +195,29 @@ export default function DraggableWorkOrderCard({
             side="right" 
             className="bg-zinc-900 border-zinc-700 text-xs max-w-xs"
           >
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <p className="font-semibold text-white">
                 OT #{workOrder.id}
               </p>
               <p className="text-zinc-300">
                 <span className="text-zinc-500">Cliente:</span> {clientName}
               </p>
-              <p className="text-zinc-300">
-                <span className="text-zinc-500">Dirección:</span> {address}
+              <p className="text-zinc-300 text-[11px]">
+                <span className="text-zinc-500">Dirección:</span> {address || '—'}
               </p>
               {neighborhood && (
-                <p className="text-zinc-300">
+                <p className="text-zinc-300 text-[11px]">
                   <span className="text-zinc-500">Zona:</span> {neighborhood}
                 </p>
               )}
               {city !== '—' && (
-                <p className="text-zinc-300">
+                <p className="text-zinc-300 text-[11px]">
                   <span className="text-zinc-500">Ciudad:</span> {city}
+                </p>
+              )}
+              {availability && availability !== 'Sin preferencia' && (
+                <p className="text-emerald-300 text-[11px] border-t border-zinc-800 pt-1">
+                  <span className="text-emerald-500">Disponibilidad:</span> {availability}
                 </p>
               )}
               <p className="text-zinc-400 text-[10px] pt-1 border-t border-zinc-800">
