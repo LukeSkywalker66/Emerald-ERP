@@ -1,11 +1,11 @@
 /**
- * DraggableWorkOrderCard.jsx - TACTICAL VIEW (FINAL POLISH)
+ * DraggableWorkOrderCard.jsx - TACTICAL VIEW (COMPACT + RICH TOOLTIP)
  * 
- * Tarjeta ultra-compacta: 48px altura máxima.
+ * Tarjeta compacta: 48px altura.
  * - Título: SOLO barrio/dirección (NUNCA availability_note)
  * - Layout: Flex row con items-center
  * - Padding: Mínimo (px-2 py-1)
- * - Tooltip: LIMPIO - Solo datos operacionales (cliente, dirección, problema)
+ * - Rich Tooltip: Cliente, Dirección, Problema con iconos y estructura
  */
 
 import React, { useState } from 'react';
@@ -17,6 +17,9 @@ import {
   Wifi,
   Truck,
   AlertTriangle,
+  User,
+  MapPin,
+  FileText,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -92,14 +95,20 @@ export default function DraggableWorkOrderCard({
   const daysSinceCreation = createdAt ? differenceInDays(new Date(), createdAt) : 0;
   const isOld = daysSinceCreation > 7;
 
-  // ========== DATOS PARA TOOLTIP (LIMPIO) ==========
+  // ========== DATOS PARA RICH TOOLTIP ==========
+  
+  // Cliente: Buscar en múltiples campos
   const clientName = 
     workOrder.ticket?.client_name || 
+    workOrder.ticket?.connection_details?.client_name ||
     workOrder.client_name || 
-    'Sin cliente';
-  
-  // Descripción del problema (si existe y no es muy larga)
-  const problemDescription = workOrder.ticket?.description || '';
+    'Cliente Desconocido';
+
+  // Dirección completa
+  const fullAddress = address || 'Sin dirección registrada';
+
+  // Descripción del problema (truncada a 100 caracteres)
+  const problemDescription = workOrder.ticket?.description || workOrder.ticket?.subject || '';
   const displayDescription = problemDescription.length > 100 
     ? problemDescription.substring(0, 100) + '...'
     : problemDescription;
@@ -191,45 +200,70 @@ export default function DraggableWorkOrderCard({
             </div>
           </TooltipTrigger>
 
-          {/* ========== TOOLTIP (LIMPIO - SIN DATOS ADMINISTRATIVOS) ========== */}
+          {/* ========== RICH TOOLTIP ========== */}
           <TooltipContent 
             side="right" 
-            className="bg-zinc-900 border-zinc-700 text-xs max-w-xs"
+            className="bg-zinc-950 border border-zinc-800 text-white p-0 rounded-lg shadow-xl"
           >
-            <div className="space-y-2">
-              {/* Cliente */}
-              <div>
-                <p className="text-zinc-500 text-[10px] uppercase tracking-wide mb-0.5">
-                  Cliente
-                </p>
-                <p className="font-semibold text-white">
-                  {clientName}
-                </p>
+            <div className="w-80 space-y-3">
+              {/* ===== HEADER: CLIENTE ===== */}
+              <div className="flex items-start gap-2.5 p-4 border-b border-zinc-800/50">
+                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-900/30 border border-emerald-700/50 flex-shrink-0">
+                  <User size={16} className="text-emerald-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-zinc-500 uppercase tracking-wide mb-0.5">
+                    Cliente
+                  </p>
+                  <p className="text-sm font-semibold text-white truncate">
+                    {clientName}
+                  </p>
+                </div>
               </div>
 
-              {/* Dirección */}
-              {address && (
-                <div>
-                  <p className="text-zinc-500 text-[10px] uppercase tracking-wide mb-0.5">
+              {/* ===== BODY: DIRECCIÓN ===== */}
+              <div className="flex items-start gap-2.5 px-4">
+                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-900/30 border border-blue-700/50 flex-shrink-0 mt-0.5">
+                  <MapPin size={16} className="text-blue-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-zinc-500 uppercase tracking-wide mb-0.5">
                     Dirección
                   </p>
-                  <p className="text-zinc-300">
-                    {address}
+                  <p className="text-sm text-zinc-300 line-clamp-2">
+                    {fullAddress}
                   </p>
+                </div>
+              </div>
+
+              {/* ===== FOOTER: PROBLEMA ===== */}
+              {displayDescription && (
+                <div className="flex items-start gap-2.5 px-4 pb-4 border-t border-zinc-800/50 pt-3">
+                  <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-amber-900/30 border border-amber-700/50 flex-shrink-0 mt-0.5">
+                    <FileText size={16} className="text-amber-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-zinc-500 uppercase tracking-wide mb-0.5">
+                      Problema
+                    </p>
+                    <p className="text-sm text-zinc-300 line-clamp-2">
+                      {displayDescription}
+                    </p>
+                  </div>
                 </div>
               )}
 
-              {/* Problema/Descripción */}
-              {displayDescription && (
-                <div className="pt-1 border-t border-zinc-700">
-                  <p className="text-zinc-500 text-[10px] uppercase tracking-wide mb-0.5">
-                    Problema
-                  </p>
-                  <p className="text-zinc-300 text-[11px] leading-snug">
-                    {displayDescription}
-                  </p>
+              {/* ===== METADATA: ID Y DURACIÓN ===== */}
+              <div className="grid grid-cols-2 gap-2 px-4 pb-4 text-xs">
+                <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50">
+                  <span className="text-zinc-500">OT:</span>
+                  <span className="font-mono text-emerald-400 font-semibold">#{workOrder.id}</span>
                 </div>
-              )}
+                <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50">
+                  <span className="text-zinc-500">Duración:</span>
+                  <span className="font-mono text-emerald-400 font-semibold">{duration}m</span>
+                </div>
+              </div>
             </div>
           </TooltipContent>
         </Tooltip>
