@@ -38,15 +38,15 @@ import CoordinationSheet from './CoordinationSheet';
 const PRIORITY_CONFIG = {
   critical: {
     borderColor: 'border-l-red-500',
-    bgColor: 'bg-red-950/20',
+    bgColor: 'bg-gradient-to-r from-red-950/40 via-zinc-900 to-zinc-900',
   },
   high: {
     borderColor: 'border-l-orange-500',
-    bgColor: 'bg-orange-950/20',
+    bgColor: 'bg-gradient-to-r from-orange-950/40 via-zinc-900 to-zinc-900',
   },
   medium: {
     borderColor: 'border-l-emerald-500',
-    bgColor: 'bg-emerald-950/15',
+    bgColor: 'bg-gradient-to-r from-emerald-950/20 via-zinc-900 to-zinc-900',
   },
   low: {
     borderColor: 'border-l-zinc-600',
@@ -150,30 +150,30 @@ export default function DraggableWorkOrderCard({
       <TooltipProvider delayDuration={300}>
         <Tooltip>
           <TooltipTrigger asChild>
-            {/* CONTENEDOR PRINCIPAL: Altura fija 48px, flex row */}
+            {/* CONTENEDOR PRINCIPAL: Tactical HUD */}
             <div
               draggable
               onDragStart={handleDragStart}
               className={cn(
-                'h-12 rounded border-l-4 transition-all overflow-hidden flex items-center gap-0',
+                'min-h-[56px] rounded border-l-4 transition-all overflow-hidden flex items-center gap-0 group',
                 priorityConfig.borderColor,
                 priorityConfig.bgColor,
-                'hover:shadow-md',
+                'hover:shadow-lg hover:translate-x-1 hover:brightness-125',
                 isDragging && 'opacity-50 scale-95 shadow-lg'
               )}
             >
               {/* ========== DRAG HANDLE ========== */}
               <div
                 className={cn(
-                  'flex items-center justify-center px-1 cursor-grab active:cursor-grabbing flex-shrink-0',
-                  'border-r border-zinc-700/50 hover:bg-zinc-800/40'
+                  'flex items-center justify-center w-5 cursor-grab active:cursor-grabbing flex-shrink-0',
+                  'border-r border-zinc-800/70 bg-zinc-900/40'
                 )}
               >
                 <GripVertical
                   size={12}
                   className={cn(
                     'transition-colors',
-                    isDragging ? 'text-emerald-400' : 'text-zinc-600'
+                    isDragging ? 'text-emerald-400' : 'text-zinc-600 group-hover:text-zinc-400'
                   )}
                 />
               </div>
@@ -181,7 +181,7 @@ export default function DraggableWorkOrderCard({
               {/* ========== CONTENIDO CENTRAL ========== */}
               <button
                 onClick={() => setShowCoordinationSheet(true)}
-                className="flex-1 text-left px-2 py-1 hover:bg-zinc-800/20 transition-colors flex flex-col justify-center gap-0.5 min-w-0"
+                className="flex-1 text-left px-2.5 py-2 hover:bg-zinc-800/20 transition-colors flex flex-col justify-center gap-1 min-w-0"
               >
                 {/* FILA SUPERIOR: Título (solo una línea, truncado) */}
                 <h3 className="font-bold text-xs text-gray-100 truncate leading-tight">
@@ -202,7 +202,7 @@ export default function DraggableWorkOrderCard({
                   </span>
 
                   {/* ID (extremo derecho, antes del badge) */}
-                  <span className="text-zinc-600 font-mono text-[10px] ml-auto flex-shrink-0">
+                  <span className="text-zinc-500/60 font-mono text-[10px] ml-auto flex-shrink-0 tracking-wider">
                     #{workOrder.id}
                   </span>
                 </div>
@@ -211,7 +211,7 @@ export default function DraggableWorkOrderCard({
               {/* ========== BADGE DE DURACIÓN (Derecha) ========== */}
               <Badge
                 variant="secondary"
-                className="bg-zinc-800 text-zinc-400 text-[10px] px-1.5 py-0 font-mono flex-shrink-0 mr-1 h-fit"
+                className="bg-zinc-800/80 text-zinc-300 text-[10px] px-2 py-0.5 font-mono tracking-wider border border-zinc-700 flex-shrink-0 mr-2 h-fit"
               >
                 {duration}m
               </Badge>
