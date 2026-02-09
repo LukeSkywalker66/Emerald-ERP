@@ -271,15 +271,25 @@ export default function DraggableWorkOrderCard({
                 </div>
               )}
 
-              {/* ===== METADATA: TIPO Y FECHA ===== */}
-              <div className="grid grid-cols-2 gap-2 px-4 pb-4 text-xs">
-                <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50">
-                  <Tag size={12} className="text-zinc-500 flex-shrink-0" />
-                  <span className="font-medium text-emerald-400 truncate">{otTypeLabel}</span>
+              {/* ===== METADATA: TIPO, FECHA Y DURACIÓN ===== */}
+              <div className="px-4 pb-4 space-y-2">
+                {/* Fila 1: Tipo */}
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700/50">
+                  <Tag size={14} className="text-zinc-500 flex-shrink-0" />
+                  <span className="text-xs text-zinc-500">Tipo:</span>
+                  <span className="font-semibold text-emerald-400 ml-auto">{otTypeLabel}</span>
                 </div>
-                <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50">
-                  <Clock size={12} className="text-zinc-500 flex-shrink-0" />
-                  <span className="font-mono text-zinc-300 text-[10px] truncate">{createdDate}</span>
+                
+                {/* Fila 2: Fecha y Duración */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50">
+                    <Clock size={12} className="text-zinc-500 flex-shrink-0" />
+                    <span className="font-mono text-zinc-300 text-[10px] truncate">{createdDate}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 justify-center">
+                    <span className="text-zinc-500 text-[10px]">⏱</span>
+                    <span className="font-mono text-emerald-400 font-semibold text-xs">{duration}min</span>
+                  </div>
                 </div>
               </div>
             </div>
