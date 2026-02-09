@@ -9,7 +9,7 @@
  */
 
 import React, { useState } from 'react';
-import { formatDistanceToNow, differenceInDays } from 'date-fns';
+import { formatDistanceToNow, differenceInDays, format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
   GripVertical,
@@ -20,6 +20,8 @@ import {
   User,
   MapPin,
   FileText,
+  Clock,
+  Tag,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -59,6 +61,14 @@ const TYPE_ICONS = {
   install: Wifi,
   pickup: Truck,
   infrastructure: AlertTriangle,
+};
+
+const TYPE_LABELS = {
+  repair: 'Reparación',
+  install: 'Instalación',
+  pickup: 'Retiro',
+  infrastructure: 'Infraestructura',
+  incident: 'Incidente',
 };
 
 // ========== COMPONENTE PRINCIPAL ==========
@@ -112,6 +122,14 @@ export default function DraggableWorkOrderCard({
   const displayDescription = problemDescription.length > 100 
     ? problemDescription.substring(0, 100) + '...'
     : problemDescription;
+
+  // Tipo de OT (label)
+  const otTypeLabel = TYPE_LABELS[otType] || 'Otro';
+
+  // Fecha de creación formateada
+  const createdDate = createdAt 
+    ? format(createdAt, "dd/MM/yyyy HH:mm", { locale: es })
+    : 'Sin fecha';
 
   // ========== HANDLERS ==========
 
@@ -253,15 +271,15 @@ export default function DraggableWorkOrderCard({
                 </div>
               )}
 
-              {/* ===== METADATA: ID Y DURACIÓN ===== */}
+              {/* ===== METADATA: TIPO Y FECHA ===== */}
               <div className="grid grid-cols-2 gap-2 px-4 pb-4 text-xs">
                 <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50">
-                  <span className="text-zinc-500">OT:</span>
-                  <span className="font-mono text-emerald-400 font-semibold">#{workOrder.id}</span>
+                  <Tag size={12} className="text-zinc-500 flex-shrink-0" />
+                  <span className="font-medium text-emerald-400 truncate">{otTypeLabel}</span>
                 </div>
                 <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50">
-                  <span className="text-zinc-500">Duración:</span>
-                  <span className="font-mono text-emerald-400 font-semibold">{duration}m</span>
+                  <Clock size={12} className="text-zinc-500 flex-shrink-0" />
+                  <span className="font-mono text-zinc-300 text-[10px] truncate">{createdDate}</span>
                 </div>
               </div>
             </div>
