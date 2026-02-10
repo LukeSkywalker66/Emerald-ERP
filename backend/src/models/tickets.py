@@ -33,11 +33,12 @@ from sqlalchemy import (
     Boolean,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, foreign
 from sqlalchemy.sql import func
 
 from src.database.base import Base, TimestampMixin
 from src.models.user import User
+from src.models.beholder import Connection as BeholderConnection
 
 
 # ===========================
@@ -451,6 +452,12 @@ class Ticket(Base, TimestampMixin):
         back_populates="ticket",
         lazy="select",
         cascade="all, delete-orphan"
+    )
+    connection: Mapped[Optional[BeholderConnection]] = relationship(
+        BeholderConnection,
+        primaryjoin=lambda: foreign(Ticket.connection_id) == BeholderConnection.connection_id,
+        viewonly=True,
+        lazy="joined",
     )
     attachments: Mapped[list[TicketAttachment]] = relationship(
         "TicketAttachment",

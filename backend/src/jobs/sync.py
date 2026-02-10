@@ -3,6 +3,11 @@ from src.clients import smartolt, ispcube, mikrotik
 from src import config, models
 from src.utils.safe_call import safe_call
 from src.celery_app import celery_app
+from src.services.location_resolver import (
+    resolve_address_data,
+    get_or_create_city,
+    get_or_create_neighborhood,
+)
 import time
 
 def sync_nodes(db):
@@ -112,14 +117,45 @@ def sync_connections(db):
     try:
         # VOLVEMOS AL MÉTODO CLÁSICO
         conexiones = ispcube.obtener_todas_conexiones()
+        clientes = ispcube.obtener_clientes() or []
+        clientes_map = {c.get("id"): c for c in clientes if c.get("id")}
         if conexiones:
             # db.cursor.execute("DELETE FROM connections")
             db.clear_table(models.Connection)
+            city_cache: dict[str, int] = {}
+            neighborhood_cache: dict[tuple[str, int], int] = {}
             for c in conexiones:
                 if not c.get("id") or not c.get("user"): continue
+                client_payload = clientes_map.get(c.get("customer_id"))
+                resolved = resolve_address_data({"connection": c, "client": client_payload})
+
+                city_id = None
+                neighborhood_id = None
+
+                city_name = resolved.get("city_name")
+                if city_name:
+                    city_key = city_name.lower()
+                    city_id = city_cache.get(city_key)
+                    if city_id is None:
+                        city = get_or_create_city(db.db, city_name)
+                        city_id = city.id if city else None
+                        if city_id:
+                            city_cache[city_key] = city_id
+
+                neighborhood_name = resolved.get("neighborhood_name")
+                if neighborhood_name and city_id:
+                    neighborhood_key = (neighborhood_name.lower(), city_id)
+                    neighborhood_id = neighborhood_cache.get(neighborhood_key)
+                    if neighborhood_id is None:
+                        neighborhood = get_or_create_neighborhood(db.db, neighborhood_name, city_id)
+                        neighborhood_id = neighborhood.id if neighborhood else None
+                        if neighborhood_id:
+                            neighborhood_cache[neighborhood_key] = neighborhood_id
                 db.insert_connection(
                     str(c["id"]), str(c["user"]), str(c["customer_id"]), 
-                    str(c["node_id"]), str(c["plan_id"]), c.get("direccion")
+                    str(c["node_id"]), str(c["plan_id"]), c.get("direccion"),
+                    city_id=city_id,
+                    neighborhood_id=neighborhood_id,
                 )
             config.logger.info(f"[SYNC] {len(conexiones)} conexiones sincronizadas.")
             db.log_sync_status("ispcube", "ok", f"{len(conexiones)} conexiones sincronizadas")

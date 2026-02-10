@@ -294,6 +294,24 @@ def obtener_cliente_por_id(customer_id: int):
         logger.error(f"Error consultando cliente por ID {customer_id}: {e}")
         return None
 
+
+def obtener_conexion_por_id(connection_id: int):
+    """
+    Consulta conexion especifica en ISPCube por ID usando endpoint /api/connection.
+    """
+    url = f"{ISPCUBE_BASEURL}/connection"
+    params = {"connection_id": connection_id}
+
+    try:
+        resp = _request("GET", url, params=params)
+        conexion = resp.json()
+        if conexion and isinstance(conexion, dict):
+            return conexion
+        return None
+    except Exception as e:
+        logger.error(f"Error consultando conexion por ID {connection_id}: {e}")
+        return None
+
 def buscar_conexiones(query: str, limit: int = 20):
     """
     Busca conexiones en ISPCube por nombre de cliente, dirección o username.

@@ -2,6 +2,11 @@
 from sqlalchemy import text
 from src.database import SessionLocal, engine
 from src import models
+from src.services.location_resolver import (
+    resolve_address_data,
+    get_or_create_city,
+    get_or_create_neighborhood,
+)
 from datetime import datetime
 
 class Database:
@@ -54,14 +59,26 @@ class Database:
         )
         self.db.merge(new_plan)
 
-    def insert_connection(self, connection_id, pppoe_username, customer_id, node_id, plan_id, direccion):
+    def insert_connection(
+        self,
+        connection_id,
+        pppoe_username,
+        customer_id,
+        node_id,
+        plan_id,
+        direccion,
+        city_id=None,
+        neighborhood_id=None,
+    ):
         new_conn = models.Connection(
             connection_id=str(connection_id), # Aseguramos String
             pppoe_username=pppoe_username,
             customer_id=customer_id,
             node_id=str(node_id),
             plan_id=str(plan_id),
-            direccion=direccion # Nombre corregido
+            direccion=direccion, # Nombre corregido
+            city_id=city_id,
+            neighborhood_id=neighborhood_id,
         )
         self.db.merge(new_conn)
     
@@ -128,6 +145,14 @@ class Database:
                 for conn in connections_data:
                     if not conn.get("id"):
                         continue
+
+                    resolved = resolve_address_data({"connection": conn, "client": customer_data})
+                    city = get_or_create_city(self.db, resolved.get("city_name"))
+                    neighborhood = get_or_create_neighborhood(
+                        self.db,
+                        resolved.get("neighborhood_name"),
+                        city.id if city else None,
+                    )
                     
                     conn_id = str(conn.get("id"))
                     existing_conn = self.db.query(models.Connection).filter_by(connection_id=conn_id).first()
@@ -139,6 +164,8 @@ class Database:
                         existing_conn.node_id = conn.get("node_id")
                         existing_conn.plan_id = conn.get("plan_id")
                         existing_conn.direccion = conn.get("direccion") or conn.get("address")
+                        existing_conn.city_id = city.id if city else None
+                        existing_conn.neighborhood_id = neighborhood.id if neighborhood else None
                     else:
                         # Crear nueva conexión
                         self.insert_connection(
@@ -147,7 +174,9 @@ class Database:
                             customer_id,
                             conn.get("node_id"),
                             conn.get("plan_id"),
-                            conn.get("direccion") or conn.get("address")
+                            conn.get("direccion") or conn.get("address"),
+                            city_id=city.id if city else None,
+                            neighborhood_id=neighborhood.id if neighborhood else None,
                         )
             
             self.commit()

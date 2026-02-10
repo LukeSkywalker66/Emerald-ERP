@@ -26,6 +26,7 @@ from .tickets import (
 )
 from .ticket_attachments import TicketAttachment
 from .contact_attempts import ContactAttempt, ContactAttemptResult
+from .coordination import Team, TeamMember, TeamRole
 from .engineering import (
 	# Gestión de Tareas de Ingeniería/NOC
 	EngineeringTask,
@@ -62,6 +63,7 @@ from .beholder import (
 	APIKey,
 	APIKeyAudit,
 )
+from .locations import City, Neighborhood
 
 __all__ = [
 	# Auth models
@@ -85,6 +87,10 @@ __all__ = [
 	"TicketReason",
 	"Tag",
 	"TicketAttachment",
+	# Coordination models
+	"Team",
+	"TeamMember",
+	"TeamRole",
 	# Engineering models
 	"EngineeringTask",
 	"EngineeringTaskType",
@@ -95,6 +101,8 @@ __all__ = [
 	"Node",
 	"Plan",
 	"Connection",
+	"City",
+	"Neighborhood",
 	# Beholder models - Clientes (CRM)
 	"Cliente",
 	"ClienteEmail",

@@ -1,9 +1,10 @@
 """
 Beholder models - Infrastructure, Clients, and Technical tables
 """
-from sqlalchemy import Column, Integer, String, DateTime, Text, PrimaryKeyConstraint
+from sqlalchemy import Column, Integer, String, DateTime, Text, PrimaryKeyConstraint, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 from src.database import Base
 
 
@@ -53,6 +54,11 @@ class Connection(Base):
     node_id = Column(Integer)
     plan_id = Column(Integer)
     direccion = Column(String)
+    city_id = Column(Integer, ForeignKey("cities.id"), index=True, nullable=True)
+    neighborhood_id = Column(Integer, ForeignKey("neighborhoods.id"), index=True, nullable=True)
+
+    city = relationship("City", lazy="selectin")
+    neighborhood = relationship("Neighborhood", lazy="selectin")
 
 
 # --- Tablas de Clientes (CRM) ---
