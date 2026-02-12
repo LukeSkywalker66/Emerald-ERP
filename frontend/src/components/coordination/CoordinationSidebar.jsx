@@ -38,12 +38,37 @@ export default function CoordinationSidebar({
   const availableCities = useMemo(() => {
     const citiesSet = new Set();
     workOrders.forEach(wo => {
-      const city = wo.ticket?.city || wo.ticket?.contact_info?.city;
+      // Intentar extraer ciudad desde múltiples rutas
+      let city = null;
+
+      // Ruta 1: ticket.city (directo)
+      if (wo.ticket?.city) {
+        city = wo.ticket.city;
+      }
+      // Ruta 2: ticket.contact_info.city
+      else if (wo.ticket?.contact_info?.city) {
+        city = wo.ticket.contact_info.city;
+      }
+      // Ruta 3: ticket.connection_details.city (JSONB desde backend)
+      else if (wo.ticket?.connection_details?.city) {
+        city = wo.ticket.connection_details.city;
+      }
+      // Ruta 4: Extraer del address si contiene patrón "Localidad: X"
+      else if (wo.ticket?.address) {
+        const addressMatch = wo.ticket.address.match(/Localidad:\s*([A-Za-záéíóúñ\s]+?)(?:$|,|\.|;)/i);
+        if (addressMatch) {
+          city = addressMatch[1].trim();
+        }
+      }
+
       if (city && city.trim()) {
         citiesSet.add(city.trim());
       }
     });
-    return Array.from(citiesSet).sort();
+
+    const result = Array.from(citiesSet).sort();
+    console.log('🏙️ Ciudades extraídas del backlog:', result, 'de', workOrders.length, 'OTs');
+    return result;
   }, [workOrders]);
 
   // ========== APLICAR FILTROS MULTICRITERIO ==========

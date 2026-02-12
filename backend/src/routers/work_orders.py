@@ -664,11 +664,15 @@ def _wo_to_list_response(wo: WorkOrder, db: Session) -> WorkOrderListResponse:
                         n.name as node_name,
                         n.ip_address as node_ip,
                         p.name as plan_name,
-                        p.speed as plan_speed
+                        p.speed as plan_speed,
+                        cy.name as city_name,
+                        nb.name as neighborhood_name
                     FROM connections c
                     LEFT JOIN clientes cl ON c.customer_id = cl.id
                     LEFT JOIN nodes n ON c.node_id = n.node_id
                     LEFT JOIN plans p ON c.plan_id = p.plan_id
+                    LEFT JOIN cities cy ON c.city_id = cy.id
+                    LEFT JOIN neighborhoods nb ON c.neighborhood_id = nb.id
                     WHERE c.connection_id = :conn_id
                     LIMIT 1
                     """
@@ -680,8 +684,16 @@ def _wo_to_list_response(wo: WorkOrder, db: Session) -> WorkOrderListResponse:
                 # Actualizar con datos reales de conexión
                 address = conn_row[2] or address  # conexión dirección
                 client_name = conn_row[3] or client_name  # cliente real
-        except Exception:
+                # Enriquecer contact_info con ciudad y barrio
+                if not ticket_response.contact_info:
+                    ticket_response.contact_info = {}
+                if conn_row[9]:  # city_name
+                    ticket_response.contact_info['city'] = conn_row[9]
+                if conn_row[10]:  # neighborhood_name
+                    ticket_response.contact_info['neighborhood'] = conn_row[10]
+        except Exception as e:
             # Si falla la consulta, usar datos fallback del ticket
+            print(f"⚠️  Error enriqueciendo conexión {wo.ticket.connection_id}: {e}")
             pass
 
     return WorkOrderListResponse(
