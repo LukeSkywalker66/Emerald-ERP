@@ -5,13 +5,14 @@
  * Localidades, tipos de trabajo, búsqueda universal y prioridad.
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Search,
   Wrench,
   Wifi,
   AlertCircle,
   X,
+  ChevronDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +38,7 @@ export default function CoordinationFilters({
   onCriticalChange,
   onClearAll,
 }) {
+  const [expandCities, setExpandCities] = useState(false);
   const cityList = useMemo(
     () => Array.from(new Set(availableCities)).sort(),
     [availableCities]
@@ -59,45 +61,50 @@ export default function CoordinationFilters({
         />
       </div>
 
-      {/* ========== FILTRO DE LOCALIDADES ========== */}
+      {/* ========== FILTRO DE LOCALIDADES EXPANDIBLE ========== */}
       {cityList.length > 0 && (
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full h-8 justify-start text-xs border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
-            >
-              📍 Localidades
+        <div className="border border-zinc-700 rounded-lg bg-zinc-800/30 overflow-hidden">
+          {/* Header del dropdown */}
+          <button
+            onClick={() => setExpandCities(!expandCities)}
+            className="w-full px-3 py-2 flex items-center justify-between hover:bg-zinc-700/50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-zinc-300">📍 Localidades</span>
               {filters.cities.length > 0 && (
-                <Badge variant="secondary" className="ml-2 h-5 text-[10px]">
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0.5">
                   {filters.cities.length}
                 </Badge>
               )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent
-            className="w-56 p-3 border-zinc-800 bg-zinc-950"
-            align="start"
-          >
-            <div className="space-y-2">
+            </div>
+            <ChevronDown
+              size={14}
+              className={`text-zinc-500 transition-transform ${
+                expandCities ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
+
+          {/* Contenido expandible */}
+          {expandCities && (
+            <div className="px-2 py-2 border-t border-zinc-700 space-y-1.5 max-h-64 overflow-y-auto bg-zinc-900/50">
               {cityList.map((city) => (
                 <label
                   key={city}
-                  className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-zinc-800 transition-colors"
+                  className="flex items-center gap-2 cursor-pointer px-2 py-1.5 rounded hover:bg-zinc-700/60 transition-colors"
                 >
                   <input
                     type="checkbox"
                     checked={filters.cities.includes(city)}
                     onChange={() => onCitiesChange(city)}
-                    className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 cursor-pointer"
+                    className="w-4 h-4 rounded border-zinc-600 bg-zinc-700 cursor-pointer accent-emerald-500"
                   />
-                  <span className="text-xs text-zinc-200">{city}</span>
+                  <span className="text-xs text-zinc-200 flex-1">{city}</span>
                 </label>
               ))}
             </div>
-          </PopoverContent>
-        </Popover>
+          )}
+        </div>
       )}
 
       {/* ========== TIPOS DE TRABAJO ========== */}
