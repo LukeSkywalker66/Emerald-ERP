@@ -1,0 +1,204 @@
+/**
+ * CoordinationFilters.jsx
+ * 
+ * Panel de filtros multicriterio para reducir ruido visual.
+ * Localidades, tipos de trabajo, búsqueda universal y prioridad.
+ */
+
+import React, { useMemo } from 'react';
+import {
+  Search,
+  Wrench,
+  Wifi,
+  AlertCircle,
+  X,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import { Switch } from '@/components/ui/switch';
+
+const OT_TYPES = [
+  { id: 'repair', label: 'Reparación', icon: Wrench },
+  { id: 'install', label: 'Instalación', icon: Wifi },
+];
+
+export default function CoordinationFilters({
+  filters,
+  availableCities = [],
+  onSearchChange,
+  onCitiesChange,
+  onTypesChange,
+  onCriticalChange,
+  onClearAll,
+}) {
+  const cityList = useMemo(
+    () => Array.from(new Set(availableCities)).sort(),
+    [availableCities]
+  );
+
+  return (
+    <div className="space-y-3 p-3 border-b border-zinc-800 bg-zinc-900/50">
+      {/* ========== BÚSQUEDA UNIVERSAL ========== */}
+      <div className="relative">
+        <Search
+          size={14}
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"
+        />
+        <Input
+          type="text"
+          placeholder="ID, cliente, dirección..."
+          value={filters.search}
+          onChange={(e) => onSearchChange(e.target.value)}
+          className="pl-9 h-8 text-xs bg-zinc-800 border-zinc-700 placeholder:text-zinc-600"
+        />
+      </div>
+
+      {/* ========== FILTRO DE LOCALIDADES ========== */}
+      {cityList.length > 0 && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full h-8 justify-start text-xs border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
+            >
+              📍 Localidades
+              {filters.cities.length > 0 && (
+                <Badge variant="secondary" className="ml-2 h-5 text-[10px]">
+                  {filters.cities.length}
+                </Badge>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-56 p-3 border-zinc-800 bg-zinc-950"
+            align="start"
+          >
+            <div className="space-y-2">
+              {cityList.map((city) => (
+                <label
+                  key={city}
+                  className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-zinc-800 transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={filters.cities.includes(city)}
+                    onChange={() => onCitiesChange(city)}
+                    className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 cursor-pointer"
+                  />
+                  <span className="text-xs text-zinc-200">{city}</span>
+                </label>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
+
+      {/* ========== TIPOS DE TRABAJO ========== */}
+      <div>
+        <p className="text-[10px] text-zinc-500 uppercase tracking-wide mb-1.5">
+          Tipo de Trabajo
+        </p>
+        <div className="flex gap-1 justify-start">
+          {OT_TYPES.map(({ id, label, icon: Icon }) => (
+            <Button
+              key={id}
+              size="sm"
+              variant={filters.types.includes(id) ? 'default' : 'outline'}
+              onClick={() => onTypesChange(id)}
+              className={`h-7 px-2 text-xs flex items-center gap-1 ${
+                filters.types.includes(id)
+                  ? 'bg-emerald-600 border-emerald-500 hover:bg-emerald-700'
+                  : 'border-zinc-700 hover:bg-zinc-700'
+              }`}
+            >
+              <Icon size={12} />
+              {label}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {/* ========== PRIORIDAD: SOLO CRÍTICOS ========== */}
+      <div className="flex items-center justify-between p-2 rounded bg-zinc-800/30 border border-zinc-700/50">
+        <div className="flex items-center gap-2">
+          <AlertCircle size={14} className="text-red-400" />
+          <label className="text-xs text-zinc-300 cursor-pointer">
+            Solo críticos/urgentes
+          </label>
+        </div>
+        <Switch
+          checked={filters.onlyCritical}
+          onCheckedChange={onCriticalChange}
+        />
+      </div>
+
+      {/* ========== FILTROS ACTIVOS + LIMPIAR ========== */}
+      {(filters.search.trim() ||
+        filters.cities.length > 0 ||
+        filters.types.length > 0 ||
+        filters.onlyCritical) && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-1.5">
+            {filters.search.trim() && (
+              <Badge
+                variant="secondary"
+                className="text-[10px] px-2 py-0.5 gap-1 cursor-pointer hover:bg-zinc-700"
+                onClick={() => onSearchChange('')}
+              >
+                🔍 {filters.search}
+                <X size={10} />
+              </Badge>
+            )}
+            {filters.cities.map((city) => (
+              <Badge
+                key={city}
+                variant="secondary"
+                className="text-[10px] px-2 py-0.5 gap-1 cursor-pointer hover:bg-zinc-700"
+                onClick={() => onCitiesChange(city)}
+              >
+                📍 {city}
+                <X size={10} />
+              </Badge>
+            ))}
+            {filters.types.map((type) => (
+              <Badge
+                key={type}
+                variant="secondary"
+                className="text-[10px] px-2 py-0.5 gap-1 cursor-pointer hover:bg-zinc-700"
+                onClick={() => onTypesChange(type)}
+              >
+                🔧 {type}
+                <X size={10} />
+              </Badge>
+            ))}
+            {filters.onlyCritical && (
+              <Badge
+                variant="destructive"
+                className="text-[10px] px-2 py-0.5 gap-1 cursor-pointer hover:bg-red-700"
+                onClick={() => onCriticalChange(false)}
+              >
+                ⚠️ Críticos
+                <X size={10} />
+              </Badge>
+            )}
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onClearAll}
+            className="h-6 text-xs text-zinc-400 hover:text-emerald-400"
+          >
+            Limpiar todo
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}

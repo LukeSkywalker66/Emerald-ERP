@@ -14,17 +14,11 @@ import {
 } from '@/components/ui/accordion';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
-import { Input } from '@/components/ui/input';
-import { AlertCircle, MapPin, Filter } from 'lucide-react';
+import { MapPin } from 'lucide-react';
 import DraggableWorkOrderCard from './DraggableWorkOrderCard';
+import CoordinationFilters from './CoordinationFilters';
+import { useTicketFilters } from '@/hooks/useTicketFilters';
+import { applyTicketFilters } from '@/utils/filterWorkOrders';
 import {
   groupWorkOrdersByNeighborhood,
   hasHighPriorityTasks,
@@ -37,10 +31,8 @@ export default function CoordinationSidebar({
   onQuickAction,
   defaultCity = null,
 }) {
-  // ========== STATE ==========
-  const [selectedCity, setSelectedCity] = useState(defaultCity || '');
-  const [showCriticalOnly, setShowCriticalOnly] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  // ========== HOOKS DE FILTROS ==========
+  const { filters, updateFilter, toggleCity, toggleType, clearFilters } = useTicketFilters();
 
   // ========== EXTRAER CIUDADES ÚNICAS ==========
   const availableCities = useMemo(() => {
@@ -51,141 +43,70 @@ export default function CoordinationSidebar({
         citiesSet.add(city.trim());
       }
     });
-    const cities = Array.from(citiesSet).sort();
-    console.log('🏙️ Ciudades extraídas:', cities);
-    console.log('📦 Total WOs:', workOrders.length);
-    console.log('🎫 WO con ticket ejemplo:', workOrders[0]?.ticket);
-    return cities;
+    return Array.from(citiesSet).sort();
   }, [workOrders]);
 
-  // ========== COMPUTADOS ==========
+  // ========== APLICAR FILTROS MULTICRITERIO ==========
+  const filteredWorkOrders = useMemo(() => {
+    return applyTicketFilters(workOrders, filters);
+  }, [workOrders, filters]);
+
+  // ========== AGRUPAR POR BARRIO (DESPUÉS DE FILTRAR) ==========
   const grouped = useMemo(() => {
-    return groupWorkOrdersByNeighborhood(workOrders, {
+    return groupWorkOrdersByNeighborhood(filteredWorkOrders, {
       status: ['pending_planning', 'coordinated'],
-      criticalOnly: showCriticalOnly,
-      city: selectedCity || null,
+      criticalOnly: false, // Ya filtrado arriba
+      city: null, // Ya filtrado arriba
     });
-  }, [workOrders, showCriticalOnly, selectedCity]);
+  }, [filteredWorkOrders]);
 
   // Contar total
   const totalWOs = useMemo(() => {
     return Object.values(grouped).reduce((sum, arr) => sum + arr.length, 0);
   }, [grouped]);
 
-  // Filtrar por búsqueda (cliente o dirección)
-  const filteredGrouped = useMemo(() => {
-    if (!searchQuery.trim()) return grouped;
-
-    const filtered = {};
-    Object.entries(grouped).forEach(([neighborhood, wos]) => {
-      const matches = wos.filter(wo => {
-        const clientMatch = wo.ticket?.client_name?.toLowerCase().includes(searchQuery.toLowerCase());
-        const addressMatch = wo.ticket?.address?.toLowerCase().includes(searchQuery.toLowerCase());
-        const idMatch = wo.id.toString().includes(searchQuery);
-        return clientMatch || addressMatch || idMatch;
-      });
-
-      if (matches.length > 0) {
-        filtered[neighborhood] = matches;
-      }
-    });
-    return filtered;
-  }, [grouped, searchQuery]);
-
   // ========== RENDER ==========
 
   return (
     <div className="h-full flex flex-col bg-zinc-900/50 border-r border-zinc-800">
-      {/* Header: Filtros */}
-      <div className="p-3 border-b border-zinc-800 space-y-2.5 flex-shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Filter size={14} className="text-emerald-400" />
-            <h2 className="text-xs font-bold text-white uppercase tracking-wide">
-              Filtros
-            </h2>
-          </div>
-        </div>
+      {/* ========== PANEL DE FILTROS MULTICRITERIO ========== */}
+      <CoordinationFilters
+        filters={filters}
+        availableCities={availableCities}
+        onSearchChange={(val) => updateFilter('search', val)}
+        onCitiesChange={toggleCity}
+        onTypesChange={toggleType}
+        onCriticalChange={(val) => updateFilter('onlyCritical', val)}
+        onClearAll={clearFilters}
+      />
 
-        {/* ========== FILTRO DE CIUDAD ========== */}
-        {availableCities.length > 0 && (
-          <div>
-            <label className="text-[10px] text-zinc-500 uppercase tracking-wide mb-1 block">
-              📍 Ciudad/Localidad
-            </label>
-            <Select value={selectedCity || "ALL_CITIES"} onValueChange={(val) => setSelectedCity(val === "ALL_CITIES" ? "" : val)}>
-              <SelectTrigger className="h-7 text-xs bg-zinc-800 border-zinc-700">
-                <SelectValue placeholder="Todas las localidades" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL_CITIES">
-                  <span className="text-xs">Todas las localidades</span>
-                </SelectItem>
-                {availableCities.map((city) => (
-                  <SelectItem key={city} value={city}>
-                    <span className="text-xs">{city}</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        {/* Switch: Solo Críticas */}
-        <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
-          <div className="flex items-center gap-1.5">
-            <AlertCircle size={12} className="text-red-400" />
-            <label className="text-[10px] font-medium text-zinc-300 cursor-pointer">
-              Solo críticas/urgentes
-            </label>
-          </div>
-          <Switch
-            checked={showCriticalOnly}
-            onCheckedChange={setShowCriticalOnly}
-            className="h-4 w-8"
-          />
-        </div>
-
-        {/* Búsqueda */}
-        <Input
-          placeholder="Buscar cliente, dirección, ID..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="h-7 text-xs bg-zinc-800 border-zinc-700 placeholder:text-zinc-600"
-        />
-      </div>
-
-      {/* Counter */}
+      {/* ========== CONTADOR ========== */}
       <div className="px-3 py-1.5 bg-zinc-900/80 border-b border-zinc-700/50 flex items-center justify-between">
         <span className="text-[10px] text-zinc-400">
-          Total: <span className="font-bold text-emerald-400">{totalWOs}</span>
-          {selectedCity && (
-            <span className="ml-2 text-zinc-500">en {selectedCity}</span>
-          )}
+          Mostrando: <span className="font-bold text-emerald-400">{totalWOs}</span>
+          <span className="text-zinc-600">
+            / {workOrders.length}
+          </span>
         </span>
-        {showCriticalOnly && (
-          <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
-            ⚠️ Críticas
-          </Badge>
-        )}
       </div>
 
-      {/* Contenido: Acordeones por Barrio */}
+      {/* ========== LISTA AGRUPADA POR BARRIO ========== */}
       <ScrollArea className="flex-1">
-        {Object.keys(filteredGrouped).length === 0 ? (
+        {Object.keys(grouped).length === 0 ? (
           <div className="p-4 text-center">
             <p className="text-xs text-zinc-500">
-              {totalWOs === 0
-                ? 'Sin órdenes de trabajo pendientes'
-                : 'Sin coincidencias en la búsqueda'}
+              {workOrders.length === 0
+                ? 'Sin órdenes de trabajo'
+                : 'Sin coincidencias en los filtros'}
             </p>
           </div>
         ) : (
           <Accordion
             type="multiple"
+            defaultValue={Object.keys(grouped).slice(0, 3)}
             className="w-full px-3 py-2 space-y-2"
           >
-            {Object.entries(filteredGrouped).map(([neighborhood, wos]) => {
+            {Object.entries(grouped).map(([neighborhood, wos]) => {
               const hasHighPriority = hasHighPriorityTasks(wos);
               const priorityCounts = countByPriority(wos);
 
