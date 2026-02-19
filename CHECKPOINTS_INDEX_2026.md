@@ -2,7 +2,27 @@
 
 ## Sesiones Recientes
 
-### 📍 Sesión 9 de Febrero, 2026 ⭐ ÚLTIMA
+### 📍 Sesión 12 de Febrero, 2026 ⭐ ÚLTIMA
+**Temas:** Sistema de Filtros Multicriterio + Localidades desde ISPCube
+
+- 🔗 [CHECKPOINT_2026-02-12_FILTROS_MULTICRITERIO.md](./CHECKPOINT_2026-02-12_FILTROS_MULTICRITERIO.md) - Contexto completo
+- 📚 Documentación nueva: [docs/COORDINATION_FILTERS_REPORT_2026-02-12.md](./docs/COORDINATION_FILTERS_REPORT_2026-02-12.md)
+- 📝 Reporte localidades: [docs/LOCATION_SYNC_REPORT_2026-02-10.md](./docs/LOCATION_SYNC_REPORT_2026-02-10.md)
+- 🏷️ **Commits:** d3a48b1 (fix ciudades reales), 61541cc (UI dropdown), cbc5fcf (filtros multicriterio)
+
+**Completado:**
+- ✅ Sistema de filtros multicriterio (search + cities + types + priority)
+- ✅ Hook useTicketFilters + componente CoordinationFilters
+- ✅ Backend enriquecido con city/neighborhood reales
+- ✅ Modelos City/Neighborhood + sync desde ISPCube
+- ✅ Backfill: 7001/7090 conexiones con city (98.8%)
+- ✅ Decisión: Filtros en lugar de agrupación por barrio (ISPCube no provee dato)
+
+**Estado:** Listo para producción
+
+---
+
+### 📍 Sesión 9 de Febrero, 2026
 **Temas:** DraggableWorkOrderCard Tactical HUD + Módulo Sincronización Nocturna
 
 - 🔗 [LEER_PRIMERO_SESION_2026-02-09.md](./LEER_PRIMERO_SESION_2026-02-09.md) - Resumen rápido
