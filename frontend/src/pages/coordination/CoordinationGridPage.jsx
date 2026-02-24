@@ -25,6 +25,7 @@ import api from '@/api/client';
 import { useNavigate } from 'react-router-dom';
 import CoordinationSidebar from '@/components/coordination/CoordinationSidebar';
 import ImprovedCoordinationGrid from '@/components/coordination/ImprovedCoordinationGrid';
+import { useCoordinationSync, useOptimisticUpdates } from '@/components/coordination/hooks';
 
 
 // ========== COMPONENTES ==========
@@ -144,51 +145,149 @@ export default function CoordinationGridPage() {
   const navigate = useNavigate();
 
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [gridData, setGridData] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [selectedWorkOrder, setSelectedWorkOrder] = useState(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
-  const [activeTimeBlock, setActiveTimeBlock] = useState('morning');
 
+  // Filtros multicriterio - con sessionStorage para persistencia
+  const [filters, setFilters] = useState(() => {
+    const stored = sessionStorage.getItem('coordination_filters');
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch (e) {
+        console.warn('Error restaurando filtros:', e);
+      }
+    }
+    return {
+      search: '',
+      cities: [],
+      types: [],
+      onlyCritical: false,
+    };
+  });
+
+  // activeTimeBlock también en sessionStorage
+  const [activeTimeBlockState, setActiveTimeBlockState] = useState(() => {
+    const stored = sessionStorage.getItem('coordination_activeTimeBlock');
+    return stored || 'morning';
+  });
+
+  // Sincronización automática con BD (polling 5s)
+  const syncResult = useCoordinationSync(currentDate, true, {
+    pollInterval: 5000,
+    autoStart: true,
+  });
+
+  // Extraer gridData del hook
+  const gridData = syncResult.data
+    ? {
+        teams: syncResult.data.teams,
+        allocations: syncResult.data.allocations,
+        backlog: syncResult.data.backlog,
+        availableCities: syncResult.data.availableCities,
+      }
+    : null;
+
+  // Optimistic updates para asignaciones
+  const optimisticResult = useOptimisticUpdates(
+    gridData || { teams: [], allocations: [], backlog: [] }
+  );
+
+  // Sincronizar cuando gridData cambia (reset optimistic updates)
   useEffect(() => {
-    loadCoordinationGrid();
-  }, [currentDate]);
-
-  async function loadCoordinationGrid() {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const dateParam = format(currentDate, 'yyyy-MM-dd');
-      const response = await api.get('/v2/work-orders/coordination/grid', {
-        params: {
-          start_date: dateParam,
-          end_date: dateParam,
-        },
-      });
-      setGridData(response.data);
-    } catch (err) {
-      console.error('Error cargando grid:', err);
-      const errorMsg = err.response?.data?.detail || err.message || 'Error al cargar la coordinación';
-      setError(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
-    } finally {
-      setIsLoading(false);
+    if (gridData) {
+      optimisticResult.syncWithBackend(gridData);
     }
-  }
+  }, [gridData?.syncedAt]); // Solo sincronizar cuando hay un nuevo sync
 
-  async function handleUnassignWorkOrder(woId) {
-    try {
-      await api.patch(`/v2/work-orders/${woId}/unassign`);
-      loadCoordinationGrid();
-    } catch (err) {
-      console.error('Error al desasignar OT:', err);
-      alert('No se pudo devolver al backlog: ' + (err.response?.data?.detail || err.message));
-    }
-  }
+  // Persistir filtros en sessionStorage
+  useEffect(() => {
+    sessionStorage.setItem('coordination_filters', JSON.stringify(filters));
+  }, [filters]);
+
+  // Persistir activeTimeBlock en sessionStorage
+  useEffect(() => {
+    sessionStorage.setItem('coordination_activeTimeBlock', activeTimeBlockState);
+  }, [activeTimeBlockState]);
+
+  // Estado derivado
+  const isLoading = syncResult.isLoading;
+  const error = syncResult.error
+    ? typeof syncResult.error === 'string'
+      ? syncResult.error
+      : syncResult.error.message
+    : null;
+  const activeTimeBlock = activeTimeBlockState;
 
   function handleEventClick(event) {
     setSelectedWorkOrder(event);
     setIsDetailOpen(true);
+  }
+
+  // Handlers para filtros
+  function handleSearchChange(value) {
+    setFilters((prev) => ({ ...prev, search: value }));
+  }
+
+  function handleCitiesChange(city) {
+    setFilters((prev) => ({
+      ...prev,
+      cities: prev.cities.includes(city)
+        ? prev.cities.filter((c) => c !== city)
+        : [...prev.cities, city],
+    }));
+  }
+
+  function handleTypesChange(type) {
+    setFilters((prev) => ({
+      ...prev,
+      types: prev.types.includes(type)
+        ? prev.types.filter((t) => t !== type)
+        : [...prev.types, type],
+    }));
+  }
+
+  function handleCriticalChange(value) {
+    setFilters((prev) => ({ ...prev, onlyCritical: value }));
+  }
+
+  function handleClearAllFilters() {
+    setFilters({
+      search: '',
+      cities: [],
+      types: [],
+      onlyCritical: false,
+    });
+  }
+
+  // Función para recargar manualmente
+  const handleManualRefresh = () => {
+    syncResult.refetch();
+  };
+
+  async function handleUnassignWorkOrder(woId) {
+    try {
+      // Optimistic update
+      const updateId = optimisticResult.applyOptimisticUpdate('unassign', {
+        workOrderId: woId,
+      });
+
+      // API call
+      await api.patch(`/v2/work-orders/${woId}/unassign`);
+
+      // Confirmar optimistic update
+      optimisticResult.confirmUpdate(updateId);
+
+      // Trigger refetch para sincronizar con BD
+      syncResult.refetch();
+    } catch (err) {
+      console.error('Error al desasignar OT:', err);
+      alert('No se pudo devolver al backlog: ' + (err.response?.data?.detail || err.message));
+      // Revertir optimistic update en caso de error
+      if (updateId) {
+        optimisticResult.revertOptimisticUpdate(updateId);
+      }
+    }
   }
 
   const isToday = format(currentDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
@@ -242,7 +341,7 @@ export default function CoordinationGridPage() {
             </Button>
 
             <Button
-              onClick={loadCoordinationGrid}
+              onClick={handleManualRefresh}
               variant="ghost"
               size="sm"
               disabled={isLoading}
@@ -298,7 +397,7 @@ export default function CoordinationGridPage() {
                       {String(error).substring(0, 200)}
                     </code>
                   </div>
-                  <Button onClick={loadCoordinationGrid} className="mt-4 bg-emerald-600 hover:bg-emerald-700">
+                  <Button onClick={handleManualRefresh} className="mt-4 bg-emerald-600 hover:bg-emerald-700">
                     Reintentar
                   </Button>
                 </div>
@@ -308,9 +407,10 @@ export default function CoordinationGridPage() {
                 teams={gridData?.teams || []}
                 workOrders={gridData?.allocations || []}
                 currentDate={currentDate}
-                onWorkOrderUpdated={loadCoordinationGrid}
+                onWorkOrderUpdated={handleManualRefresh}
                 onEventClick={handleEventClick}
                 activeTimeBlock={activeTimeBlock}
+                filters={filters}
               />
             )}
           </div>

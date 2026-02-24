@@ -30,7 +30,15 @@ function minutesToTime(minutes) {
 
 // Identificador robusto de OT (compatibilidad con distintas formas de ID)
 function getWorkOrderId(item) {
-  return item?.id ?? item?.work_order_id ?? item?.workOrderId ?? null;
+  return item?.id ?? item?.work_order_id ?? item?.workOrderId ?? item?.workOrder_id ?? null;
+}
+
+function getWorkOrderKey(item) {
+  const id = getWorkOrderId(item);
+  if (id != null) return `id:${id}`;
+
+  const fallback = `${item?.client_name || ''}|${item?.address || ''}|${item?.scheduled_start || ''}|${item?.estimated_duration || ''}`;
+  return `fallback:${fallback}`;
 }
 
 function isSameWorkOrder(a, b) {
@@ -45,6 +53,54 @@ function isSameWorkOrder(a, b) {
   return aKey === bKey;
 }
 
+function normalizeTeamId(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const num = Number(value);
+  return Number.isNaN(num) ? null : num;
+}
+
+/**
+ * Aplicar filtros multicriterio a workOrders
+ */
+function applyCoordinationFilters(workOrders, filters) {
+  if (!filters) return workOrders;
+
+  return workOrders.filter((wo) => {
+    // Filtro de búsqueda universal (ID, cliente, dirección)
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase();
+      const idMatch = String(getWorkOrderId(wo) || '').includes(searchLower);
+      const clientMatch = (wo.client_name || '').toLowerCase().includes(searchLower);
+      const addressMatch = (wo.address || '').toLowerCase().includes(searchLower);
+      if (!idMatch && !clientMatch && !addressMatch) return false;
+    }
+
+    // Filtro de localidades
+    if (filters.cities && filters.cities.length > 0) {
+      const woCity =
+        wo.address || wo.contact_info?.city || wo.connection_details?.city || wo.ticket?.location || '';
+      const cityMatch = filters.cities.some((city) =>
+        woCity.toLowerCase().includes(city.toLowerCase())
+      );
+      if (!cityMatch) return false;
+    }
+
+    // Filtro de tipos de trabajo
+    if (filters.types && filters.types.length > 0) {
+      const woType = wo.ot_type || wo.type || '';
+      if (!filters.types.includes(woType)) return false;
+    }
+
+    // Filtro de críticas (solo OTs críticas / de alta prioridad)
+    if (filters.onlyCritical) {
+      const isCritical = wo.is_critical || wo.priority === 'high' || false;
+      if (!isCritical) return false;
+    }
+
+    return true;
+  });
+}
+
 export default function ImprovedCoordinationGrid({
   teams = [],
   workOrders = [],
@@ -52,6 +108,7 @@ export default function ImprovedCoordinationGrid({
   onWorkOrderUpdated,
   onEventClick,
   activeTimeBlock = 'morning',
+  filters = { search: '', cities: [], types: [], onlyCritical: false },
 }) {
   const [draggedItem, setDraggedItem] = useState(null);
   const [isResizing, setIsResizing] = useState(null);
@@ -59,7 +116,7 @@ export default function ImprovedCoordinationGrid({
   const [resizingDuration, setResizingDuration] = useState(null); // Para mostrar cambios en tiempo real
   const [dropPreview, setDropPreview] = useState(null); // { teamId, leftPercent, timeStr } para línea de cursor
   const [dragOverTeamId, setDragOverTeamId] = useState(null); // Resaltar equipo durante drag
-  const [localWorkOrders, setLocalWorkOrders] = useState(workOrders);
+  const [error, setError] = useState(null); // Para mostrar errores de asignación
   
   // Refs para detectar resize en tiempo real (sin depender de estado de React)
   const isResizingRef = useRef(false);
@@ -72,24 +129,47 @@ export default function ImprovedCoordinationGrid({
   const endSlot = timeToMinutes(slots[slots.length - 1]) + 60; // +60 para la última hora completa
   const totalMinutes = endSlot - startSlot;
 
+  // Usar workOrders directamente (BD es fuente de verdad, sin localStorage)
   useEffect(() => {
-    setLocalWorkOrders(workOrders);
-  }, [workOrders]);
+    // workOrders ya viene filtrado por currentDate del backend
+    console.log('📡 Recibido desde BD:', workOrders.length, 'OTs asignadas para', format(currentDate, 'yyyy-MM-dd'));
+    
+    // DEBUG: Mostrar estructura de las OTs
+    if (workOrders.length > 0) {
+      console.log('🔍 Estructura de OTs (primer elemento):', {
+        id: workOrders[0].id,
+        team_id: workOrders[0].team_id,
+        scheduled_start: workOrders[0].scheduled_start,
+        estimated_duration: workOrders[0].estimated_duration,
+        client_name: workOrders[0].client_name,
+        ot_type: workOrders[0].ot_type,
+      });
+      console.log('📋 Array completo de allocations:', workOrders);
+    }
+  }, [workOrders, currentDate]);
+
+  // Aplicar filtros multicriterio
+  const filteredWorkOrders = useMemo(() => {
+    return applyCoordinationFilters(workOrders, filters);
+  }, [workOrders, filters]);
 
   // Agrupar OTs por equipo y día
   const allocations = useMemo(() => {
     const dayStr = format(currentDate, 'yyyy-MM-dd');
-    return localWorkOrders.filter((wo) => {
+    const base = filteredWorkOrders.filter((wo) => {
       if (!wo.scheduled_start) return false;
       const woDay = format(new Date(wo.scheduled_start), 'yyyy-MM-dd');
       return woDay === dayStr;
     });
-  }, [localWorkOrders, currentDate]);
+
+    return base;
+  }, [filteredWorkOrders, currentDate]);
 
   // Para cada equipo, obtener OTs en el rango horario
   function getTeamWorkOrders(teamId) {
+    const normalizedTeamId = normalizeTeamId(teamId);
     return allocations.filter((wo) => {
-      if (wo.team_id !== teamId) return false;
+      if (normalizeTeamId(wo.team_id) !== normalizedTeamId) return false;
 
       const woStart = new Date(wo.scheduled_start);
       const woStartMinutes = woStart.getHours() * 60 + woStart.getMinutes();
@@ -228,16 +308,46 @@ export default function ImprovedCoordinationGrid({
           scheduledStart: scheduledStartISO,
         });
         
-        await api.patch(`/v2/work-orders/${wo.id}/assign`, {
-          team_id: wo.team_id,
-          scheduled_start: scheduledStartISO,
-          estimated_duration: finalDuration,
-        });
+        const accessToken = localStorage.getItem('emerald_token');
+        if (!accessToken) {
+          throw new Error('No hay token de sesión disponible');
+        }
+        
+        const response = await api.patch(
+          `/v2/work-orders/${wo.id}/assign`,
+          {
+            team_id: wo.team_id,
+            scheduled_start: scheduledStartISO,
+            estimated_duration: finalDuration,
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          }
+        );
         
         console.log('✅ Resize guardado exitosamente');
+        
+        // Disparar refetch manual para sincronizar con BD
+        // La BD ahora es fuente de verdad
         onWorkOrderUpdated?.();
       } catch (err) {
         console.error('❌ Error resizing:', err);
+        console.error('Backend error detail:', err.response?.data);
+        console.error('Status:', err.response?.status);
+        
+        // Mostrar error específico al usuario
+        if (err.response?.status === 401) {
+          setError('❌ Sesión expirada. Recarga la página.');
+        } else if (err.response?.status === 409) {
+          setError('❌ Colisión: Otra OT ocupa ese espacio ahora');
+        } else if (err.message) {
+          setError(`❌ Error resize: ${err.message}`);
+        } else {
+          setError('❌ Error al redimensionar');
+        }
+        setTimeout(() => setError(null), 4000);
       } finally {
         setIsAssigning(false);
         setIsResizing(null);
@@ -343,6 +453,9 @@ export default function ImprovedCoordinationGrid({
           startSlot, 
           shiftEndMinutes 
         });
+        setError('❌ La hora está fuera del rango del turno');
+        setTimeout(() => setError(null), 3000);
+        setIsAssigning(false);
         return;
       }
       
@@ -365,6 +478,9 @@ export default function ImprovedCoordinationGrid({
       
       if (hasCollision) {
         console.warn('❌ Colisión detectada con otra tarea');
+        setError('❌ Esta posición ya está ocupada por otra OT');
+        setTimeout(() => setError(null), 3000);
+        setIsAssigning(false);
         return;
       }
       
@@ -382,8 +498,13 @@ export default function ImprovedCoordinationGrid({
         throw new Error('No hay token de sesión disponible');
       }
 
+      const woId = getWorkOrderId(wo);
+      if (woId == null) {
+        throw new Error('No se pudo determinar el ID de la OT para asignar');
+      }
+
       const response = await api.patch(
-        `/v2/work-orders/${wo.id}/assign`,
+        `/v2/work-orders/${woId}/assign`,
         {
           team_id: teamId,
           scheduled_start: newScheduledStart.toISOString(),
@@ -401,23 +522,33 @@ export default function ImprovedCoordinationGrid({
       }
 
       const updated = response?.data || {};
-      setLocalWorkOrders((prev) => prev.map((item) => {
-        if (!isSameWorkOrder(item, wo)) return item;
-        return {
-          ...item,
-          team_id: updated.team_id ?? teamId,
-          scheduled_start: updated.scheduled_start ?? newScheduledStart.toISOString(),
-          scheduled_end: updated.scheduled_end ?? item.scheduled_end,
-          estimated_duration: wo.estimated_duration || item.estimated_duration || 60,
-        };
-      }));
+      
+      console.log('💾 OT actualizada en el backend', {
+        woId: getWorkOrderId(wo),
+        teamId,
+        scheduledStart: updated.scheduled_start ?? newScheduledStart.toISOString(),
+      });
 
-      console.log('💾 OT actualizada en el backend');
+      // Disparar refetch manual para sincronizar con BD
+      // La BD ahora es fuente de verdad
       onWorkOrderUpdated?.();
     } catch (err) {
       console.error('❌ Error dropping:', err);
       console.error('Backend error detail:', err.response?.data);
       console.error('Status:', err.response?.status);
+      
+      // Mostrar error específico al usuario
+      if (err.response?.status === 409) {
+        setError('❌ Colisión: La posición está ocupada por otra OT');
+      } else if (err.response?.status === 400) {
+        const detail = err.response?.data?.detail || 'Datos inválidos';
+        setError(`❌ Error: ${detail}`);
+      } else if (err.message) {
+        setError(`❌ ${err.message}`);
+      } else {
+        setError('❌ Error al asignar la OT');
+      }
+      setTimeout(() => setError(null), 4000);
     } finally {
       setIsAssigning(false);
       setDraggedItem(null);
@@ -661,6 +792,13 @@ export default function ImprovedCoordinationGrid({
           <div className="bg-zinc-900 px-4 py-2 rounded border border-emerald-600">
             <p className="text-sm text-emerald-400">Actualizando...</p>
           </div>
+        </div>
+      )}
+
+      {/* Error notification */}
+      {error && (
+        <div className="absolute top-4 right-4 bg-red-900/90 border border-red-500 text-red-100 px-4 py-3 rounded shadow-lg animate-pulse z-50">
+          <p className="text-sm font-medium">{error}</p>
         </div>
       )}
     </div>

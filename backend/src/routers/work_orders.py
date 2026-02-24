@@ -1,4 +1,5 @@
 """Router para WorkOrders - Endpoints de listado y ejecución para técnicos."""
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -32,6 +33,8 @@ from src.schemas.contact_attempts import (
     ContactAttemptsStatsResponse,
 )
 from src.models.contact_attempts import ContactAttempt, ContactAttemptResult
+
+logger = logging.getLogger(__name__)
 
 
 from .work_orders_snapshot_helper import build_connection_snapshot
@@ -612,8 +615,12 @@ def reopen_work_order(
     return get_work_order_detail(work_order_id, db, user_id)
 
 
-def _wo_to_list_response(wo: WorkOrder, db: Session) -> WorkOrderListResponse:
-    """Construye la respuesta resumida para listado, enriquecida con datos de conexión."""
+def _wo_to_list_response(wo: WorkOrder, db: Session):
+    """Construye la respuesta resumida para listado, enriquecida con datos de conexión.
+    
+    Retorna un diccionario simple para evitar problemas de serialización Pydantic
+    con forward references en nested models.
+    """
     ticket_title = wo.ticket.subject if wo.ticket else "Sin ticket"
     client_name = None
     if wo.ticket and wo.ticket.creator:
@@ -621,33 +628,31 @@ def _wo_to_list_response(wo: WorkOrder, db: Session) -> WorkOrderListResponse:
 
     address = getattr(wo.ticket, "availability_note", None)
 
-    # Construir ticket_response si existe
-    ticket_response = None
+    # Construir ticket_response si existe - como diccionario para evitar forward references
+    ticket_dict = None
     if wo.ticket:
-        from src.schemas.tickets import TicketResponse
-        
-        ticket_response = TicketResponse(
-            id=wo.ticket.id,
-            subject=wo.ticket.subject,
-            status=wo.ticket.status,
-            priority=wo.ticket.priority,
-            ticket_type=wo.ticket.ticket_type,
-            administrative_subtype=wo.ticket.administrative_subtype,
-            connection_id=wo.ticket.connection_id,
-            origin_connection_id=wo.ticket.origin_connection_id,
-            destination_connection_id=wo.ticket.destination_connection_id,
-            installation_tech=wo.ticket.installation_tech,
-            availability_note=wo.ticket.availability_note,
-            contact_info=wo.ticket.connection_details,  # JSONB del modelo → schema contact_info
-            created_at=wo.ticket.created_at,
-            updated_at=wo.ticket.updated_at,
-            creator_name=wo.ticket.creator.full_name if wo.ticket.creator else None,
-            assigned_to_name=wo.ticket.assigned_to.full_name if wo.ticket.assigned_to else None,
-            client_name=client_name,
-            category_name=wo.ticket.category.name if wo.ticket.category else None,
-            reason_name=wo.ticket.reason.name if wo.ticket.reason else None,
-            tags=[],  # Por performance, no cargamos tags en listado
-        )
+        ticket_dict = {
+            "id": wo.ticket.id,
+            "subject": wo.ticket.subject,
+            "status": wo.ticket.status,
+            "priority": wo.ticket.priority,
+            "ticket_type": wo.ticket.ticket_type,
+            "administrative_subtype": wo.ticket.administrative_subtype,
+            "connection_id": wo.ticket.connection_id,
+            "origin_connection_id": wo.ticket.origin_connection_id,
+            "destination_connection_id": wo.ticket.destination_connection_id,
+            "installation_tech": wo.ticket.installation_tech,
+            "availability_note": wo.ticket.availability_note,
+            "contact_info": wo.ticket.connection_details,  # JSONB del modelo → schema contact_info
+            "created_at": wo.ticket.created_at.isoformat() if wo.ticket.created_at else None,
+            "updated_at": wo.ticket.updated_at.isoformat() if wo.ticket.updated_at else None,
+            "creator_name": wo.ticket.creator.full_name if wo.ticket.creator else None,
+            "assigned_to_name": wo.ticket.assigned_to.full_name if wo.ticket.assigned_to else None,
+            "client_name": client_name,
+            "category_name": wo.ticket.category.name if wo.ticket.category else None,
+            "reason_name": wo.ticket.reason.name if wo.ticket.reason else None,
+            "tags": [],  # Por performance, no cargamos tags en listado
+        }
 
     # Enriquecer con datos de conexión si existe (fallback si no hay connection_details)
     if wo.ticket and wo.ticket.connection_id and not wo.ticket.connection_details:
@@ -685,32 +690,37 @@ def _wo_to_list_response(wo: WorkOrder, db: Session) -> WorkOrderListResponse:
                 address = conn_row[2] or address  # conexión dirección
                 client_name = conn_row[3] or client_name  # cliente real
                 # Enriquecer contact_info con ciudad y barrio
-                if not ticket_response.contact_info:
-                    ticket_response.contact_info = {}
-                if conn_row[9]:  # city_name
-                    ticket_response.contact_info['city'] = conn_row[9]
-                if conn_row[10]:  # neighborhood_name
-                    ticket_response.contact_info['neighborhood'] = conn_row[10]
+                if ticket_dict and not ticket_dict.get('contact_info'):
+                    ticket_dict['contact_info'] = {}
+                if ticket_dict and conn_row[9]:  # city_name
+                    ticket_dict['contact_info']['city'] = conn_row[9]
+                if ticket_dict and conn_row[10]:  # neighborhood_name
+                    ticket_dict['contact_info']['neighborhood'] = conn_row[10]
         except Exception as e:
             # Si falla la consulta, usar datos fallback del ticket
             print(f"⚠️  Error enriqueciendo conexión {wo.ticket.connection_id}: {e}")
             pass
 
-    return WorkOrderListResponse(
-        id=wo.id,
-        ticket_id=wo.ticket_id,
-        ticket_title=ticket_title,
-        ticket=ticket_response,  # Incluir objeto ticket completo
-        ot_type=wo.ot_type.value if wo.ot_type else "unknown",
-        status=wo.status.value if wo.status else WorkOrderStatus.pending_planning.value,
-        client_name=client_name or "Sin cliente",
-        address=address or "-",
-        technician_name=wo.technician.full_name if wo.technician else None,
-        scheduled_at=wo.scheduled_at,
-        started_at=wo.started_at,
-        completed_at=wo.completed_at,
-        created_at=wo.created_at,
-    )
+    return {
+        "id": wo.id,
+        "ticket_id": wo.ticket_id,
+        "ticket_title": ticket_title,
+        "ticket": ticket_dict,  # Diccionario simple
+        "ot_type": wo.ot_type.value if wo.ot_type else "unknown",
+        "status": wo.status.value if wo.status else WorkOrderStatus.pending_planning.value,
+        "client_name": client_name or "Sin cliente",
+        "address": address or "-",
+        "technician_name": wo.technician.full_name if wo.technician else None,
+        # CAMPOS DE COORDINACIÓN (AÑADIDOS PARA GRID DE COORDINACIÓN)
+        "team_id": wo.team_id,
+        "scheduled_start": wo.scheduled_start.isoformat() if wo.scheduled_start else None,
+        "estimated_duration": wo.estimated_duration,
+        # CAMPOS EXISTENTES
+        "scheduled_at": wo.scheduled_at.isoformat() if wo.scheduled_at else None,
+        "started_at": wo.started_at.isoformat() if wo.started_at else None,
+        "completed_at": wo.completed_at.isoformat() if wo.completed_at else None,
+        "created_at": wo.created_at.isoformat() if wo.created_at else None,
+    }
 
 
 # ========== COORDINACIÓN / GRID ==========
@@ -832,7 +842,7 @@ def get_coordination_grid(
                 selectinload(WorkOrder.technician),
             ).all()
         
-        allocations_data = [_wo_to_list_response(wo, db).model_dump() for wo in allocations]
+        allocations_data = [_wo_to_list_response(wo, db) for wo in allocations]
         
         # Backlog (pending_planning o coordinated sin team)
         backlog = db.query(WorkOrder)\
@@ -845,7 +855,7 @@ def get_coordination_grid(
                 selectinload(WorkOrder.technician),
             ).all()
         
-        backlog_data = [_wo_to_list_response(wo, db).model_dump() for wo in backlog]
+        backlog_data = [_wo_to_list_response(wo, db) for wo in backlog]
         
         # Team Load Metrics
         WORKING_HOURS_PER_DAY = 10  # 8:00 a 18:00
@@ -885,6 +895,7 @@ def get_coordination_grid(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Formato de fecha inválido: {str(e)}")
     except Exception as e:
+        logger.exception("Error al obtener grid de coordinacion")
         raise HTTPException(status_code=500, detail=f"Error al obtener grid: {str(e)}")
 
 
