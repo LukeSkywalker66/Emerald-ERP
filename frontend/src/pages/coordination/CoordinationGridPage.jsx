@@ -355,10 +355,10 @@ export default function CoordinationGridPage() {
         {/* ÁREA DE CALENDARIO */}
         <div className="flex-1 overflow-hidden flex flex-col">
           {/* Tabs mañana/tarde */}
-          <div className="flex gap-2 p-3 border-b border-zinc-800 bg-zinc-900/30 flex-shrink-0">
+          <div className="flex gap-2 p-3 border-b border-zinc-800 bg-zinc-900/30 flex-shrink-0 select-none">
             <button
-              onClick={() => setActiveTimeBlock('morning')}
-              className={`px-4 py-2 rounded-lg transition-all text-sm font-medium ${
+              onClick={() => setActiveTimeBlockState('morning')}
+              className={`px-4 py-2 rounded-lg transition-all text-sm font-medium cursor-pointer ${
                 activeTimeBlock === 'morning'
                   ? 'bg-emerald-600 text-white'
                   : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
@@ -367,8 +367,8 @@ export default function CoordinationGridPage() {
               🌅 Mañana (08:00-12:00)
             </button>
             <button
-              onClick={() => setActiveTimeBlock('afternoon')}
-              className={`px-4 py-2 rounded-lg transition-all text-sm font-medium ${
+              onClick={() => setActiveTimeBlockState('afternoon')}
+              className={`px-4 py-2 rounded-lg transition-all text-sm font-medium cursor-pointer ${
                 activeTimeBlock === 'afternoon'
                   ? 'bg-emerald-600 text-white'
                   : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'

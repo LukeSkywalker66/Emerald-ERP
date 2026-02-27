@@ -177,7 +177,7 @@ def list_work_orders(
         .all()
     )
 
-    items = [_wo_to_list_response(wo, db).model_dump() for wo in work_orders]
+    items = [_wo_to_list_response(wo, db) for wo in work_orders]
 
     return {
         "items": items,

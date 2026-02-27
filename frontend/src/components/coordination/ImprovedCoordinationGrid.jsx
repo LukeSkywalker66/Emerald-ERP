@@ -566,7 +566,7 @@ export default function ImprovedCoordinationGrid({
   return (
     <div className="h-full flex flex-col bg-zinc-900/20 overflow-hidden">
       {/* HEADER CON HORARIOS */}
-      <div className="flex-shrink-0 bg-zinc-900 border-b border-zinc-700">
+      <div className="flex-shrink-0 bg-zinc-900 border-b border-zinc-700 relative">
         <div className="flex">
           {/* Espaciador para nombres de equipos */}
           <div className="w-40 flex-shrink-0 px-3 py-3 border-r border-zinc-700">
@@ -594,7 +594,7 @@ export default function ImprovedCoordinationGrid({
       </div>
 
       {/* GRID DE EQUIPOS Y TAREAS */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto relative">
         <div className="divide-y divide-zinc-700/50">
           {teams.map((team) => {
             const teamWOs = getTeamWorkOrders(team.id);
@@ -750,8 +750,8 @@ export default function ImprovedCoordinationGrid({
                         className="absolute top-0 bottom-0 w-0.5 bg-emerald-400 shadow-lg shadow-emerald-500/50 pointer-events-none z-50 animate-pulse"
                         style={{ left: `${dropPreview.leftPercent}%` }}
                       >
-                        {/* Tooltip con la hora */}
-                        <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-emerald-500 text-white px-2 py-1 rounded text-xs font-mono whitespace-nowrap shadow-lg">
+                        {/* Tooltip con la hora - ABAJO del cursor para evitar que lo tape el header */}
+                        <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-emerald-500 text-white px-2 py-1 rounded text-xs font-mono whitespace-nowrap shadow-lg z-50 pointer-events-none">
                           {dropPreview.timeStr}
                         </div>
                         {/* Círculo en la parte superior */}

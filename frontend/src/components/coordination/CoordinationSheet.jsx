@@ -286,7 +286,30 @@ export default function CoordinationSheet({
             )}
           </div>
 
-          {/* SECCIÓN 2: DISPONIBILIDAD */}
+          {/* SECCIÓN 2: CRITICIDAD/PRIORIDAD (INLINE) */}
+          {ticket?.priority && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-white uppercase tracking-wide flex items-center gap-2">
+                  <AlertCircle size={16} className="text-amber-400" />
+                  Criticidad
+                </h3>
+                <div className={`px-2 py-0.5 rounded-full text-xs font-bold text-white ${
+                  ticket.priority === 'critical' ? 'bg-red-600' :
+                  ticket.priority === 'high' ? 'bg-orange-600' :
+                  ticket.priority === 'medium' ? 'bg-yellow-600' :
+                  'bg-green-600'
+                }`}>
+                  {ticket.priority === 'critical' ? '🔴 CRÍTICA' :
+                   ticket.priority === 'high' ? '🟠 ALTA' :
+                   ticket.priority === 'medium' ? '🟡 MEDIA' :
+                   '🟢 BAJA'}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SECCIÓN 2B: DISPONIBILIDAD */}
           {hasAvailability && (
             <Alert className="border-emerald-700/50 bg-emerald-950/30">
               <Clock className="h-4 w-4 text-emerald-400" />
