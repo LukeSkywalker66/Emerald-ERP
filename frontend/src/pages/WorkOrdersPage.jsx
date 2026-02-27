@@ -127,10 +127,11 @@ export default function WorkOrdersPage() {
         setTechnicians(uniqueTechnicians);
 
         // Filtro por asignación (solo admins)
+        // Considera tanto technician_name (legacy) como team_name (nuevo sistema)
         if (assigneeFilter === 'unassigned') {
-          items = items.filter((wo) => !wo.technician_name);
+          items = items.filter((wo) => !wo.technician_name && !wo.team_name);
         } else if (assigneeFilter === 'assigned') {
-          items = items.filter((wo) => !!wo.technician_name);
+          items = items.filter((wo) => !!wo.technician_name || !!wo.team_name);
         } else if (assigneeFilter && assigneeFilter !== '') {
           // Filtro por técnico específico
           items = items.filter((wo) => wo.technician_name === assigneeFilter);

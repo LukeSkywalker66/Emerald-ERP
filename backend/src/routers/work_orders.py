@@ -169,6 +169,7 @@ def list_work_orders(
     data_query = base_query.options(
         selectinload(WorkOrder.ticket).selectinload(Ticket.creator),
         selectinload(WorkOrder.technician),
+        selectinload(WorkOrder.team),
     )
 
     work_orders = (
@@ -784,6 +785,7 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
         "technician_name": wo.technician.full_name if wo.technician else None,
         # CAMPOS DE COORDINACIÓN (AÑADIDOS PARA GRID DE COORDINACIÓN)
         "team_id": wo.team_id,
+        "team_name": wo.team.name if wo.team else None,
         "scheduled_start": wo.scheduled_start.isoformat() if wo.scheduled_start else None,
         "estimated_duration": wo.estimated_duration,
         # CAMPOS EXISTENTES
