@@ -10,9 +10,12 @@ import {
   Package,
   Home,
   Zap,
+  Users,
+  User,
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
+import api from '@/api/client';
 import workOrdersService from '@/services/workOrders.service';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -73,6 +76,9 @@ export default function WorkOrdersPage() {
     [user]
   );
 
+  // Detectar si es técnico (para bifurcación de fetch)
+  const isTechnician = useMemo(() => user?.role === 'tecnico', [user]);
+
   // State
   const [workOrders, setWorkOrders] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -86,36 +92,49 @@ export default function WorkOrdersPage() {
   const [typeFilter, setTypeFilter] = useState('');
   const [assigneeFilter, setAssigneeFilter] = useState('');
 
-  // Load data
+  // Load data - BIFURCACIÓN POR ROL (NASA-GRADE)
   const loadWorkOrders = async () => {
     try {
       setError(null);
-      const data = await workOrdersService.listWorkOrders({
-        status: statusFilter || undefined,
-        ot_type: typeFilter || undefined,
-        search: searchQuery || undefined,
-        limit: 100,
-      });
-      let items = data.items || [];
 
-      // Extraer técnicos únicos de las OTs (sin filtro inicial)
-      const uniqueTechnicians = Array.from(
-        new Set(
-          items
-            .filter(wo => wo.technician_name)
-            .map(wo => wo.technician_name)
-        )
-      ).sort();
-      setTechnicians(uniqueTechnicians);
+      let items = [];
 
-      // Filtro por asignación (solo admins)
-      if (assigneeFilter === 'unassigned') {
-        items = items.filter((wo) => !wo.technician_name);
-      } else if (assigneeFilter === 'assigned') {
-        items = items.filter((wo) => !!wo.technician_name);
-      } else if (assigneeFilter && assigneeFilter !== '') {
-        // Filtro por técnico específico
-        items = items.filter((wo) => wo.technician_name === assigneeFilter);
+      if (isTechnician) {
+        // ========== TÉCNICOS: Agenda del día (my-schedule) ==========
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+        const { data } = await api.get('/v2/work-orders/my-schedule', {
+          params: { date: today },
+        });
+        items = Array.isArray(data) ? data : [];
+      } else {
+        // ========== ADMIN/COORDINADOR: Vista global con filtros ==========
+        const data = await workOrdersService.listWorkOrders({
+          status: statusFilter || undefined,
+          ot_type: typeFilter || undefined,
+          search: searchQuery || undefined,
+          limit: 100,
+        });
+        items = data.items || [];
+
+        // Extraer técnicos únicos de las OTs (solo para admin)
+        const uniqueTechnicians = Array.from(
+          new Set(
+            items
+              .filter(wo => wo.technician_name)
+              .map(wo => wo.technician_name)
+          )
+        ).sort();
+        setTechnicians(uniqueTechnicians);
+
+        // Filtro por asignación (solo admins)
+        if (assigneeFilter === 'unassigned') {
+          items = items.filter((wo) => !wo.technician_name);
+        } else if (assigneeFilter === 'assigned') {
+          items = items.filter((wo) => !!wo.technician_name);
+        } else if (assigneeFilter && assigneeFilter !== '') {
+          // Filtro por técnico específico
+          items = items.filter((wo) => wo.technician_name === assigneeFilter);
+        }
       }
 
       setWorkOrders(items);
@@ -363,10 +382,22 @@ export default function WorkOrdersPage() {
                       </TableCell>
                     )}
 
-                    {/* Asignada - solo admins */}
+                    {/* Asignada - solo admins (TACTICAL HUD: Team > Technician) */}
                     {canSeeAdminColumns && (
-                      <TableCell className="text-sm text-zinc-300">
-                        {wo.technician_name || <span className="text-zinc-500">Sin asignar</span>}
+                      <TableCell className="text-sm">
+                        {wo.team_name ? (
+                          <div className="flex items-center gap-1.5 text-cyan-400">
+                            <Users size={14} className="flex-shrink-0" />
+                            <span className="font-medium">{wo.team_name}</span>
+                          </div>
+                        ) : wo.technician_name ? (
+                          <div className="flex items-center gap-1.5 text-zinc-300">
+                            <User size={14} className="flex-shrink-0 text-zinc-500" />
+                            <span>{wo.technician_name}</span>
+                          </div>
+                        ) : (
+                          <span className="text-zinc-500 text-xs">Sin asignar</span>
+                        )}
                       </TableCell>
                     )}
                   </TableRow>
