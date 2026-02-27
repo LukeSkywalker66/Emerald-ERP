@@ -1,10 +1,10 @@
 """Router para WorkOrders - Endpoints de listado y ejecución para técnicos."""
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import String, cast, or_, text
+from sqlalchemy import String, and_, cast, or_, select, text
 from sqlalchemy.orm import Session, joinedload, selectinload, attributes
 
 from src.database import get_db
@@ -19,6 +19,7 @@ from src.models.tickets import (
     WorkOrderType,
 )
 from src.models.user import User
+from src.models.coordination import Team, TeamMember
 from src.schemas.tickets import (
     WorkOrderCreate,
     WorkOrderDetailResponse,
@@ -186,6 +187,76 @@ def list_work_orders(
         "offset": offset,
         "pages": (total + limit - 1) // limit if limit else 0,
     }
+
+
+@router.get("/my-schedule", response_model=list[dict])
+def get_my_schedule(
+    date_param: Optional[date] = Query(
+        default=None,
+        alias="date",
+        description="Fecha a consultar (YYYY-MM-DD). Si no viene, usa hoy.",
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Agenda diaria de OTs para equipos activos del usuario.
+    
+    Retorna las OTs programadas para los equipos (cuadrillas) en los que
+    el usuario es miembro activo, filtradas por fecha.
+    
+    Útil para técnicos en calle que necesitan ver su agenda del día.
+    """
+    target_date = date_param or datetime.utcnow().date()
+    day_start = datetime.combine(target_date, datetime.min.time())
+    day_end = day_start + timedelta(days=1)
+
+    # 1) Obtener team_ids donde el usuario es miembro
+    team_ids_stmt = (
+        select(TeamMember.team_id)
+        .where(TeamMember.user_id == current_user.id)
+        .distinct()
+    )
+    team_ids = list(db.scalars(team_ids_stmt).all())
+
+    if not team_ids:
+        return []
+
+    # 2) OTs del equipo filtradas por fecha programada
+    # Soporte para scheduled_start (nuevo) y fallback a scheduled_at (legacy)
+    work_orders_stmt = (
+        select(WorkOrder)
+        .where(
+            WorkOrder.team_id.in_(team_ids),
+            or_(
+                and_(
+                    WorkOrder.scheduled_start.is_not(None),
+                    WorkOrder.scheduled_start >= day_start,
+                    WorkOrder.scheduled_start < day_end,
+                ),
+                and_(
+                    WorkOrder.scheduled_start.is_(None),
+                    WorkOrder.scheduled_at.is_not(None),
+                    WorkOrder.scheduled_at >= day_start,
+                    WorkOrder.scheduled_at < day_end,
+                ),
+            ),
+        )
+        .options(
+            joinedload(WorkOrder.ticket).joinedload(Ticket.creator),
+            joinedload(WorkOrder.team),
+            joinedload(WorkOrder.technician),
+        )
+        .order_by(
+            WorkOrder.scheduled_start.asc().nulls_last(),
+            WorkOrder.scheduled_at.asc().nulls_last(),
+            WorkOrder.id.asc(),
+        )
+    )
+
+    work_orders = list(db.scalars(work_orders_stmt).unique().all())
+
+    # 3) Reusar serializador enriquecido existente
+    return [_wo_to_list_response(wo, db) for wo in work_orders]
 
 
 @router.get("/{work_order_id}", response_model=WorkOrderDetailResponse)
