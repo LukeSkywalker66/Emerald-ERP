@@ -4,7 +4,7 @@
  * 4 de febrero de 2026
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { addDays, format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
@@ -188,17 +188,16 @@ export default function CoordinationGridPage() {
       }
     : null;
 
-  // Optimistic updates para asignaciones
-  const optimisticResult = useOptimisticUpdates(
-    gridData || { teams: [], allocations: [], backlog: [] }
-  );
-
-  // Sincronizar cuando gridData cambia (reset optimistic updates)
+  // ========== ESTADO PARA OPTIMISTIC UPDATES ==========
+  // Mantenermos una copia del estado de workOrders para aplicar cambios optimistas
+  const [optimisticAllocations, setOptimisticAllocations] = useState([]);
+  
+  // Sincronizar con BD cuando gridData cambia
   useEffect(() => {
-    if (gridData) {
-      optimisticResult.syncWithBackend(gridData);
+    if (gridData?.allocations) {
+      setOptimisticAllocations(gridData.allocations);
     }
-  }, [gridData?.syncedAt]); // Solo sincronizar cuando hay un nuevo sync
+  }, [gridData?.allocations]);
 
   // Persistir filtros en sessionStorage
   useEffect(() => {
@@ -264,6 +263,64 @@ export default function CoordinationGridPage() {
   const handleManualRefresh = () => {
     syncResult.refetch();
   };
+
+  // ========== CALLBACKS: Optimistic Updates ==========
+  const handleOptimisticAssign = useCallback((wo, newTeamId, scheduledStartISO) => {
+    console.log('💡 Optimistic assign:', wo.id, 'to team', newTeamId);
+    
+    setOptimisticAllocations((prev) => {
+      // Buscar si ya existe (cambio de team)
+      const existing = prev.findIndex(
+        (item) => (item?.id ?? item?.work_order_id) === (wo?.id ?? wo?.work_order_id)
+      );
+
+      const optimisticWO = {
+        ...wo,
+        team_id: newTeamId,
+        scheduled_start: scheduledStartISO,
+        _isOptimistic: true, // Flag para UI feedback
+      };
+
+      if (existing >= 0) {
+        // Actualizar existente
+        const updated = [...prev];
+        updated[existing] = optimisticWO;
+        return updated;
+      } else {
+        // Agregar nuevo (desde backlog)
+        return [...prev, optimisticWO];
+      }
+    });
+  }, []);
+
+  const handleRollbackAssign = useCallback((woId) => {
+    console.log('🔄 Rollback assign:', woId);
+    
+    setOptimisticAllocations((prev) => {
+      // Si la OT vino del backlog (no estaba en allocations antes), removerla
+      // Si estaba en otra posición, no hacemos nada aquí (siguiente polling limpia)
+      return prev.filter((wo) => (wo?.id ?? wo?.work_order_id) !== woId);
+    });
+  }, []);
+
+  const handleOptimisticResize = useCallback((woId, newDuration) => {
+    console.log('💡 Optimistic resize:', woId, 'duration:', newDuration);
+    
+    setOptimisticAllocations((prev) =>
+      prev.map((wo) =>
+        (wo?.id ?? wo?.work_order_id) === woId
+          ? { ...wo, estimated_duration: newDuration, _isOptimistic: true }
+          : wo
+      )
+    );
+  }, []);
+
+  const handleRollbackResize = useCallback((woId) => {
+    console.log('🔄 Rollback resize:', woId);
+    
+    // Simplemente dejar que el próximo polling traiga el valor correcto
+    // No hacemos nada aquí porque la BD es la fuente de verdad
+  }, []);
 
   async function handleUnassignWorkOrder(woId) {
     try {
@@ -405,12 +462,17 @@ export default function CoordinationGridPage() {
             ) : (
               <ImprovedCoordinationGrid
                 teams={gridData?.teams || []}
-                workOrders={gridData?.allocations || []}
+                workOrders={optimisticAllocations}
                 currentDate={currentDate}
                 onWorkOrderUpdated={handleManualRefresh}
                 onEventClick={handleEventClick}
                 activeTimeBlock={activeTimeBlock}
                 filters={filters}
+                // ========== NUEVOS CALLBACKS ==========
+                onOptimisticAssign={handleOptimisticAssign}
+                onRollbackAssign={handleRollbackAssign}
+                onOptimisticResize={handleOptimisticResize}
+                onRollbackResize={handleRollbackResize}
               />
             )}
           </div>

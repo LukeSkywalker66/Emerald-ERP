@@ -109,6 +109,11 @@ export default function ImprovedCoordinationGrid({
   onEventClick,
   activeTimeBlock = 'morning',
   filters = { search: '', cities: [], types: [], onlyCritical: false },
+  // ========== NUEVOS: Optimistic Updates ==========
+  onOptimisticAssign,  // (wo, teamId, scheduledStartISO) => void
+  onRollbackAssign,    // (woId) => void
+  onOptimisticResize,  // (woId, newDuration) => void
+  onRollbackResize,    // (woId) => void
 }) {
   const [draggedItem, setDraggedItem] = useState(null);
   const [isResizing, setIsResizing] = useState(null);
@@ -296,6 +301,11 @@ export default function ImprovedCoordinationGrid({
 
       try {
         setIsAssigning(true);
+        
+        // ========== OPTIMISTIC UPDATE ==========
+        onOptimisticResize?.(wo.id, finalDuration);
+        console.log('💡 Optimistic resize applied:', wo.id, 'new duration:', finalDuration);
+        
         // Convertir scheduled_start a ISO string si es necesario
         const scheduledStartISO = wo.scheduled_start instanceof Date 
           ? wo.scheduled_start.toISOString()
@@ -329,13 +339,19 @@ export default function ImprovedCoordinationGrid({
         
         console.log('✅ Resize guardado exitosamente');
         
-        // Disparar refetch manual para sincronizar con BD
-        // La BD ahora es fuente de verdad
-        onWorkOrderUpdated?.();
+        // ========== REFETCH DESPUÉS DE ÉXITO ==========
+        // Delay pequeño para dar margen a la replicación de BD
+        setTimeout(() => {
+          onWorkOrderUpdated?.();
+        }, 1500);
       } catch (err) {
         console.error('❌ Error resizing:', err);
         console.error('Backend error detail:', err.response?.data);
         console.error('Status:', err.response?.status);
+        
+        // ========== ROLLBACK ==========
+        onRollbackResize?.(wo.id);
+        console.log('🔄 Rollback applied for resize:', wo.id);
         
         // Mostrar error específico al usuario
         if (err.response?.status === 401) {
@@ -493,6 +509,12 @@ export default function ImprovedCoordinationGrid({
         newScheduledStart: newScheduledStart.toISOString(),
       });
 
+      // ========== 2. OPTIMISTIC UPDATE (UI INMEDIATA) ==========
+      const scheduledStartISO = newScheduledStart.toISOString();
+      onOptimisticAssign?.(wo, teamId, scheduledStartISO);
+      console.log('💡 Optimistic assign applied:', wo.id, 'to team', teamId);
+
+      // ========== 3. BACKEND UPDATE (ASYNC, SIN BLOQUEAR VISUAL) ==========
       const accessToken = localStorage.getItem('emerald_token');
       if (!accessToken) {
         throw new Error('No hay token de sesión disponible');
@@ -507,7 +529,7 @@ export default function ImprovedCoordinationGrid({
         `/v2/work-orders/${woId}/assign`,
         {
           team_id: teamId,
-          scheduled_start: newScheduledStart.toISOString(),
+          scheduled_start: scheduledStartISO,
           estimated_duration: wo.estimated_duration || 60,
         },
         {
@@ -524,18 +546,27 @@ export default function ImprovedCoordinationGrid({
       const updated = response?.data || {};
       
       console.log('💾 OT actualizada en el backend', {
-        woId: getWorkOrderId(wo),
+        woId,
         teamId,
-        scheduledStart: updated.scheduled_start ?? newScheduledStart.toISOString(),
+        scheduledStart: updated.scheduled_start ?? scheduledStartISO,
       });
 
-      // Disparar refetch manual para sincronizar con BD
-      // La BD ahora es fuente de verdad
-      onWorkOrderUpdated?.();
+      // ========== 4. ÉXITO: Refetch para sincronizar con BD ==========
+      // Delay pequeño para dar margen a la replicación de BD
+      setTimeout(() => {
+        onWorkOrderUpdated?.();
+      }, 1500);
     } catch (err) {
       console.error('❌ Error dropping:', err);
       console.error('Backend error detail:', err.response?.data);
       console.error('Status:', err.response?.status);
+      
+      // ========== 5. ROLLBACK: Revertir cambios optimistas ==========
+      const woId = getWorkOrderId(wo);
+      if (woId != null) {
+        onRollbackAssign?.(woId);
+        console.log('🔄 Rollback applied for work order:', woId);
+      }
       
       // Mostrar error específico al usuario
       if (err.response?.status === 409) {
