@@ -19,6 +19,7 @@ import {
   Zap,
   Activity,
   ClipboardList,
+  Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -42,6 +43,25 @@ const OT_TYPE_ICONS = {
   install: { icon: Home, label: 'Instalación', color: 'text-blue-400' },
   pickup: { icon: Package, label: 'Retiro', color: 'text-amber-400' },
   infrastructure: { icon: Zap, label: 'Infraestructura', color: 'text-purple-400' },
+};
+
+const PRIORITY_CONFIG = {
+  critical: {
+    label: 'Crítica',
+    className: 'bg-rose-500/15 border-rose-500/50 text-rose-200',
+  },
+  high: {
+    label: 'Alta',
+    className: 'bg-amber-500/15 border-amber-500/50 text-amber-200',
+  },
+  medium: {
+    label: 'Media',
+    className: 'bg-blue-500/15 border-blue-500/50 text-blue-200',
+  },
+  low: {
+    label: 'Baja',
+    className: 'bg-zinc-700/60 border-zinc-600 text-zinc-200',
+  },
 };
 
 // Timer Component
@@ -448,6 +468,16 @@ export default function WorkOrderExecutionPage() {
   const isCompleted = !!workOrder?.completed_at;
   const typeConfig = OT_TYPE_ICONS[workOrder?.ot_type] || OT_TYPE_ICONS.repair;
   const TypeIcon = typeConfig.icon;
+  const rawPriority =
+    typeof workOrder?.ticket_info?.priority === 'string'
+      ? workOrder.ticket_info.priority
+      : typeof workOrder?.priority === 'string'
+        ? workOrder.priority
+        : 'medium';
+  const normalizedPriority = rawPriority.toLowerCase();
+  const priority = PRIORITY_CONFIG[normalizedPriority] || PRIORITY_CONFIG.medium;
+  const assignmentLabel = workOrder?.team_name || workOrder?.technician_name || 'sin asignar';
+  const isTeamAssignment = Boolean(workOrder?.team_name);
 
   return (
     <div className="min-h-screen bg-zinc-950">
@@ -468,9 +498,14 @@ export default function WorkOrderExecutionPage() {
                 <h1 className="text-base md:text-lg font-bold text-white">
                   {typeConfig.label} #{workOrder?.id}
                 </h1>
-                <p className="text-xs text-zinc-500">
-                  Ticket #{workOrder?.ticket_id}
-                </p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-xs text-zinc-500">
+                    Ticket #{workOrder?.ticket_id}
+                  </p>
+                  <Badge variant="outline" className={`h-5 px-2 text-[10px] ${priority.className}`}>
+                    Criticidad: {priority.label}
+                  </Badge>
+                </div>
               </div>
             </div>
           </div>
@@ -569,10 +604,14 @@ export default function WorkOrderExecutionPage() {
           {(user?.role === 'admin' || user?.role === 'operator') && (
             <div className="p-4 rounded-lg border border-emerald-800/50 bg-emerald-950/20">
               <p className="text-sm text-zinc-400 flex items-center gap-2">
-                <User size={14} className="text-emerald-400" />
+                {isTeamAssignment ? (
+                  <Users size={14} className="text-emerald-400" />
+                ) : (
+                  <User size={14} className="text-emerald-400" />
+                )}
                 <span className="text-zinc-500">Asignada a:</span>
                 <span className="text-emerald-300 font-medium">
-                  {workOrder?.technician_name || 'sin asignar'}
+                  {assignmentLabel}
                 </span>
               </p>
             </div>
@@ -794,7 +833,11 @@ export default function WorkOrderExecutionPage() {
 
       {/* Material Dialog */}
       <Dialog open={showMaterialDialog} onOpenChange={setShowMaterialDialog}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 max-w-md">
+        <DialogContent
+          className="bg-zinc-900 border-zinc-800 max-w-md"
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle className="text-white">Agregar Material</DialogTitle>
           </DialogHeader>
@@ -941,7 +984,7 @@ export default function WorkOrderExecutionPage() {
             )}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
             <Button
               variant="outline"
               onClick={() => {
@@ -951,13 +994,14 @@ export default function WorkOrderExecutionPage() {
                 setAvailableSerials([]);
               }}
               disabled={isSubmitting || warehouseLoading || inventoryLoading}
+              className="w-full sm:w-auto"
             >
               Cancelar
             </Button>
             <Button
               onClick={handleAddMaterial}
               disabled={!isAddMaterialValid() || isSubmitting || warehouseLoading || inventoryLoading}
-              className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-700 disabled:opacity-50"
+              className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-700 disabled:opacity-50"
             >
               {isSubmitting ? 'Agregando...' : 'Agregar'}
             </Button>

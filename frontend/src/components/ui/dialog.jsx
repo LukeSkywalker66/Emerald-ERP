@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { X } from 'lucide-react';
 
 /**
@@ -10,6 +10,8 @@ const DialogContext = React.createContext();
 
 export function Dialog({ open = false, onOpenChange, children }) {
   const [isOpen, setIsOpen] = useState(open);
+  const [interactOutsideHandler, setInteractOutsideHandler] = useState(null);
+  const [escapeKeyHandler, setEscapeKeyHandler] = useState(null);
 
   useEffect(() => {
     setIsOpen(open);
@@ -20,13 +22,62 @@ export function Dialog({ open = false, onOpenChange, children }) {
     onOpenChange?.(newState);
   };
 
+  const handleOutsideClick = useCallback(() => {
+    const event = {
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+    };
+
+    interactOutsideHandler?.(event);
+
+    if (!event.defaultPrevented) {
+      handleOpenChange(false);
+    }
+  }, [interactOutsideHandler]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+
+      const customEvent = {
+        defaultPrevented: false,
+        preventDefault() {
+          this.defaultPrevented = true;
+        },
+      };
+
+      escapeKeyHandler?.(customEvent);
+
+      if (!customEvent.defaultPrevented) {
+        handleOpenChange(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, escapeKeyHandler]);
+
   return (
-    <DialogContext.Provider value={{ open: isOpen, onOpenChange: handleOpenChange }}>
+    <DialogContext.Provider
+      value={{
+        open: isOpen,
+        onOpenChange: handleOpenChange,
+        setInteractOutsideHandler,
+        setEscapeKeyHandler,
+      }}
+    >
       {isOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm pointer-events-none">
           <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-auto">
             <div
-              onClick={() => handleOpenChange(false)}
+              onClick={handleOutsideClick}
               className="absolute inset-0"
             ></div>
             {children}
@@ -37,8 +88,27 @@ export function Dialog({ open = false, onOpenChange, children }) {
   );
 }
 
-export function DialogContent({ children, className = '' }) {
+export function DialogContent({
+  children,
+  className = '',
+  onInteractOutside,
+  onEscapeKeyDown,
+}) {
   const context = React.useContext(DialogContext);
+
+  useEffect(() => {
+    context?.setInteractOutsideHandler?.(() => onInteractOutside || null);
+    return () => {
+      context?.setInteractOutsideHandler?.(() => null);
+    };
+  }, [context, onInteractOutside]);
+
+  useEffect(() => {
+    context?.setEscapeKeyHandler?.(() => onEscapeKeyDown || null);
+    return () => {
+      context?.setEscapeKeyHandler?.(() => null);
+    };
+  }, [context, onEscapeKeyDown]);
 
   return (
     <div

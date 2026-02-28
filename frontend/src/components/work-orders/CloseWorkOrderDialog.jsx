@@ -393,15 +393,38 @@ export default function CloseWorkOrderDialog({
   ];
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl bg-zinc-900 border-zinc-800 p-0">
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) {
+          onClose?.();
+        }
+      }}
+    >
+      <DialogContent
+        className="max-w-3xl bg-zinc-900 border-zinc-800 p-0"
+        onInteractOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
         <div className="w-full bg-zinc-900 rounded-lg p-6 space-y-6">
         {/* Header */}
-        <div className="mb-2">
-          <h2 className="text-xl font-bold text-white mb-2">Completar Orden de Trabajo</h2>
-          <p className="text-sm text-zinc-400">
-            Paso {step} de 3: {step === 1 ? 'Resolución' : step === 2 ? 'Materiales' : 'Evidencia'}
-          </p>
+        <div className="mb-2 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-bold text-white mb-2">Completar Orden de Trabajo</h2>
+            <p className="text-sm text-zinc-400">
+              Paso {step} de 3: {step === 1 ? 'Resolución' : step === 2 ? 'Materiales' : 'Evidencia'}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={onClose}
+            disabled={uploading || materialSubmitting}
+            className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+          >
+            <X size={14} />
+          </Button>
         </div>
 
         {/* Progress Bar */}
@@ -751,22 +774,32 @@ export default function CloseWorkOrderDialog({
         </div>
 
         {/* Botones de navegación */}
-        <div className="flex gap-3 justify-between pt-4 border-t border-zinc-800">
-          <Button
-            variant="outline"
-            onClick={handlePrevious}
-            disabled={step === 1 || uploading}
-            className="flex items-center gap-2"
-          >
-            <ChevronLeft size={16} />
-            Anterior
-          </Button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-between pt-4 border-t border-zinc-800">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Button
+              variant="outline"
+              onClick={onClose}
+              disabled={uploading || materialSubmitting}
+              className="w-full sm:w-auto border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handlePrevious}
+              disabled={step === 1 || uploading}
+              className="w-full sm:w-auto flex items-center gap-2"
+            >
+              <ChevronLeft size={16} />
+              Anterior
+            </Button>
+          </div>
 
           {step < 3 ? (
             <Button
               onClick={handleNext}
               disabled={!isStep1Valid && step === 1}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700"
+              className="w-full sm:w-auto flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700"
             >
               Siguiente
               <ChevronRight size={16} />
@@ -775,7 +808,7 @@ export default function CloseWorkOrderDialog({
             <Button
               onClick={handleComplete}
               disabled={!isStep3Valid || uploading}
-              className="bg-emerald-600 hover:bg-emerald-700"
+              className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700"
             >
               {uploading ? 'Completando...' : 'Completar Trabajo'}
             </Button>

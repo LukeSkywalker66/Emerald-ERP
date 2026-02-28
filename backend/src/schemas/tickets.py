@@ -119,13 +119,6 @@ class WorkOrderListResponse(BaseModel):
     address: Optional[str] = None
     technician_name: Optional[str] = None
     
-    # NUEVOS campos de coordinación
-    team_id: Optional[int] = None
-    team_name: Optional[str] = None
-    scheduled_start: Optional[datetime] = None
-    scheduled_end: Optional[datetime] = None
-    estimated_duration: int = 60
-    
     # Campos existentes
     scheduled_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
