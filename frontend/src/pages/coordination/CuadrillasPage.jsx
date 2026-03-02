@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import coordinationService from '@/services/coordination.service';
 import usersService from '@/services/users.service';
 import rolesService from '@/services/roles.service';
-import { getWarehouses } from '@/services/inventory.service';
+import fleetService from '@/services/fleet.service';
 import TeamCard from '@/components/coordination/TeamCard';
 import CreateTeamDialog from '@/components/coordination/CreateTeamDialog';
 import EditTeamDialog from '@/components/coordination/EditTeamDialog';
@@ -101,13 +101,26 @@ const CuadrillasPage = () => {
   };
 
   /**
-   * Cargar móviles disponibles (warehouses tipo MOBILE)
+   * Cargar vehículos disponibles (autos de la flota con sus warehouses asociados)
    */
   const loadVehicles = async () => {
     try {
       setLoadingVehicles(true);
-      const data = await getWarehouses({ type: 'MOBILE', warehouse_type: 'MOBILE' });
-      const list = Array.isArray(data) ? data : [];
+      const data = await fleetService.getVehicles({ status: 'ACTIVE' });
+      const list = Array.isArray(data) ? data.map(v => ({
+        id: v.id,
+        name: v.name,
+        label: `${v.name}${v.license_plate ? ` (${v.license_plate})` : ''}`,
+        code: v.license_plate,
+        vehicle_brand: v.vehicle_brand,
+        vehicle_model: v.vehicle_model,
+        vehicle_year: v.vehicle_year,
+        warehouse_id: v.warehouse_id,
+        warehouse_name: v.warehouse_name,
+        status: v.status,
+        team_id: v.team_id,
+        team_name: v.team_name,
+      })) : [];
       setVehicles(list);
     } catch (err) {
       console.error('Error loading vehicles:', err);
@@ -299,6 +312,7 @@ const CuadrillasPage = () => {
               onDelete={handleDeleteTeam}
               availableUsers={availableUsersForAssign}
               onTeamUpdated={loadTeams}
+              vehicles={vehicles}
             />
           ))}
         </div>

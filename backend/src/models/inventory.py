@@ -73,7 +73,7 @@ class Warehouse(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
-        comment="FK a usuario si es tipo MOBILE (técnico asignado)"
+        comment="[DEPRECATED] Usar Team + Vehicle en su lugar"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
@@ -100,6 +100,15 @@ class Warehouse(Base):
         "StockMovement",
         foreign_keys="StockMovement.to_warehouse_id",
         back_populates="to_warehouse"
+    )
+
+    # ========== NUEVA RELACIÓN INVERSA: Vehicle ==========
+    vehicle: Mapped[Optional["Vehicle"]] = relationship(
+        "Vehicle",
+        back_populates="warehouse",
+        lazy="selectin",
+        uselist=False,
+        foreign_keys="Vehicle.warehouse_id"
     )
 
     def __repr__(self):

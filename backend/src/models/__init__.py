@@ -27,6 +27,7 @@ from .tickets import (
 from .ticket_attachments import TicketAttachment
 from .contact_attempts import ContactAttempt, ContactAttemptResult
 from .coordination import Team, TeamMember, TeamRole
+from .fleet import Vehicle, VehicleStatus
 from .engineering import (
 	# Gestión de Tareas de Ingeniería/NOC
 	EngineeringTask,
@@ -71,6 +72,9 @@ __all__ = [
 	"User",
 	"AuditLog",
 	"LoginAttempt",
+	# Fleet models
+	"Vehicle",
+	"VehicleStatus",
 	# Ticket models v2 (nuevos mejorados - ONLY VERSION IN USE)
 	"Ticket",
 	"TicketStatus",
@@ -91,6 +95,16 @@ __all__ = [
 	"Team",
 	"TeamMember",
 	"TeamRole",
+	# Inventory models
+	"Warehouse",
+	"WarehouseType",
+	"Product",
+	"ProductType",
+	"StockBulk",
+	"SerialItem",
+	"SerialItemStatus",
+	"StockMovement",
+	"MovementType",
 	# Engineering models
 	"EngineeringTask",
 	"EngineeringTaskType",

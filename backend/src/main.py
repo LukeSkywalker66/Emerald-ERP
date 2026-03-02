@@ -23,7 +23,7 @@ from src.services.api_key_service import APIKeyService
 from src.routers.v1 import auth  # Removed old tickets router import
 from src.routers.v2 import users as users_v2
 from src.routers.v2 import roles as roles_v2
-from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination
+from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet
 
 # 👇 IMPORTAMOS EL NUEVO SERVICIO (Tu lógica adaptada)
 from src.services import diagnosis as diagnosis_service 
@@ -124,6 +124,12 @@ app.include_router(
 app.include_router(
     coordination.router,
     tags=["Coordination"]
+)
+
+# Fleet Module (Vehicles)
+app.include_router(
+    fleet.router,
+    tags=["Fleet"]
 )
 
 @app.on_event("startup")

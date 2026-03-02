@@ -88,10 +88,10 @@ const EditTeamDialog = ({
             />
           </div>
 
-          {/* Móvil asignado (Opcional) */}
+          {/* Vehículo asignado (Opcional) */}
           <div className="space-y-2">
             <label htmlFor="edit_vehicle_id" className="block text-sm font-medium text-zinc-300">
-              Móvil asignado (opcional)
+              Vehículo asignado (opcional)
             </label>
             <select
               id="edit_vehicle_id"
@@ -101,12 +101,22 @@ const EditTeamDialog = ({
               disabled={loadingVehicles}
               className="w-full bg-zinc-800 border border-zinc-700 text-white rounded px-3 py-2 focus:border-amber-600 focus:outline-none"
             >
-              <option value="">Sin móvil asignado</option>
-              {availableVehicles.map((vehicle) => (
-                <option key={vehicle.id} value={vehicle.id}>
-                  {(vehicle.name || vehicle.label || vehicle.code || 'Móvil')} (ID: {vehicle.id})
-                </option>
-              ))}
+              <option value="">Sin vehículo asignado</option>
+              {availableVehicles.map((vehicle) => {
+                // Construir etiqueta con patente y modelo
+                let label = vehicle.name || vehicle.label || 'Vehículo #' + vehicle.id;
+                if (vehicle.license_plate) {
+                  label += ` (${vehicle.license_plate})`;
+                }
+                if (vehicle.vehicle_model) {
+                  label += ` - ${vehicle.vehicle_model}`;
+                }
+                return (
+                  <option key={vehicle.id} value={vehicle.id}>
+                    {label}
+                  </option>
+                );
+              })}
             </select>
           </div>
 

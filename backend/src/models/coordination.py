@@ -43,10 +43,10 @@ class Team(Base):
     )
 
     vehicle_id: Mapped[Optional[int]] = mapped_column(
-        Integer,
+        ForeignKey("vehicles.id", name="fk_teams_vehicle_id", ondelete="SET NULL"),
         nullable=True,
         index=True,
-        comment="Link lógico a warehouse MOBILE (sin FK estricta por ahora)"
+        comment="FK a vehicles (reemplaza viejo soft reference)"
     )
 
     is_active: Mapped[bool] = mapped_column(
@@ -85,6 +85,14 @@ class Team(Base):
         back_populates="team",
         lazy="select",
         foreign_keys="WorkOrder.team_id"
+    )
+
+    # ========== NUEVA RELACIÓN: Vehicle ==========
+    vehicle: Mapped[Optional["Vehicle"]] = relationship(
+        "Vehicle",
+        back_populates="team",
+        lazy="selectin",
+        foreign_keys=[vehicle_id]
     )
 
     def __repr__(self) -> str:

@@ -28,6 +28,7 @@ import StockTransferWizard from './pages/inventory/StockTransferWizard';
 import StockAdjustments from './pages/inventory/StockAdjustments';
 import MovementsHistory from './pages/inventory/MovementsHistory';
 import StockAlerts from './pages/inventory/StockAlerts';
+import FleetPage from './pages/fleet/FleetPage';
 
 // Engineering Module Pages
 import EngineeringBoardPage from './pages/engineering/EngineeringBoardPage';
@@ -70,6 +71,9 @@ const AppRoutes = () => (
         
         {/* Coordination Module Routes */}
         <Route path="cuadrillas" element={<CuadrillasPage />} />
+
+        {/* Fleet Module Routes */}
+        <Route path="fleet" element={<FleetPage />} />
         
         {/* Inventory Module Routes */}
         <Route path="inventory" element={<InventoryDashboard />} />

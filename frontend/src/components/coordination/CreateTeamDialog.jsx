@@ -90,10 +90,10 @@ const CreateTeamDialog = ({
             </p>
           </div>
 
-          {/* Móvil / Warehouse */}
+          {/* Móvil / Vehicle */}
           <div className="space-y-2">
             <label htmlFor="vehicle_id" className="block text-sm font-medium text-zinc-300">
-              Móvil disponible (opcional)
+              Vehículo disponible (opcional)
             </label>
             <select
               id="vehicle_id"
@@ -103,15 +103,25 @@ const CreateTeamDialog = ({
               disabled={loadingVehicles}
               className="w-full bg-zinc-800 border border-zinc-700 text-white rounded px-3 py-2 focus:border-emerald-600 focus:outline-none"
             >
-              <option value="">Seleccionar móvil...</option>
-              {availableVehicles.map((vehicle) => (
-                <option key={vehicle.id} value={vehicle.id}>
-                  {(vehicle.name || vehicle.label || vehicle.code || 'Móvil')} (ID: {vehicle.id})
-                </option>
-              ))}
+              <option value="">Seleccionar vehículo...</option>
+              {availableVehicles.map((vehicle) => {
+                // Construir etiqueta con patente y modelo
+                let label = vehicle.name || vehicle.label || 'Vehículo #' + vehicle.id;
+                if (vehicle.license_plate) {
+                  label += ` (${vehicle.license_plate})`;
+                }
+                if (vehicle.vehicle_model) {
+                  label += ` - ${vehicle.vehicle_model}`;
+                }
+                return (
+                  <option key={vehicle.id} value={vehicle.id}>
+                    {label}
+                  </option>
+                );
+              })}
             </select>
             <p className="text-xs text-zinc-400">
-              Vincula la cuadrilla a un móvil por nombre e ID
+              Vehículo asignado a esta cuadrilla para logística
             </p>
           </div>
 

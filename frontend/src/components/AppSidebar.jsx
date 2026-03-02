@@ -27,6 +27,7 @@ import {
   ArrowLeftRight,
   AlertCircle,
   Wrench,
+  Truck,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
@@ -127,6 +128,12 @@ const MENU_ITEMS = [
         icon: Building2,
         href: '/app/inventory/warehouses',
         description: 'Gestión de depósitos',
+      },
+      {
+        title: 'Flota',
+        icon: Truck,
+        href: '/app/fleet',
+        description: 'Gestión administrativa de vehículos',
       },
       {
         title: 'Catálogo',

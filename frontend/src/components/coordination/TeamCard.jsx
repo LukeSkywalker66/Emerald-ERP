@@ -5,8 +5,8 @@
  * Diseño Cyberpunk/Emerald.
  */
 
-import { useState } from 'react';
-import { Edit2, Trash2, Users, Plus, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Edit2, Trash2, Users, Plus, X, Truck, Package } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,10 +20,16 @@ const TeamCard = ({
   onDelete,
   availableUsers = [],
   onTeamUpdated,
+  vehicles = [],
 }) => {
   const [showAddMember, setShowAddMember] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState(null);
   const [updatingMemberId, setUpdatingMemberId] = useState(null);
+
+  const assignedVehicle = useMemo(() => {
+    if (!team?.vehicle_id) return null;
+    return vehicles.find((v) => Number(v.id) === Number(team.vehicle_id)) || null;
+  }, [vehicles, team]);
 
   /**
    * Obtener color de rol
@@ -172,6 +178,29 @@ const TeamCard = ({
 
         {/* Body - Miembros */}
         <div className="p-5 min-h-[120px] flex flex-col">
+          <div className="mb-4 rounded-md border border-zinc-700/60 bg-zinc-900/70 px-3 py-2">
+            <div className="flex items-center gap-2 text-xs text-zinc-400 mb-1">
+              <Truck className="h-3.5 w-3.5 text-emerald-400" />
+              <span>Vehículo asignado</span>
+            </div>
+            {assignedVehicle ? (
+              <>
+                <p className="text-sm text-zinc-100 font-medium truncate">
+                  {assignedVehicle.name}
+                </p>
+                <p className="text-xs text-zinc-400 truncate mt-0.5">
+                  {assignedVehicle.vehicle_model || 'Modelo s/d'} · {assignedVehicle.license_plate || 'Patente s/d'}
+                </p>
+                <div className="flex items-center gap-1 mt-1 text-xs text-zinc-500">
+                  <Package className="h-3 w-3 text-amber-400" />
+                  <span>{assignedVehicle.warehouse_name || 'Warehouse s/d'}</span>
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-zinc-500">Sin vehículo asignado</p>
+            )}
+          </div>
+
           {team.members && team.members.length > 0 ? (
             <div className="space-y-2 flex-1">
               {team.members.map(member => (
