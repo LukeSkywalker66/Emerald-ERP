@@ -1,34 +1,8 @@
 nohup: no se tendrá en cuenta la entrada
-👁️  Vigilando carpeta: /opt/emerald-erp para cambios en documentación...
+👁️  Vigilando carpeta: /opt/emerald-erp/docs para cambios en documentación...
 Setting up watches.
 Watches established.
-♻️  Detectado cambio en: BASE_DATOS.md
-✅  Sincronizado a las lun 02 feb 2026 20:41:15 -03
-♻️  Detectado cambio en: AI_ARCHITECT_CONTEXT.md
-✅  Sincronizado a las lun 02 feb 2026 20:43:41 -03
-♻️  Detectado cambio en: MASTER_CONTEXT.md
-✅  Sincronizado a las lun 02 feb 2026 20:44:22 -03
-♻️  Detectado cambio en: BASE_DATOS.md
-✅  Sincronizado a las lun 02 mar 2026 09:53:57 -03
-♻️  Detectado cambio en: BASE_DATOS.md
-✅  Sincronizado a las lun 02 mar 2026 09:54:07 -03
-♻️  Detectado cambio en: BASE_DATOS.md
-✅  Sincronizado a las lun 02 mar 2026 09:54:12 -03
-♻️  Detectado cambio en: BASE_DATOS.md
-✅  Sincronizado a las lun 02 mar 2026 09:54:18 -03
-♻️  Detectado cambio en: AI_ARCHITECT_CONTEXT.md
-✅  Sincronizado a las lun 02 mar 2026 09:57:36 -03
-♻️  Detectado cambio en: AI_ARCHITECT_CONTEXT.md
-✅  Sincronizado a las lun 02 mar 2026 09:57:38 -03
-♻️  Detectado cambio en: MASTER_CONTEXT.md
-✅  Sincronizado a las lun 02 mar 2026 09:58:30 -03
-♻️  Detectado cambio en: MASTER_CONTEXT.md
-✅  Sincronizado a las lun 02 mar 2026 09:58:33 -03
-♻️  Detectado cambio en: BASE_DATOS.md
-✅  Sincronizado a las lun 02 mar 2026 09:59:49 -03
-♻️  Detectado cambio en: BASE_DATOS.md
-✅  Sincronizado a las lun 02 mar 2026 10:03:30 -03
-♻️  Detectado cambio en: AI_ARCHITECT_CONTEXT.md
-✅  Sincronizado a las lun 02 mar 2026 10:03:34 -03
-♻️  Detectado cambio en: MASTER_CONTEXT.md
-✅  Sincronizado a las lun 02 mar 2026 10:03:36 -03
+♻️  Detectado cambio en: ROADMAP.md
+✅  Sincronizado a las lun 02 mar 2026 11:36:45 -03
+♻️  Detectado cambio en: ROADMAP.md
+✅  Sincronizado a las lun 02 mar 2026 12:12:48 -03

@@ -239,3 +239,93 @@ def update_user_status(
         pass
 
     return updated
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user_permanently(
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_admin = Depends(get_current_active_superuser),
+):
+    """
+    Elimina permanentemente un usuario (solo admin).
+    
+    SOLO permite eliminar usuarios SIN datos históricos:
+    - Sin membresías en equipos (team_memberships)
+    - Sin acciones de auditoría
+    - Sin último login (nunca usó el sistema)
+    
+    Para usuarios con historial, usar PATCH /status (desactivar).
+    """
+    user_repo = UserRepository(db)
+    user = user_repo.get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    if user.id == current_admin.id:
+        raise HTTPException(
+            status_code=400, 
+            detail="No puedes eliminar tu propia cuenta"
+        )
+
+    # Verificar que el usuario no tenga datos históricos
+    validation_errors = []
+
+    # 1. Team memberships
+    if user.team_memberships and len(user.team_memberships) > 0:
+        validation_errors.append(
+            f"tiene {len(user.team_memberships)} asignación(es) en equipos"
+        )
+
+    # 2. Último login (si usó el sistema)
+    if user.last_login is not None:
+        validation_errors.append("ya inició sesión en el sistema")
+
+    # 3. Auditoría (si ejecutó acciones)
+    try:
+        from src.models.audit import AuditLog
+        audit_count = db.query(AuditLog).filter(AuditLog.user_id == user_id).count()
+        if audit_count > 0:
+            validation_errors.append(f"tiene {audit_count} acción(es) registrada(s)")
+    except Exception:
+        # Si no existe tabla de auditoría, continuar
+        pass
+
+    # Si tiene datos, rechazar eliminación
+    if validation_errors:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "No se puede eliminar: usuario con datos históricos",
+                "reasons": validation_errors,
+                "suggestion": "Usar PATCH /status para desactivar en lugar de eliminar"
+            }
+        )
+
+    # Si no tiene datos, proceder con eliminación
+    username = user.username
+    email = user.email
+    
+    user_repo.delete(user_id)
+
+    # Audit
+    try:
+        AuditService.log_action(
+            db=db,
+            user_id=current_admin.id,
+            action="user.hard_delete",
+            entity_type="User",
+            entity_id=user_id,
+            ip_address=get_client_ip(request),
+            status="success",
+            details={
+                "deleted_username": username,
+                "deleted_email": email,
+                "reason": "usuario sin historial"
+            },
+        )
+    except Exception:
+        pass
+
+    return None

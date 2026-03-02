@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuración
-CARPETA="/opt/emerald-erp"
+CARPETA="/opt/emerald-erp/docs"
 DESTINO="gdrive:Lucas_Brain_Center/Technical_Docs/Emerald_ERP_Docs"
 
 echo "👁️  Vigilando carpeta: $CARPETA para cambios en documentación..."
@@ -12,7 +12,7 @@ echo "👁️  Vigilando carpeta: $CARPETA para cambios en documentación..."
 inotifywait -m -e close_write -e moved_to --format "%f" "$CARPETA" | while read ARCHIVO; do
 
     # Filtramos: Solo nos importan estos dos archivos exactos
-    if [[ "$ARCHIVO" == "MASTER_CONTEXT.md" || "$ARCHIVO" == "AI_ARCHITECT_CONTEXT.md" || "$ARCHIVO" == "BASE_DATOS.md" ]]; then
+    if [[ "$ARCHIVO" == "MASTER_CONTEXT.md" || "$ARCHIVO" == "AI_ARCHITECT_CONTEXT.md" || "$ARCHIVO" == "BASE_DATOS.md" || "$ARCHIVO" == "ROADMAP.md" ]]; then
         
         echo "♻️  Detectado cambio en: $ARCHIVO"
         

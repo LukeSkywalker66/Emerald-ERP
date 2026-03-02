@@ -47,6 +47,14 @@ const usersService = {
     });
     return response.data;
   },
+
+  /**
+   * Eliminar permanentemente un usuario (solo sin historial)
+   */
+  async deleteUser(userId) {
+    const response = await api.delete(`/v2/users/${userId}`);
+    return response.data;
+  },
 };
 
 export default usersService;

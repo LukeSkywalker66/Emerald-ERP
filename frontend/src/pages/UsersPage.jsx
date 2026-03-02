@@ -8,6 +8,7 @@ import {
   CheckCircle,
   Key,
   AlertTriangle,
+  Trash2,
 } from 'lucide-react';
 import {
   Card,
@@ -193,6 +194,44 @@ export default function UsersPage() {
       loadUsers();
     } catch (error) {
       alert(`Error: ${error.message}`);
+    }
+  };
+
+  const handleDeleteUser = async (user) => {
+    // Confirmación doble para eliminación permanente
+    if (
+      !confirm(
+        `⚠️ ELIMINACIÓN PERMANENTE\n\n` +
+        `¿Seguro que desea eliminar permanentemente a "${user.username}"?\n\n` +
+        `Esto solo funciona si el usuario NO tiene datos históricos (login, equipos, acciones).\n\n` +
+        `Si tiene historial, use el botón de Desactivar en su lugar.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await usersService.deleteUser(user.id);
+      alert(`✅ Usuario ${user.username} eliminado permanentemente`);
+      loadUsers();
+    } catch (error) {
+      // Error 400 con detalles de validación
+      if (error.response?.status === 400) {
+        const detail = error.response?.data?.detail;
+        if (typeof detail === 'object' && detail.reasons) {
+          const reasons = detail.reasons.join('\n• ');
+          alert(
+            `❌ No se puede eliminar\n\n` +
+            `El usuario "${user.username}" ${detail.message}:\n\n` +
+            `• ${reasons}\n\n` +
+            `💡 Usar "Desactivar" en lugar de eliminar.`
+          );
+        } else {
+          alert(`Error: ${detail.message || detail}`);
+        }
+      } else {
+        alert(`Error: ${error.message}`);
+      }
     }
   };
 
@@ -428,6 +467,15 @@ export default function UsersPage() {
                         ) : (
                           <CheckCircle className="h-4 w-4" />
                         )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteUser(user)}
+                        className="text-zinc-600 hover:text-red-400"
+                        title="Eliminar permanentemente (solo usuarios sin historial)"
+                      >
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </TableCell>
                   </TableRow>
