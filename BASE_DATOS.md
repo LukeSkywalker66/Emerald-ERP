@@ -439,4 +439,282 @@ Antes de modificar schema:
 - ✅ Team.vehicle_id FK integrada con asignación de vehículos a cuadrillas
 - ✅ VehicleStatus enum: ACTIVE, MAINTENANCE, RETIRED, DONATED
 
+---
+
+## 🚛 PROFUNDO: Tabla Vehicles (Fleet Module)
+
+### Definición Completa
+```sql
+CREATE TABLE vehicles (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(150) NOT NULL,                      -- Nombre descriptivo
+    license_plate VARCHAR(20) UNIQUE NULLABLE,       -- Patente (ej: AB123CD)
+    vehicle_brand VARCHAR(50) NULLABLE,              -- Marca (Toyota, Fiat)
+    vehicle_model VARCHAR(50) NULLABLE,              -- Modelo (Hilux, Ducato)
+    vehicle_year INT NULLABLE,                       -- Año fabricación
+    CHECK (vehicle_year >= 1900 AND vehicle_year <= 2200),
+    
+    status VARCHAR(20) DEFAULT 'ACTIVE',             -- ACTIVE, MAINTENANCE, RETIRED, DONATED
+    warehouse_id INT NOT NULL,                       -- FK → warehouses (MOBILE)
+    FOREIGN KEY (warehouse_id) REFERENCES warehouses(id) ON DELETE RESTRICT,
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    INDEX idx_vehicles_status (status),
+    INDEX idx_vehicles_warehouse (warehouse_id),
+    UNIQUE INDEX uq_vehicles_license (license_plate)
+);
+```
+
+### Warehouse MOBILE Asociado
+```sql
+-- Cuando se crea Vehicle, auto-crea Warehouse:
+INSERT INTO warehouses (name, type, user_id, created_at, updated_at)
+VALUES (
+    CONCAT('Stock - ', vehicle.name),  -- "Stock - Móvil 01"
+    'MOBILE',                           -- Tipo MOBILE
+    NULL,                               -- No user (deprecated)
+    NOW(),
+    NOW()
+);
+-- Luego: UPDATE vehicles SET warehouse_id = last_insert_id() WHERE id = vehicle.id
+```
+
+### Relación Team → Vehicle
+```sql
+ALTER TABLE teams ADD COLUMN vehicle_id INT NULLABLE;
+ALTER TABLE teams ADD FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) SET NULL;
+CREATE INDEX idx_teams_vehicle (vehicle_id);
+
+-- 🔑 Validación en app: solo 1 team puede tener 1 vehicle
+-- Pero si team A pierde vehicle, vehicle está libre para team B
+```
+
+### Flujos de Datos (Vehicle Lifecycle)
+
+#### 1️⃣ Crear Vehicle
+```
+Frontend: POST /api/v2/vehicles { name, license_plate, brand, model, year, status="ACTIVE" }
+  │
+  ├─ Backend Validation: Pydantic VehicleCreate
+  ├─ Constraint Check: license_plate unique
+  │
+  ├─ DB Transaction:
+  │  ├─ INSERT warehouses (MOBILE auto-create)
+  │  ├─ INSERT vehicles (warehouse_id = new warehouse)
+  │  └─ COMMIT
+  │
+  └─ Frontend: FleetPage tabla actualiza, toast success
+
+✅ Resultado: Vehicle + Warehouse MOBILE (1:1 relación)
+```
+
+#### 2️⃣ Asignar Vehicle a Team
+```
+Frontend: PUT /api/v2/teams/{id} { vehicle_id: 123 }
+  │
+  ├─ Validación: vehicle_id existe? status=ACTIVE?
+  ├─ Validación: otro team tiene este vehicle?
+  │
+  ├─ DB:
+  │  └─ UPDATE teams SET vehicle_id = 123 WHERE id = team.id
+  │
+  └─ TeamCard: muestra Truck icon + modelo + patente
+
+✅ Resultado: Team puede usar warehouse MOBILE del vehicle
+```
+
+#### 3️⃣ Usar Stock MOBILE en WorkOrder
+```
+Técnico ejecuta OT: consume item de warehouse MOBILE
+  │
+  ├─ WorkOrderItem INSERT: { warehouse_id = team.vehicle.warehouse_id, ... }
+  ├─ StockBulk UPDATE: quantity -= consumed
+  │
+  └─ Audit: log consumo + fecha + técnico
+
+✅ Resultado: Stock replicado/sincronizado
+```
+
+#### 4️⃣ Mantenimiento (Future)
+```
+Admin: Dispatch vehículo a service
+  │
+  ├─ UPDATE vehicles SET status = 'MAINTENANCE' WHERE id = 123
+  ├─ API blocka: no permite asignar MAINTENANCE vehicles
+  ├─ Mechanical: realiza service
+  ├─ UPDATE vehicles SET status = 'ACTIVE' WHERE id = 123
+  │
+  └─ TeamCard: badge "🔧 Maintenance" desaparece
+
+✅ Resultado: Vehículo fuera de rotación temporalmente
+```
+
+---
+
+## 🔍 Queries Útiles (SQL Directo)
+
+### Listar Vehicles Activos con Teams Asignados
+```sql
+SELECT v.id, v.name, v.license_plate, v.status, 
+       t.name AS team_name, w.name AS warehouse_name
+FROM vehicles v
+LEFT JOIN teams t ON v.id = t.vehicle_id
+LEFT JOIN warehouses w ON v.warehouse_id = w.id
+WHERE v.status = 'ACTIVE'
+ORDER BY v.created_at DESC;
+```
+
+### Contar Stock por Vehicle (MOBILE Warehouse)
+```sql
+SELECT v.name, v.license_plate, 
+       p.name AS product, sb.quantity
+FROM vehicles v
+JOIN warehouses w ON v.warehouse_id = w.id
+JOIN stock_bulk sb ON w.id = sb.warehouse_id
+JOIN products p ON sb.product_id = p.id
+WHERE v.status = 'ACTIVE';
+```
+
+### WorkOrders Pendientes por Vehicle
+```sql
+SELECT v.name, wo.id, wo.status, wo.scheduled_start,
+       t.name AS team, COUNT(woi.id) AS qty_items
+FROM vehicles v
+LEFT JOIN teams t ON v.id = t.vehicle_id
+LEFT JOIN work_orders wo ON t.id = wo.team_id
+LEFT JOIN work_order_items woi ON wo.id = woi.work_order_id
+WHERE wo.status IN ('coordinated', 'scheduled')
+GROUP BY v.id, wo.id
+ORDER BY wo.scheduled_start ASC;
+```
+
+### Vehicles sin Team Asignado
+```sql
+SELECT id, name, license_plate, status
+FROM vehicles
+WHERE id NOT IN (SELECT vehicle_id FROM teams WHERE vehicle_id IS NOT NULL)
+  AND status = 'ACTIVE';
+```
+
+### Auditoría: Vehicle Status Changes (Future)
+```sql
+-- Cuando se implemente assignment_audit tabla:
+SELECT va.vehicle_id, v.name, va.assigned_by_user_id, 
+       va.assigned_at, va.unassigned_at, 
+       DATEDIFF(va.unassigned_at, va.assigned_at) AS hours_assigned
+FROM vehicle_assignments va
+JOIN vehicles v ON va.vehicle_id = v.id
+WHERE va.assigned_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+ORDER BY va.assigned_at DESC;
+```
+
+---
+
+## ❓ FAQ - Fleet & Database
+
+### P: ¿Qué pasa si elimino un Vehicle?
+**R:** Constraint ON DELETE RESTRICT lo impide. Debes:
+1. Unassign team (UPDATE teams SET vehicle_id = NULL)
+2. O cambiar status a RETIRED (soft-delete)
+
+### P: ¿Un Vehicle puede estar sin Team?
+**R:** Sí. vehicle.id sin correspondencia en teams.vehicle_id significa "sin asignar".
+
+### P: ¿Un Team puede estar sin Vehicle?
+**R:** Sí. team.vehicle_id = NULL significa "equipo sin vehículo". Allowed.
+
+### P: ¿Qué pasa con el Warehouse si cambio Vehicle?
+**R:** Warehouse se mantiene porque es FK en Vehicle. No se hereda.
+Solución: Transferir stock manualmente vía TransferWarehouse.
+
+### P: ¿Por qué vehicle.status es STRING y no ENUM nativo?
+**R:** Alembic no soporta ENUM migrations limpiamente en PostgreSQL.
+Usamos VARCHAR con constraint CHECK en SQL.
+
+### P: ¿Se puede tener 2 Vehicles con misma Patente?
+**R:** No. UNIQUE (license_plate) lo evita. Si NULL, permite múltiples.
+
+### P: ¿Cuándo se da de baja un Vehicle?
+**R:** Status → RETIRED (soft-delete, no aparece en selectors activos).
+Warehouse asociado sigue existiendo para auditoría.
+
+---
+
+## 🔐 Constraints y Integridad Referencial
+
+| Constraint | Tabla | Campo | Referencia | Delete |
+|-----------|-------|-------|-----------|--------|
+| PK | vehicles | id | - | - |
+| FK | vehicles | warehouse_id | warehouses.id | **RESTRICT** |
+| FK | teams | vehicle_id | vehicles.id | **SET NULL** |
+| UK | vehicles | license_plate | - | - |
+| CHECK | vehicles | vehicle_year | 1900-2200 | - |
+| CHECK | vehicles | status | ENUM | - |
+
+---
+
+## 📈 Performance: Índices Recomendados
+
+```sql
+-- Fleet-specific
+CREATE INDEX idx_vehicles_status ON vehicles(status);
+CREATE INDEX idx_vehicles_warehouse ON vehicles(warehouse_id);
+CREATE INDEX idx_teams_vehicle ON teams(vehicle_id);
+
+-- Cross-module
+CREATE INDEX idx_work_orders_team_scheduled ON work_orders(team_id, scheduled_start);
+CREATE INDEX idx_stock_bulk_warehouse ON stock_bulk(warehouse_id);
+CREATE INDEX idx_work_order_items_warehouse ON work_order_items(consumed_from_warehouse_id);
+
+-- Auditoría (future)
+-- CREATE INDEX idx_vehicle_assignments_dates ON vehicle_assignments(assigned_at, unassigned_at);
+```
+
+**Análisis EXPLAIN:**
+```bash
+# Antes de agreg índice
+EXPLAIN ANALYZE SELECT * FROM vehicles WHERE status = 'ACTIVE';
+# Seq Scan on vehicles (cost=0.00..35.50 rows=2 width=145)
+
+# Después
+Sequential Scan (cost=0.54..1.30 rows=2) + Index Scan
+```
+
+---
+
+## 🧪 Test Queries (Verificar Integridad)
+
+```sql
+-- ✅ Test 1: No hay vehicles sin warehouse
+SELECT COUNT(*) FROM vehicles WHERE warehouse_id IS NULL;
+-- Expected: 0
+
+-- ✅ Test 2: No hay teams con vehicles no-activos
+SELECT COUNT(*) FROM teams 
+WHERE vehicle_id IS NOT NULL 
+  AND vehicle_id NOT IN (SELECT id FROM vehicles WHERE status = 'ACTIVE');
+-- Expected: 0
+
+-- ✅ Test 3: Total vehicles y warehouses MOBILE
+SELECT COUNT(*) AS vehicles, 
+       (SELECT COUNT(*) FROM warehouses WHERE type = 'MOBILE') AS mobile_warehouses
+FROM vehicles;
+-- Expected: SAME COUNT (1:1)
+
+-- ✅ Test 4: Duplicadas patentes (should be 0)
+SELECT license_plate, COUNT(*) 
+FROM vehicles 
+WHERE license_plate IS NOT NULL 
+GROUP BY license_plate 
+HAVING COUNT(*) > 1;
+-- Expected: NO ROWS
+```
+
+---
+
+**Última revisión:** 2 de marzo de 2026
+**Próximas features:** Mantenimiento programado (NUEVO status?), Combustible tracking
+
 
