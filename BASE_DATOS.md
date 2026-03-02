@@ -1,6 +1,6 @@
 # 🗄️ Arquitectura de Base de Datos - Emerald ERP
 
-**Última actualización:** 2 de febrero de 2026  
+**Última actualización:** 2 de marzo de 2026  
 **Stack:** PostgreSQL 15 Alpine + SQLAlchemy 2.0 + Alembic  
 **Patrón:** Clean Slate (Mapped[], mapped_column(), JSONB flexible)
 
@@ -37,6 +37,25 @@
 │ ├─ members (REL)           │ ├─ UC: (team_id, user_id)         │
 │ ├─ work_orders (REL)       │ └─ created_at, updated_at         │
 │ └─ created_at, updated_at  │                                   │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│ 🚛 FLOTA Y LOGÍSTICA (NUEVO - 03/02/2026)                     │
+├─────────────────────────────────────────────────────────────────┤
+│ VEHICLES (Activos físicos)    │ WAREHOUSES (Inventario)        │
+│ ├─ id (INT PK)                │ ├─ id (INT PK)                 │
+│ ├─ name (VARCHAR)             │ ├─ name (VARCHAR)              │
+│ ├─ license_plate (VARCHAR UQ) │ ├─ type (ENUM: CENTRAL,        │
+│ ├─ vehicle_brand (VARCHAR)    │ │        MOBILE, VIRTUAL)      │
+│ ├─ vehicle_model (VARCHAR)    │ ├─ vehicle (REL bidireccional)│
+│ ├─ vehicle_year (INT)         │ ├─ stock_bulk (REL)            │
+│ ├─ status (ENUM: ACTIVE,      │ ├─ serial_items (REL)         │
+│ │        MAINTENANCE,          │ └─ created_at, updated_at     │
+│ │        RETIRED,              │                               │
+│ │        DONATED)              │ (1:1 Vehicle→Warehouse MOBILE)│
+│ ├─ warehouse_id (FK→warehouses)│                               │
+│ ├─ team (REL opt: Team)       │                               │
+│ └─ created_at, updated_at     │                               │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
@@ -102,6 +121,8 @@ ResolutionCategory: infrastructure, equipment, configuration, other
 TeamRole: leader, technician
 TicketType: technical, installation, withdrawal, relocation, administrative
 TicketPriority: low, medium, high, critical
+WarehouseType: CENTRAL, MOBILE, VIRTUAL
+VehicleStatus: ACTIVE, MAINTENANCE, RETIRED, DONATED
 ```
 
 ---
@@ -409,13 +430,13 @@ Antes de modificar schema:
 
 ---
 
-**⚠️ CAMBIOS RECIENTES (02/02/2026):**
-- ✅ Team → WorkOrder (N:1 FK)
-- ✅ scheduled_start/end (datetime con timezone UTC)
-- ✅ estimated_duration (int minutos)
-- ✅ coordination_notes (texto)
+**⚠️ CAMBIOS RECIENTES:**
+- ✅ Coordinación (02/02/2026): Team → WorkOrder (N:1 FK), scheduled_start/end, estimated_duration
 - ✅ Estados nuevos: coordinated, scheduled
 - ✅ Índice compuesto: (team_id, scheduled_start)
-- ✅ Migración 2026_02_02_002 aplicada ✓
+- ✅ Fleet module (03/02/2026): Vehicle (activos físicos), 1:1 Vehicle↔Warehouse MOBILE
+- ✅ Migración e531d3d1fe20 aplicada ✓ - 3 MOBILE warehouses migrados a vehículos
+- ✅ Team.vehicle_id FK integrada con asignación de vehículos a cuadrillas
+- ✅ VehicleStatus enum: ACTIVE, MAINTENANCE, RETIRED, DONATED
 
 
