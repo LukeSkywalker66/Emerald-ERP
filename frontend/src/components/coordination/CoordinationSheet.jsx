@@ -107,8 +107,8 @@ export default function CoordinationSheet({
   };
 
   const handleDurationChange = (newDuration) => {
-    // Validar: mínimo 15 min, máximo 480 min (8 horas)
-    const clamped = Math.max(15, Math.min(480, newDuration));
+    // Validar: mínimo 5 min, máximo 480 min (8 horas)
+    const clamped = Math.max(5, Math.min(480, newDuration));
     setDuration(clamped);
     setDurationChanged(clamped !== workOrder?.estimated_duration);
   };
@@ -329,60 +329,57 @@ export default function CoordinationSheet({
               Duración Estimada
             </h3>
 
-            {/* Display actual */}
-            <div className="rounded-lg bg-zinc-800/30 border border-zinc-700/50 p-3">
-              <p className="text-xs text-zinc-500 mb-2">Tiempo estimado</p>
-              <div className="flex items-center justify-between">
-                <div className="text-2xl font-bold text-emerald-400">
-                  {duration}
-                  <span className="text-xs text-zinc-400 ml-1">min</span>
-                </div>
-                <div className="text-xs text-zinc-400">
-                  {Math.floor(duration / 60)}h{duration % 60 ? ` ${duration % 60}m` : ''}
-                </div>
-              </div>
-            </div>
-
-            {/* Stepper */}
+            {/* Stepper compacto */}
             <div className="flex items-center gap-2">
               <Button
-                onClick={() => handleDurationChange(duration - 15)}
-                disabled={duration <= 15}
+                onClick={() => handleDurationChange(duration - 5)}
+                disabled={duration <= 5}
                 variant="outline"
                 size="sm"
-                className="h-9 w-9 p-0 border-zinc-700 text-zinc-400"
+                className="h-10 w-10 p-0 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-white"
               >
                 <Minus size={16} />
               </Button>
 
-              {/* Input directo */}
-              <input
-                type="number"
-                value={duration}
-                onChange={(e) => handleDurationChange(parseInt(e.target.value) || 60)}
-                min="15"
-                max="480"
-                step="15"
-                className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 text-white px-3 py-2 text-center text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
+              {/* Input directo (sin flechas nativas) */}
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={duration}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '');
+                    if (val === '') {
+                      setDuration(5);
+                      setDurationChanged(true);
+                    } else {
+                      handleDurationChange(parseInt(val) || 5);
+                    }
+                  }}
+                  className="w-full rounded-lg bg-zinc-800 border border-zinc-700 text-white px-3 py-2 text-center text-lg font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 pointer-events-none">
+                  min
+                </span>
+              </div>
 
               <Button
-                onClick={() => handleDurationChange(duration + 15)}
+                onClick={() => handleDurationChange(duration + 5)}
                 disabled={duration >= 480}
                 variant="outline"
                 size="sm"
-                className="h-9 w-9 p-0 border-zinc-700 text-zinc-400"
+                className="h-10 w-10 p-0 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-white"
               >
                 <Plus size={16} />
               </Button>
             </div>
 
             {/* Validación */}
-            {duration < 15 && (
-              <p className="text-xs text-red-400">Mínimo 15 minutos</p>
+            {duration < 5 && (
+              <p className="text-xs text-red-400">⚠️ Mínimo 5 minutos</p>
             )}
             {duration > 480 && (
-              <p className="text-xs text-red-400">Máximo 8 horas (480 min)</p>
+              <p className="text-xs text-red-400">⚠️ Máximo 8 horas (480 min)</p>
             )}
 
             {/* Botón guardar (si cambió) */}
