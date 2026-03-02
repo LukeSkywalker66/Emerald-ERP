@@ -13,131 +13,16 @@ import {
   AlertCircle,
   Loader,
   RotateCcw,
-  X,
-  MapPin,
-  Clock,
-  ExternalLink,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import api from '@/api/client';
 import { useNavigate } from 'react-router-dom';
 import CoordinationSidebar from '@/components/coordination/CoordinationSidebar';
+import CoordinationSheet from '@/components/coordination/CoordinationSheet';
 import ImprovedCoordinationGrid from '@/components/coordination/ImprovedCoordinationGrid';
 import { useCoordinationSync, useOptimisticUpdates } from '@/components/coordination/hooks';
 
-
-// ========== COMPONENTES ==========
-
-function DetailSheet({ workOrder, isOpen, onClose, onUnassign, onNavigate }) {
-  if (!isOpen || !workOrder) return null;
-
-  const typeLabels = {
-    repair: 'Reparación',
-    install: 'Instalación',
-    pickup: 'Retiro',
-    infrastructure: 'Infraestructura',
-  };
-
-  const typeColors = {
-    repair: 'bg-amber-600',
-    install: 'bg-emerald-600',
-    pickup: 'bg-blue-600',
-    infrastructure: 'bg-purple-600',
-  };
-
-  return (
-    <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="fixed right-0 top-0 h-screen w-96 bg-zinc-900 border-l border-zinc-800 shadow-2xl overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="sticky top-0 flex items-center justify-between p-4 border-b border-zinc-800 bg-zinc-950/80">
-          <div>
-            <h2 className="font-bold text-white">OT #{workOrder.id}</h2>
-            <p className="text-xs text-zinc-400">Ticket #{workOrder.ticket_id}</p>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-zinc-800 rounded-lg">
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="p-4 space-y-4">
-          <div>
-            <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Tipo</p>
-            <Badge className={`${typeColors[workOrder.ot_type] || 'bg-zinc-600'} border-0`}>
-              {typeLabels[workOrder.ot_type] || workOrder.ot_type}
-            </Badge>
-          </div>
-
-          <div>
-            <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Cliente</p>
-            <p className="text-sm font-medium text-white">{workOrder.client_name || 'N/A'}</p>
-          </div>
-
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <MapPin size={14} className="text-zinc-500" />
-              <p className="text-xs text-zinc-500 uppercase tracking-wide">Dirección</p>
-            </div>
-            <p className="text-sm text-zinc-300">{workOrder.address || 'N/A'}</p>
-          </div>
-
-          {workOrder.scheduled_start && (
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Clock size={14} className="text-zinc-500" />
-                <p className="text-xs text-zinc-500 uppercase tracking-wide">Programado</p>
-              </div>
-              <div className="text-sm text-zinc-300 space-y-1">
-                <p>Inicio: {format(new Date(workOrder.scheduled_start), 'dd MMM yyyy HH:mm', { locale: es })}</p>
-                {workOrder.scheduled_end && (
-                  <p>Fin: {format(new Date(workOrder.scheduled_end), 'HH:mm', { locale: es })}</p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {workOrder.estimated_duration && (
-            <div>
-              <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Duración Estimada</p>
-              <p className="text-sm text-zinc-300">{workOrder.estimated_duration} min</p>
-            </div>
-          )}
-        </div>
-
-        <div className="sticky bottom-0 border-t border-zinc-800 bg-zinc-950/80 p-4 space-y-2">
-          <Button
-            onClick={() => {
-              if (onNavigate) {
-                onNavigate(`/work-orders/${workOrder.id}`);
-              }
-            }}
-            className="w-full bg-emerald-600 hover:bg-emerald-700"
-          >
-            <ExternalLink size={16} className="mr-2" />
-            Ejecutar OT
-          </Button>
-          {workOrder.team_id && (
-            <Button
-              onClick={() => {
-                onUnassign(workOrder.id);
-                onClose();
-              }}
-              className="w-full bg-red-600 hover:bg-red-700"
-            >
-              Devolver al Backlog
-            </Button>
-          )}
-          <Button onClick={onClose} variant="ghost" className="w-full">
-            Cerrar
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ========== PÁGINA PRINCIPAL ==========
 
@@ -479,17 +364,18 @@ export default function CoordinationGridPage() {
         </div>
       </div>
 
-      {/* DETALLE SHEET */}
-      <DetailSheet
+      {/* DETALLE SHEET (con edición de duración) */}
+      <CoordinationSheet
         workOrder={selectedWorkOrder}
         isOpen={isDetailOpen}
         onClose={() => {
           setIsDetailOpen(false);
           setSelectedWorkOrder(null);
         }}
-        onUnassign={handleUnassignWorkOrder}
-        onNavigate={(path) => {
-          navigate(path);
+        onDurationChange={(newDuration) => {
+          console.log(`✅ Duración actualizada a ${newDuration} min`);
+          // Refrescar datos después de cambiar duración
+          handleManualRefresh();
         }}
       />
     </div>
