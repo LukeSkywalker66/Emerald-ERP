@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+from datetime import datetime
 
 from src.clients import ispcube
 from src.db.postgres import Database
@@ -44,9 +45,14 @@ def sync_installation_context(
     - Si viene payload del wizard, se usa como fuente primaria.
     - Si no viene payload completo, consulta ISPCube por DNI.
     - Siempre sincroniza SOLO la conexión seleccionada por el operador.
+    
+    Retorna dict con:
+    - customer_id, connection_id: IDs sincronizados
+    - timeline_event: Dict para evento de timeline (humanizado + auditoría técnica)
     """
     customer_payload: Optional[Dict[str, Any]] = ispcube_customer
     connections_payload: List[Dict[str, Any]] = list(ispcube_connections or [])
+    lookup_source = "wizard_payload"
 
     if not customer_payload:
         dni_clean = (customer_dni or "").strip()
@@ -61,6 +67,7 @@ def sync_installation_context(
 
         customer_payload = pack.get("customer")
         connections_payload = list(pack.get("connections") or [])
+        lookup_source = "dni_lookup"
 
     customer_id = customer_payload.get("id") or customer_payload.get("external_id")
     if not customer_id:
@@ -93,7 +100,27 @@ def sync_installation_context(
     finally:
         db_sync.close()
 
+    # Construir mensaje humanizado para timeline (sin detalles técnicos para el usuario)
+    client_name = customer_payload.get("name", "Cliente")
+    direction = normalized_connection.get("direccion", "ubicación sin especificar")
+    
+    timeline_content = f"✅ Instalación: cliente confirmado desde ISPCube ({client_name}, {direction})"
+
     return {
         "customer_id": customer_id,
         "connection_id": normalized_connection.get("id"),
+        "timeline_event": {
+            "content": timeline_content,
+            "meta_data": {
+                "installation_lookup": lookup_source,
+                "customer_id": customer_id,
+                "customer_dni": customer_payload.get("doc_number"),
+                "customer_name": client_name,
+                "connection_id": normalized_connection.get("id"),
+                "connection_direction": direction,
+                "pppoe_username": normalized_connection.get("user"),
+                "ispcube_confirmed": True,
+                "sync_timestamp": datetime.utcnow().isoformat(),
+            },
+        },
     }

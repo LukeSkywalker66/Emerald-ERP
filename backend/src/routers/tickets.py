@@ -571,9 +571,10 @@ def create_ticket(
 
     # Para instalaciones, sincronizar primero cliente/conexión confirmados desde ISPCube.
     # Si falla, NO crear ticket para evitar inconsistencias con datos inexistentes en Emerald.
+    installation_sync_result = None
     if payload.ticket_type == TicketType.installation:
         try:
-            sync_installation_context(
+            installation_sync_result = sync_installation_context(
                 destination_connection_id=payload.destination_connection_id,
                 customer_dni=payload.customer_dni,
                 ispcube_customer=payload.ispcube_customer,
@@ -638,6 +639,18 @@ def create_ticket(
             },
         )
         db.add(description_event)
+    
+    # Si es instalación confirmada desde ISPCube, agregar evento de auditoría (humanizado para UI, técnico en meta_data)
+    if payload.ticket_type == TicketType.installation and installation_sync_result:
+        timeline_spec = installation_sync_result.get("timeline_event", {})
+        audit_event = TicketTimeline(
+            ticket_id=ticket.id,
+            author_id=user_id,
+            event_type=TicketTimelineEventType.note,
+            content=timeline_spec.get("content", "Instalación confirmada desde ISPCube"),
+            meta_data=timeline_spec.get("meta_data", {}),
+        )
+        db.add(audit_event)
     
     # Auto-crear OT según tipo
     if payload.ticket_type in [TicketType.installation, TicketType.withdrawal, TicketType.relocation]:
