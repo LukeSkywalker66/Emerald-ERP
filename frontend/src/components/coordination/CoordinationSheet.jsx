@@ -67,6 +67,28 @@ export default function CoordinationSheet({
   const [incompleteReason, setIncompleteReason] = useState('');
   const [isMarkingIncomplete, setIsMarkingIncomplete] = useState(false);
 
+  // ========== HELPER FUNCTIONS ==========
+
+  /**
+   * Determina si una OT está bloqueada por fecha pasada
+   * Bloquea si scheduled_start < now - 5 minutos (grace period)
+   */
+  const isWorkOrderPastDate = (wo) => {
+    if (!wo?.scheduled_start) return false;
+    const now = new Date();
+    const gracePeriod = 5 * 60 * 1000; // 5 minutos en ms
+    const scheduledTime = new Date(wo.scheduled_start);
+    return scheduledTime < new Date(now.getTime() - gracePeriod);
+  };
+
+  // Calcular si está bloqueada (por status completada O por fecha pasada)
+  const isLocked = workOrder?.status === 'completed' || isWorkOrderPastDate(workOrder);
+  const lockedReason = workOrder?.status === 'completed' 
+    ? 'completada' 
+    : isWorkOrderPastDate(workOrder) 
+    ? 'fecha pasada' 
+    : null;
+
   // ========== EFFECTS ==========
 
   useEffect(() => {
@@ -247,7 +269,7 @@ export default function CoordinationSheet({
                 <Badge className={`${typeColor} border-0 text-white`}>
                   {typeLabel}
                 </Badge>
-                {workOrder.status === 'completed' && (
+                {isLocked && (
                   <Badge className="bg-red-900/50 border border-red-700 text-red-200 flex items-center gap-1">
                     <Lock size={12} />
                     Bloqueada
@@ -266,11 +288,11 @@ export default function CoordinationSheet({
         </SheetHeader>
 
         {/* ========== ALERTA SI COMPLETADA ========== */}
-        {workOrder.status === 'completed' && (
+        {isLocked && (
           <Alert className="bg-red-900/20 border-red-700/50 mt-4">
             <Lock size={16} className="text-red-400" />
             <AlertDescription className="text-red-300">
-              Orden completada. No se puede editar. Solo admin/técnico puede reabrir dentro de 2h.
+              {lockedReason === 'completada' ? 'Orden completada. No se puede editar.' : 'Orden programada para el pasado. No se puede editar.'} Solo admin/técnico puede reabrir dentro de 2h.
             </AlertDescription>
           </Alert>
         )}
@@ -284,7 +306,7 @@ export default function CoordinationSheet({
               className="block group"
             >
               <button
-                disabled={workOrder.status === 'completed'}
+                disabled={isLocked}
                 className="w-full rounded-lg bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white font-bold py-4 px-4 flex items-center justify-center gap-3 transition-all shadow-lg hover:shadow-emerald-600/50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Phone size={20} className="flex-shrink-0" />
@@ -315,7 +337,7 @@ export default function CoordinationSheet({
             {/* Intento fallido */}
             <Button
               onClick={registerFailedAttempt}
-              disabled={workOrder.status === 'completed'}
+              disabled={isLocked}
               variant="outline"
               className="w-full border-amber-700/50 text-amber-300 hover:bg-amber-950/30 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -406,7 +428,7 @@ export default function CoordinationSheet({
             <div className="flex items-center gap-2">
               <Button
                 onClick={() => handleDurationChange(duration - 5)}
-                disabled={duration <= 5 || workOrder.status === 'completed'}
+                disabled={duration <= 5 || isLocked}
                 variant="outline"
                 size="sm"
                 className="h-10 w-10 p-0 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
@@ -419,7 +441,7 @@ export default function CoordinationSheet({
                 <input
                   type="text"
                   inputMode="numeric"
-                  disabled={workOrder.status === 'completed'}
+                  disabled={isLocked}
                   value={duration}
                   onChange={(e) => {
                     const val = e.target.value.replace(/\D/g, '');
@@ -439,7 +461,7 @@ export default function CoordinationSheet({
 
               <Button
                 onClick={() => handleDurationChange(duration + 5)}
-                disabled={duration >= 480 || workOrder.status === 'completed'}
+                disabled={duration >= 480 || isLocked}
                 variant="outline"
                 size="sm"
                 className="h-10 w-10 p-0 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
@@ -457,7 +479,7 @@ export default function CoordinationSheet({
             )}
 
             {/* Botón guardar (si cambió y no está bloqueada) */}
-            {durationChanged && workOrder.status !== 'completed' && (
+            {durationChanged && !isLocked && (
               <Button
                 onClick={saveDuration}
                 disabled={isSavingDuration}
@@ -478,9 +500,9 @@ export default function CoordinationSheet({
             )}
 
             {/* Aviso si OT completada y hay cambio */}
-            {durationChanged && workOrder.status === 'completed' && (
+            {durationChanged && isLocked && (
               <div className="rounded-lg bg-red-900/20 border border-red-700/50 p-3 text-center">
-                <p className="text-xs text-red-300 font-medium">🔒 OT bloqueada. No se puede guardar.</p>
+                <p className="text-xs text-red-300 font-medium">🔒 OT {lockedReason}. No se puede guardar.</p>
               </div>
             )}
           </div>
