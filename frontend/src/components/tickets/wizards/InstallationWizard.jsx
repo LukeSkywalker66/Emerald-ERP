@@ -22,8 +22,12 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
     availabilityNote: '',
   });
 
-  // Helper: Detectar si el query es un DNI (números puros, 7-8 dígitos)
-  const isDNI = (query) => /^\d{7,9}$/.test(query.trim());
+  // Helper: Detectar si el query es un DNI/CUIT/CUIL válido (solo números, 7-9 o 11 dígitos)
+  const isDNI = (query) => {
+    const clean = query.trim();
+    // DNI: 7-9 dígitos | CUIT/CUIL: 11 dígitos
+    return /^\d{7,9}$/.test(clean) || /^\d{11}$/.test(clean);
+  };
 
   // Auto-search con debounce de 500ms
   useEffect(() => {
@@ -43,7 +47,7 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
     if (!searchQuery.trim()) return;
 
     if (!isDNI(searchQuery)) {
-      setError('Para instalaciones nuevas, la búsqueda debe hacerse por DNI (7 a 9 dígitos).');
+      setError('Para instalaciones nuevas, la búsqueda debe hacerse por DNI (7-9 dígitos), CUIT o CUIL (11 dígitos).');
       setSearchResults([]);
       setLookupPayload(null);
       return;
@@ -137,7 +141,7 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
       <div className="space-y-6">
         <div>
           <h3 className="text-lg font-semibold text-white mb-2">Buscar Cliente Nuevo</h3>
-          <p className="text-sm text-zinc-400">Ingresa DNI para consultar ISPCube en tiempo real</p>
+          <p className="text-sm text-zinc-400">Ingresa DNI, CUIT o CUIL para consultar ISPCube en tiempo real</p>
         </div>
         {error && (
           <div className="p-3 rounded-lg border border-rose-700/50 bg-rose-950/30 flex gap-2 text-rose-300 text-sm">
@@ -147,7 +151,7 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
         )}
         <div className="flex gap-2">
           <Input
-            placeholder="DNI (solo números)"
+            placeholder="DNI, CUIT o CUIL (solo números)"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
