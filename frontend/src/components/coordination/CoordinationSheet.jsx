@@ -30,6 +30,9 @@ import {
   User,
   CheckCircle2,
   AlertTriangle,
+  Lock,
+  X,
+  Send,
 } from 'lucide-react';
 import api from '@/api/client';
 
@@ -60,6 +63,9 @@ export default function CoordinationSheet({
   const [durationChanged, setDurationChanged] = useState(false);
   const [ticket, setTicket] = useState(null);
   const [isLoadingTicket, setIsLoadingTicket] = useState(false);
+  const [showIncompleteModal, setShowIncompleteModal] = useState(false);
+  const [incompleteReason, setIncompleteReason] = useState('');
+  const [isMarkingIncomplete, setIsMarkingIncomplete] = useState(false);
 
   // ========== EFFECTS ==========
 
@@ -129,7 +135,19 @@ export default function CoordinationSheet({
       }
     } catch (err) {
       console.error('Error saving duration:', err);
-      alert('Error al guardar la duración');
+      
+      if (err.response?.status === 423) {
+        const lockedReason = err.response?.headers?.['x-locked-reason'];
+        if (lockedReason === 'LOCKED_COMPLETED') {
+          alert('❌ OT completada. No se puede editar (inmutable).');
+        } else if (lockedReason === 'LOCKED_PAST_DATE') {
+          alert('❌ No se puede asignar a una fecha pasada.');
+        } else {
+          alert('❌ Operación bloqueada');
+        }
+      } else {
+        alert('Error al guardar la duración');
+      }
     } finally {
       setIsSavingDuration(false);
     }
@@ -146,12 +164,37 @@ export default function CoordinationSheet({
         }
       );
       
-      // Actualizar lista de intentos
       setContactAttempts([data, ...contactAttempts]);
       console.log(`✅ Intento de contacto registrado`);
     } catch (err) {
       console.error('Error registering contact attempt:', err);
       alert('Error al registrar el intento de contacto');
+    }
+  };
+
+  const markAsIncomplete = async () => {
+    if (!incompleteReason.trim()) {
+      alert('⚠️ Ingresa una razón');
+      return;
+    }
+
+    try {
+      setIsMarkingIncomplete(true);
+      const { data } = await api.post(
+        `/v2/work-orders/${workOrder.id}/mark-incomplete`,
+        { reason: incompleteReason }
+      );
+      
+      console.log('✅ OT marcada como incompleta. Opciones:', data.options);
+      alert('✓ OT marcada como incompleta\n\nOpciones: Reprogramar, Al backlog, Nueva OT');
+      
+      setShowIncompleteModal(false);
+      setIncompleteReason('');
+    } catch (err) {
+      console.error('Error marking as incomplete:', err);
+      alert('Error al marcar como incompleta');
+    } finally {
+      setIsMarkingIncomplete(false);
     }
   };
 
@@ -204,6 +247,12 @@ export default function CoordinationSheet({
                 <Badge className={`${typeColor} border-0 text-white`}>
                   {typeLabel}
                 </Badge>
+                {workOrder.status === 'completed' && (
+                  <Badge className="bg-red-900/50 border border-red-700 text-red-200 flex items-center gap-1">
+                    <Lock size={12} />
+                    Bloqueada
+                  </Badge>
+                )}
                 <span className="text-xs text-zinc-500">OT #{workOrder.id}</span>
               </div>
               <SheetTitle className="text-lg text-white">
@@ -216,6 +265,16 @@ export default function CoordinationSheet({
           </div>
         </SheetHeader>
 
+        {/* ========== ALERTA SI COMPLETADA ========== */}
+        {workOrder.status === 'completed' && (
+          <Alert className="bg-red-900/20 border-red-700/50 mt-4">
+            <Lock size={16} className="text-red-400" />
+            <AlertDescription className="text-red-300">
+              Orden completada. No se puede editar. Solo admin/técnico puede reabrir dentro de 2h.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* ========== CONTENIDO ========== */}
         <div className="space-y-5 py-4">
           {/* ========== TELÉFONO DESTACADO ========== */}
@@ -225,7 +284,8 @@ export default function CoordinationSheet({
               className="block group"
             >
               <button
-                className="w-full rounded-lg bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white font-bold py-4 px-4 flex items-center justify-center gap-3 transition-all shadow-lg hover:shadow-emerald-600/50"
+                disabled={workOrder.status === 'completed'}
+                className="w-full rounded-lg bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white font-bold py-4 px-4 flex items-center justify-center gap-3 transition-all shadow-lg hover:shadow-emerald-600/50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Phone size={20} className="flex-shrink-0" />
                 <span className="text-base font-mono">{clientPhone}</span>
@@ -394,8 +454,8 @@ export default function CoordinationSheet({
               <p className="text-xs text-red-400">⚠️ Máximo 8 horas (480 min)</p>
             )}
 
-            {/* Botón guardar (si cambió) */}
-            {durationChanged && (
+            {/* Botón guardar (si cambió y no está bloqueada) */}
+            {durationChanged && workOrder.status !== 'completed' && (
               <Button
                 onClick={saveDuration}
                 disabled={isSavingDuration}
@@ -413,6 +473,13 @@ export default function CoordinationSheet({
                   </>
                 )}
               </Button>
+            )}
+
+            {/* Aviso si OT completada y hay cambio */}
+            {durationChanged && workOrder.status === 'completed' && (
+              <div className="rounded-lg bg-red-900/20 border border-red-700/50 p-3 text-center">
+                <p className="text-xs text-red-300 font-medium">🔒 OT bloqueada. No se puede guardar.</p>
+              </div>
             )}
           </div>
 
@@ -449,6 +516,19 @@ export default function CoordinationSheet({
           </div>
         </div>
 
+        {/* ========== BOTÓN MARCAR INCOMPLETA ========== */}
+        {workOrder.status === 'in_progress' && (
+          <div className="border-t border-zinc-800 py-4 mt-6 space-y-3">
+            <p className="text-xs text-zinc-400 font-medium">¿Trabajo no completado?</p>
+            <Button
+              onClick={() => setShowIncompleteModal(true)}
+              className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              📝 Marcar como Incompleta
+            </Button>
+          </div>
+        )}
+
         {/* ========== FOOTER ========== */}
         <SheetFooter className="border-t border-zinc-800 pt-4 mt-6">
           <Button
@@ -460,6 +540,72 @@ export default function CoordinationSheet({
           </Button>
         </SheetFooter>
       </SheetContent>
+
+      {/* ========== MODAL: MARCAR COMO INCOMPLETA ========== */}
+      <Sheet open={showIncompleteModal} onOpenChange={setShowIncompleteModal}>
+        <SheetContent side="right" className="w-full sm:w-96 bg-zinc-900 border-l border-zinc-800">
+          <SheetHeader className="border-b border-zinc-800 pb-4 -mx-6 px-6 pt-4">
+            <SheetTitle className="text-lg text-white flex items-center gap-2">
+              <AlertTriangle size={20} className="text-amber-500" />
+              Marcar como No Realizada
+            </SheetTitle>
+          </SheetHeader>
+
+          <div className="space-y-4 py-6">
+            <div>
+              <label className="text-sm font-medium text-white mb-2 block">Razón:</label>
+              <textarea
+                placeholder="Ej: Cliente no disponible, Requiere replanteo, Dirección equivocada..."
+                value={incompleteReason}
+                onChange={(e) => setIncompleteReason(e.target.value)}
+                disabled={isMarkingIncomplete}
+                className="w-full h-24 rounded-lg bg-zinc-800 border border-zinc-700 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50"
+              />
+            </div>
+
+            <Alert className="bg-blue-900/20 border-blue-700/50">
+              <AlertCircle size={16} className="text-blue-400" />
+              <AlertDescription className="text-blue-300 text-xs">
+                Después de marcar como incompleta, tendrás opciones para:
+                <ul className="list-disc list-inside mt-2 space-y-1">
+                  <li>Reprogramar para otra fecha</li>
+                  <li>Devolver al backlog</li>
+                  <li>Crear nueva OT desde el ticket</li>
+                </ul>
+              </AlertDescription>
+            </Alert>
+          </div>
+
+          <SheetFooter className="border-t border-zinc-800 pt-4">
+            <Button
+              onClick={() => setShowIncompleteModal(false)}
+              disabled={isMarkingIncomplete}
+              variant="outline"
+              className="w-full border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+            >
+              <X size={16} className="mr-2" />
+              Cancelar
+            </Button>
+            <Button
+              onClick={markAsIncomplete}
+              disabled={isMarkingIncomplete || !incompleteReason.trim()}
+              className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              {isMarkingIncomplete ? (
+                <>
+                  <span className="animate-spin mr-2">⏳</span>
+                  Guardando...
+                </>
+              ) : (
+                <>
+                  <Send size={16} className="mr-2" />
+                  Confirmar Incompleta
+                </>
+              )}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </Sheet>
   );
 }
