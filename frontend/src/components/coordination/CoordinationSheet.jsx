@@ -315,8 +315,9 @@ export default function CoordinationSheet({
             {/* Intento fallido */}
             <Button
               onClick={registerFailedAttempt}
+              disabled={workOrder.status === 'completed'}
               variant="outline"
-              className="w-full border-amber-700/50 text-amber-300 hover:bg-amber-950/30"
+              className="w-full border-amber-700/50 text-amber-300 hover:bg-amber-950/30 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <AlertTriangle size={16} className="mr-2" />
               {contactAttempts.length > 0
@@ -405,10 +406,10 @@ export default function CoordinationSheet({
             <div className="flex items-center gap-2">
               <Button
                 onClick={() => handleDurationChange(duration - 5)}
-                disabled={duration <= 5}
+                disabled={duration <= 5 || workOrder.status === 'completed'}
                 variant="outline"
                 size="sm"
-                className="h-10 w-10 p-0 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                className="h-10 w-10 p-0 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Minus size={16} />
               </Button>
@@ -418,6 +419,7 @@ export default function CoordinationSheet({
                 <input
                   type="text"
                   inputMode="numeric"
+                  disabled={workOrder.status === 'completed'}
                   value={duration}
                   onChange={(e) => {
                     const val = e.target.value.replace(/\D/g, '');
@@ -428,7 +430,7 @@ export default function CoordinationSheet({
                       handleDurationChange(parseInt(val) || 5);
                     }
                   }}
-                  className="w-full rounded-lg bg-zinc-800 border border-zinc-700 text-white px-3 py-2 text-center text-lg font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full rounded-lg bg-zinc-800 border border-zinc-700 text-white px-3 py-2 text-center text-lg font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-zinc-900"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 pointer-events-none">
                   min
@@ -437,10 +439,10 @@ export default function CoordinationSheet({
 
               <Button
                 onClick={() => handleDurationChange(duration + 5)}
-                disabled={duration >= 480}
+                disabled={duration >= 480 || workOrder.status === 'completed'}
                 variant="outline"
                 size="sm"
-                className="h-10 w-10 p-0 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                className="h-10 w-10 p-0 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Plus size={16} />
               </Button>
