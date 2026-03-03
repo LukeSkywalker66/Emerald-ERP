@@ -180,11 +180,16 @@ export const searchConnections = async (query, options = {}) => {
  * Buscar cliente por DNI en ISPCube (lookup externo)
  * Optimizado para búsqueda rápida por DNI sin timeout
  * @param {string} dni - DNI del cliente
+ * @param {boolean} newConnectionsOnly - Si true, filtra solo conexiones nuevas (no en Emerald)
  * @returns {Promise<Object>} { customer: {...}, connections: [...] }
  */
-export const lookupCustomerByDNI = async (dni) => {
+export const lookupCustomerByDNI = async (dni, newConnectionsOnly = true) => {
   try {
-    const { data } = await api.get('/external/customer-lookup', {
+    const endpoint = newConnectionsOnly 
+      ? '/external/customer-lookup-new-connections'
+      : '/external/customer-lookup';
+    
+    const { data } = await api.get(endpoint, {
       params: { dni }
     });
     return data;

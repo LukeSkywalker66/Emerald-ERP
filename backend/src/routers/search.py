@@ -117,6 +117,65 @@ def external_customer_lookup(
     }
 
 
+@router.get("/external/customer-lookup-new-connections")
+def external_customer_lookup_new_connections(
+    dni: str = Query(..., min_length=3, description="DNI del cliente en ISPCube"),
+    db: Session = Depends(get_db),
+):
+    """
+    Consulta ISPCube y filtra solo conexiones que NO existen en Emerald (para instalaciones nuevas).
+    Útil para wizard de instalación: evita mostrar conexiones ya sincronizadas.
+    """
+    from src.models import Connection
+    from sqlalchemy import select
+    
+    data = ispcube_service.get_customer_by_dni(dni)
+
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Cliente no encontrado en ISPCube",
+        )
+
+    customer = data.get("customer", {})
+    all_connections = data.get("connections") or []
+
+    # Obtener IDs de conexiones que ya existen en Emerald
+    existing_ids = set()
+    try:
+        existing_conns = db.execute(
+            select(Connection.connection_id)
+        ).scalars().all()
+        existing_ids = {str(conn_id) for conn_id in existing_conns if conn_id}
+    except Exception:
+        pass  # Si falla, devolver todas (fallback graceful)
+
+    # Filtrar solo conexiones nuevas (no existen en Emerald)
+    new_connections = [
+        {
+            **conn,
+            "external_id": conn.get("id"),
+            "pppoe_username": conn.get("user"),
+            "address": conn.get("address") or conn.get("direccion"),
+            "plan_id": conn.get("plan_id"),
+            "node_id": conn.get("node_id"),
+            "status": conn.get("status") or conn.get("state") or "unknown",
+        }
+        for conn in all_connections
+        if str(conn.get("id") or conn.get("external_id")) not in existing_ids
+    ]
+
+    return {
+        "customer": {
+            **customer,
+            "external_id": customer.get("id"),
+        },
+        "connections": new_connections,
+        "total_in_ispcube": len(all_connections),
+        "new_count": len(new_connections),
+    }
+
+
 @router.get("/v2/users", response_model=List[UserSimpleResponse])
 def list_users(
     db: Session = Depends(get_db),

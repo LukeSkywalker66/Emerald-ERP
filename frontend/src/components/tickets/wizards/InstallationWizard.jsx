@@ -57,7 +57,8 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
       setIsSearching(true);
       setError(null);
 
-      const result = await ticketsService.lookupCustomerByDNI(searchQuery);
+      // Buscar solo conexiones nuevas (que no existan en Emerald)
+      const result = await ticketsService.lookupCustomerByDNI(searchQuery, true);
       if (!result) {
         setError('Cliente no encontrado en ISPCube');
         setSearchResults([]);
@@ -67,7 +68,7 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
 
       setLookupPayload(result);
 
-      // Transformar resultado para UI y conservar payload crudo confirmado
+      // Transformar resultado para UI
       const connections = (result.connections || []).map((conn) => ({
         connection_id: Number(conn.external_id || conn.id),
         client_name: result.customer?.name,
@@ -88,10 +89,17 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
       }));
 
       setSearchResults(connections);
-      if (connections.length > 0) {
-        setStep(2);
+      
+      if (connections.length === 0) {
+        // Cliente existe pero todas sus conexiones ya están en Emerald
+        const totalInISPCube = result.total_in_ispcube || 0;
+        if (totalInISPCube > 0) {
+          setError(`Cliente encontrado en ISPCube (${totalInISPCube} conexión/es), pero todas ya existen en nuestra base. No hay conexiones nuevas para instalar.`);
+        } else {
+          setError('El cliente no tiene conexiones disponibles en ISPCube');
+        }
       } else {
-        setError('El cliente no tiene conexiones disponibles');
+        setStep(2);
       }
     } catch (err) {
       setError(err.message || 'Error en la búsqueda');
@@ -174,7 +182,16 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
   if (step === 2) {
     return (
       <div className="space-y-6">
-        <p className="text-sm text-zinc-400">Selecciona la conexión NUEVA</p>
+        <div>
+          <p className="text-sm text-zinc-400 mb-2">
+            Selecciona la conexión NUEVA para instalar
+          </p>
+          {lookupPayload?.new_count && lookupPayload?.total_in_ispcube && (
+            <p className="text-xs text-emerald-400 bg-emerald-950/30 border border-emerald-800/50 rounded px-2 py-1">
+              📊 {lookupPayload.new_count} conexión(es) nueva(s) | {lookupPayload.total_in_ispcube - lookupPayload.new_count} ya en nuestra base
+            </p>
+          )}
+        </div>
         <div className="space-y-3 max-h-[400px] overflow-y-auto">
           {searchResults.map((conn) => (
             <button
