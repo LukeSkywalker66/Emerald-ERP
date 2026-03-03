@@ -134,6 +134,11 @@ export default function DraggableWorkOrderCard({
   // ========== HANDLERS ==========
 
   const handleDragStart = (e) => {
+    // Prevenir drag si OT está completada
+    if (workOrder.status === 'completed') {
+      e.preventDefault();
+      return;
+    }
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('application/json', JSON.stringify(workOrder));
     e.dataTransfer.setData('workOrderId', workOrder.id.toString());
@@ -152,21 +157,23 @@ export default function DraggableWorkOrderCard({
           <TooltipTrigger asChild>
             {/* CONTENEDOR PRINCIPAL: Tactical HUD */}
             <div
-              draggable
+              draggable={workOrder.status !== 'completed'}
               onDragStart={handleDragStart}
               className={cn(
                 'min-h-[56px] rounded border-l-4 transition-all overflow-hidden flex items-center gap-0 group',
                 priorityConfig.borderColor,
                 priorityConfig.bgColor,
-                'hover:shadow-lg hover:translate-x-1 hover:brightness-125',
+                workOrder.status === 'completed' && 'opacity-40 cursor-not-allowed border-l-red-600 bg-red-950/10',
+                workOrder.status !== 'completed' && 'hover:shadow-lg hover:translate-x-1 hover:brightness-125',
                 isDragging && 'opacity-50 scale-95 shadow-lg'
               )}
             >
               {/* ========== DRAG HANDLE ========== */}
               <div
                 className={cn(
-                  'flex items-center justify-center w-5 cursor-grab active:cursor-grabbing flex-shrink-0',
-                  'border-r border-zinc-800/70 bg-zinc-900/40'
+                  'flex items-center justify-center w-5 flex-shrink-0',
+                  'border-r border-zinc-800/70 bg-zinc-900/40',
+                  workOrder.status === 'completed' ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'
                 )}
               >
                 <GripVertical
