@@ -167,7 +167,19 @@ export default function CoordinationSheet({
   const typeLabel = OT_TYPE_LABELS[workOrder.ot_type] || 'Tarea';
   const typeColor = OT_TYPE_COLORS[workOrder.ot_type] || 'bg-zinc-600';
   const hasAvailability = ticket?.availability_note;
-  const clientPhone = ticket?.contact_info?.phone;
+  const clientPhone = [
+    ticket?.contact_info?.phone,
+    ticket?.contact_info?.mobile,
+    ticket?.contact_info?.telefono,
+    ticket?.contact_info?.cellphone,
+    ticket?.connection_details?.phone,
+    workOrder?.ticket?.contact_info?.phone,
+    workOrder?.ticket?.contact_info?.mobile,
+    workOrder?.ticket?.contact_info?.telefono,
+    workOrder?.ticket?.contact_info?.cellphone,
+    workOrder?.ticket?.connection_details?.phone,
+    workOrder?.ticket_info?.contact_phone,
+  ].find((value) => typeof value === 'string' && value.trim().length > 0);
   const clientName = ticket?.contact_info?.client_name || workOrder.client_name;
 
   // DEBUG: Ver qué datos tenemos

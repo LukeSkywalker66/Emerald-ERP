@@ -1,6 +1,6 @@
 """Router para WorkOrders - Endpoints de listado y ejecución para técnicos."""
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 
 from .work_orders_snapshot_helper import build_connection_snapshot
+from .work_orders_guards import validate_coordination_not_locked, get_coordination_options_for_incomplete_work_order
 router = APIRouter(prefix="/v2/work-orders", tags=["work-orders"])
 
 
@@ -323,9 +324,23 @@ def get_work_order_detail(
                         n.ip_address as node_ip,
                         p.name as plan_name,
                         p.speed as plan_speed,
-                        NULL::text as phone
+                        COALESCE(
+                            ct.number,
+                            cl.raw_data->>'phone',
+                            cl.raw_data->>'mobile',
+                            cl.raw_data->>'telefono'
+                        ) as phone
                     FROM connections c
                     LEFT JOIN clientes cl ON c.customer_id = cl.id
+                    LEFT JOIN LATERAL (
+                        SELECT ct_inner.number
+                        FROM clientes_telefonos ct_inner
+                        WHERE ct_inner.customer_id = cl.id
+                          AND ct_inner.number IS NOT NULL
+                          AND btrim(ct_inner.number) <> ''
+                        ORDER BY ct_inner.id ASC
+                        LIMIT 1
+                    ) ct ON true
                     LEFT JOIN nodes n ON c.node_id = n.node_id
                     LEFT JOIN plans p ON c.plan_id = p.plan_id
                     WHERE c.connection_id = :conn_id
@@ -411,13 +426,33 @@ def update_work_order(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Actualizar estado de OT (usado por técnicos Y coordinadores)."""
+    """
+    Actualizar estado de OT (usado por técnicos Y coordinadores).
+    
+    **Validaciones (NASA-grade):**
+    - OTs completadas/fallidas son inmutables (no se pueden editar)
+    - Técnico puede marcar como "no completada" dentro de 2 horas
+    - Coordinador puede reprogramar OTs no iniciadas
+    """
     wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
     if not wo:
         raise HTTPException(status_code=404, detail="WorkOrder not found")
     
     # Guardar estado anterior para logging
     old_status = wo.status
+    
+    # ===== VALIDACIÓN: BLOQUEAR EDICIONES DE OTs COMPLETADAS =====
+    # Exception: permitir operación "reopen" (marcar como incompleta) - eso es via endpoint separado
+    # Solo mostrar acceso si es técnico intentando reopens dentro de ventana de gracia
+    if wo.status == WorkOrderStatus.completed or wo.status == WorkOrderStatus.failed:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail=f"Orden de trabajo no puede ser modificada. Estado: {wo.status.value} (inmutable). Use PUT /work-orders/{work_order_id}/reopen para marcar como incompleta.",
+            headers={
+                "X-Locked-Reason": "LOCKED_COMPLETED",
+                "X-Work-Order-Status": wo.status.value,
+            }
+        )
     
     # Actualizar campos
     update_data = payload.model_dump(exclude_unset=True)
@@ -742,10 +777,25 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
                         n.ip_address as node_ip,
                         p.name as plan_name,
                         p.speed as plan_speed,
+                        COALESCE(
+                            ct.number,
+                            cl.raw_data->>'phone',
+                            cl.raw_data->>'mobile',
+                            cl.raw_data->>'telefono'
+                        ) as phone,
                         cy.name as city_name,
                         nb.name as neighborhood_name
                     FROM connections c
                     LEFT JOIN clientes cl ON c.customer_id = cl.id
+                    LEFT JOIN LATERAL (
+                        SELECT ct_inner.number
+                        FROM clientes_telefonos ct_inner
+                        WHERE ct_inner.customer_id = cl.id
+                          AND ct_inner.number IS NOT NULL
+                          AND btrim(ct_inner.number) <> ''
+                        ORDER BY ct_inner.id ASC
+                        LIMIT 1
+                    ) ct ON true
                     LEFT JOIN nodes n ON c.node_id = n.node_id
                     LEFT JOIN plans p ON c.plan_id = p.plan_id
                     LEFT JOIN cities cy ON c.city_id = cy.id
@@ -764,10 +814,12 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
                 # Enriquecer contact_info con ciudad y barrio
                 if ticket_dict and not ticket_dict.get('contact_info'):
                     ticket_dict['contact_info'] = {}
-                if ticket_dict and conn_row[9]:  # city_name
-                    ticket_dict['contact_info']['city'] = conn_row[9]
-                if ticket_dict and conn_row[10]:  # neighborhood_name
-                    ticket_dict['contact_info']['neighborhood'] = conn_row[10]
+                if ticket_dict and conn_row[9]:  # phone
+                    ticket_dict['contact_info']['phone'] = conn_row[9]
+                if ticket_dict and conn_row[10]:  # city_name
+                    ticket_dict['contact_info']['city'] = conn_row[10]
+                if ticket_dict and conn_row[11]:  # neighborhood_name
+                    ticket_dict['contact_info']['neighborhood'] = conn_row[11]
         except Exception as e:
             # Si falla la consulta, usar datos fallback del ticket
             print(f"⚠️  Error enriqueciendo conexión {wo.ticket.connection_id}: {e}")
@@ -819,6 +871,76 @@ class CoordinationGridResponse(BaseModel):
     allocations: list = Field(default_factory=list)
     backlog: list = Field(default_factory=list)
     team_load: list[TeamLoadMetrics] = Field(default_factory=list)
+
+
+@router.post("/{work_order_id}/mark-incomplete", response_model=dict)
+def mark_work_order_incomplete(
+    work_order_id: int,
+    reason: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Cuando un trabajo NO fue completado (ej: técnico llegó y no pudo hacerse),
+    retorna las opciones disponibles para el coordinador:
+    
+    1. **reschedule**: Programar para otra fecha
+    2. **reopen_backlog**: Devolver al backlog
+    3. **create_new_from_ticket**: Crear nueva OT desde ticket
+    
+    **Request:**
+    ```json
+    {
+        "reason": "Cliente no estaba disponible"  // Obligatorio para auditoría
+    }
+    ```
+    
+    **Response:**
+    ```json
+    {
+        "work_order_id": 123,
+        "status": "pending_action",
+        "reason": "Cliente no estaba disponible",
+        "options": {
+            "reschedule": {...},
+            "reopen_backlog": {...},
+            "create_new_from_ticket": {...}
+        }
+    }
+    ```
+    """
+    wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
+    if not wo:
+        raise HTTPException(status_code=404, detail="OT no encontrada")
+    
+    # Registrar en timeline
+    timeline_event = TicketTimeline(
+        ticket_id=wo.ticket_id,
+        author_id=current_user.id,
+        event_type=TicketTimelineEventType.ot_event,
+        content=f"OT #{wo.id} marcada como NO realizada",
+        meta_data={
+            "work_order_id": wo.id,
+            "status": wo.status.value,
+            "reason": reason,
+            "marked_incomplete_by": current_user.full_name or current_user.email,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    db.add(timeline_event)
+    db.commit()
+    
+    # Obtener opciones disponibles
+    options = get_coordination_options_for_incomplete_work_order(wo)
+    
+    return {
+        "work_order_id": wo.id,
+        "status": wo.status.value,
+        "ticket_id": wo.ticket_id,
+        "reason": reason,
+        "options": options,
+        "message": "Elige una opción para continuar con esta OT",
+    }
 
 
 def check_scheduling_conflicts(
@@ -990,6 +1112,10 @@ def assign_work_order_to_team(
         "estimated_duration": 60
     }
     ```
+    
+    **Validaciones (NASA-grade):**
+    - No permitir asignar a fecha pasada (< ahora - 5min)
+    - OTs completadas/fallidas son inmutables
     """
     wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id)\
         .options(joinedload(WorkOrder.ticket)).first()
@@ -1000,9 +1126,31 @@ def assign_work_order_to_team(
     if not payload.team_id or not payload.scheduled_start:
         raise HTTPException(status_code=400, detail="Requiere team_id y scheduled_start")
     
+    # ===== VALIDACIÓN 1: BLOQUEAR SI OT ESTÁ COMPLETADA =====
+    validate_coordination_not_locked(wo, db, current_user, operation="assign")
+    
     team = db.query(Team).filter(Team.id == payload.team_id).first()
     if not team:
         raise HTTPException(status_code=404, detail=f"Team {payload.team_id} no existe")
+    
+    # ===== VALIDACIÓN 2: BLOQUEAR ASIGNACIÓN A FECHA PASADA =====
+    from datetime import timezone
+    grace_period = timedelta(minutes=5)
+    now = datetime.now(timezone.utc)
+    scheduled_start_tz = payload.scheduled_start
+    if scheduled_start_tz.tzinfo is None:
+        scheduled_start_tz = scheduled_start_tz.replace(tzinfo=timezone.utc)
+    
+    if scheduled_start_tz < (now - grace_period):
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail=f"No se puede asignar a una fecha pasada ({scheduled_start_tz.isoformat()})",
+            headers={
+                "X-Locked-Reason": "LOCKED_PAST_DATE",
+                "X-Proposed-Date": scheduled_start_tz.isoformat(),
+                "X-Current-Time": now.isoformat(),
+            }
+        )
     
     # Validar colisión
     estimated_duration = payload.estimated_duration or wo.estimated_duration or 60
@@ -1055,12 +1203,20 @@ def unassign_work_order(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Devolver OT al backlog (quitar team)."""
+    """
+    Devolver OT al backlog (quitar team).
+    
+    **Validaciones (NASA-grade):**
+    - OTs completadas/fallidas no se pueden desasignar
+    """
     wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id)\
         .options(joinedload(WorkOrder.ticket)).first()
     
     if not wo:
         raise HTTPException(status_code=404, detail="OT no encontrada")
+    
+    # ===== VALIDACIÓN: BLOQUEAR SI OT ESTÁ COMPLETADA =====
+    validate_coordination_not_locked(wo, db, current_user, operation="unassign")
     
     old_team_id = wo.team_id
     old_team_name = wo.team.name if wo.team else "Unknown"

@@ -792,9 +792,23 @@ def get_ticket_detail(ticket_id: int, db: Session = Depends(get_db)):
                     n.ip_address as node_ip,
                     p.name as plan_name,
                     p.speed as plan_speed,
-                    NULL::text as phone
+                    COALESCE(
+                        ct.number,
+                        cl.raw_data->>'phone',
+                        cl.raw_data->>'mobile',
+                        cl.raw_data->>'telefono'
+                    ) as phone
                 FROM connections c
                 LEFT JOIN clientes cl ON c.customer_id = cl.id
+                LEFT JOIN LATERAL (
+                    SELECT ct_inner.number
+                    FROM clientes_telefonos ct_inner
+                    WHERE ct_inner.customer_id = cl.id
+                      AND ct_inner.number IS NOT NULL
+                      AND btrim(ct_inner.number) <> ''
+                    ORDER BY ct_inner.id ASC
+                    LIMIT 1
+                ) ct ON true
                 LEFT JOIN nodes n ON c.node_id = n.node_id
                 LEFT JOIN plans p ON c.plan_id = p.plan_id
                 WHERE c.connection_id = :conn_id
