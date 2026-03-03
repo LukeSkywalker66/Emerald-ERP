@@ -12,6 +12,7 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
   const [step, setStep] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
+  const [lookupPayload, setLookupPayload] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -40,49 +41,53 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
+
+    if (!isDNI(searchQuery)) {
+      setError('Para instalaciones nuevas, la búsqueda debe hacerse por DNI (7 a 9 dígitos).');
+      setSearchResults([]);
+      setLookupPayload(null);
+      return;
+    }
+
     try {
       setIsSearching(true);
       setError(null);
-      
-      // Si es un DNI, usar lookup externo (mucho más rápido)
-      if (isDNI(searchQuery)) {
-        const result = await ticketsService.lookupCustomerByDNI(searchQuery);
-        if (!result) {
-          setError('Cliente no encontrado en ISPCube');
-          setSearchResults([]);
-          return;
-        }
-        
-        // Transformar el resultado al formato esperado
-        const connections = (result.connections || []).map((conn) => ({
-          connection_id: conn.external_id,
-          client_name: result.customer?.name,
-          client_dni: result.customer?.doc_number,
-          pppoe_username: conn.pppoe_username,
-          installation_address: conn.address,
-          plan_name: `Plan ID ${conn.plan_id || 'N/A'}`,
-          node_name: `Nodo ID ${conn.node_id || 'N/A'}`,
-          plan_id: conn.plan_id,
-          node_id: conn.node_id,
-          status: conn.status,
-        }));
-        
-        setSearchResults(connections);
-        if (connections.length > 0) {
-          setStep(2);
-        } else {
-          setError('El cliente no tiene conexiones disponibles');
-        }
+
+      const result = await ticketsService.lookupCustomerByDNI(searchQuery);
+      if (!result) {
+        setError('Cliente no encontrado en ISPCube');
+        setSearchResults([]);
+        setLookupPayload(null);
+        return;
+      }
+
+      setLookupPayload(result);
+
+      // Transformar resultado para UI y conservar payload crudo confirmado
+      const connections = (result.connections || []).map((conn) => ({
+        connection_id: Number(conn.external_id || conn.id),
+        client_name: result.customer?.name,
+        client_dni: result.customer?.doc_number,
+        pppoe_username: conn.pppoe_username || conn.user,
+        installation_address: conn.address || conn.direccion,
+        plan_name: `Plan ID ${conn.plan_id || 'N/A'}`,
+        node_name: `Nodo ID ${conn.node_id || 'N/A'}`,
+        plan_id: conn.plan_id,
+        node_id: conn.node_id,
+        status: conn.status,
+        raw_connection: {
+          ...conn,
+          id: conn.id || conn.external_id,
+          user: conn.user || conn.pppoe_username,
+          address: conn.address || conn.direccion,
+        },
+      }));
+
+      setSearchResults(connections);
+      if (connections.length > 0) {
+        setStep(2);
       } else {
-        // Búsqueda local por nombre/dirección (cuidado: puede timeout)
-        const results = await ticketsService.searchConnections(searchQuery);
-        setSearchResults(results);
-        
-        if (results.length === 0) {
-          setError('No se encontraron clientes en ISPCube');
-        } else if (results.length > 0) {
-          setStep(2);
-        }
+        setError('El cliente no tiene conexiones disponibles');
       }
     } catch (err) {
       setError(err.message || 'Error en la búsqueda');
@@ -100,6 +105,12 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
     try {
       setIsSubmitting(true);
       setError(null);
+
+      if (!lookupPayload?.customer || !formData.connection?.raw_connection) {
+        setError('Debes confirmar cliente y conexión desde ISPCube antes de crear la instalación.');
+        return;
+      }
+
       const ticket = await ticketsService.create({
         ticket_type: 'installation',
         subject: `Instalación - ${formData.connection.client_name}`,
@@ -109,6 +120,9 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
         destination_connection_id: formData.connection.connection_id,
         installation_tech: formData.installation_tech,
         availability_note: formData.availabilityNote,
+        customer_dni: searchQuery.trim(),
+        ispcube_customer: lookupPayload.customer,
+        ispcube_connections: [formData.connection.raw_connection],
       });
       onSuccess(ticket);
     } catch (err) {
@@ -123,7 +137,7 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
       <div className="space-y-6">
         <div>
           <h3 className="text-lg font-semibold text-white mb-2">Buscar Cliente Nuevo</h3>
-          <p className="text-sm text-zinc-400">Ingresa datos de la nueva conexión</p>
+          <p className="text-sm text-zinc-400">Ingresa DNI para consultar ISPCube en tiempo real</p>
         </div>
         {error && (
           <div className="p-3 rounded-lg border border-rose-700/50 bg-rose-950/30 flex gap-2 text-rose-300 text-sm">
@@ -133,7 +147,7 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
         )}
         <div className="flex gap-2">
           <Input
-            placeholder="Buscar cliente..."
+            placeholder="DNI (solo números)"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}

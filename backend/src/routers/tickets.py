@@ -42,6 +42,11 @@ from src.schemas.tickets import (
     TicketCategoryResponse,
     TicketReasonResponse,
 )
+from src.services.installation_onboarding import (
+    InstallationSyncError,
+    InstallationValidationError,
+    sync_installation_context,
+)
 
 router = APIRouter()
 
@@ -511,6 +516,11 @@ def create_ticket(
                 status_code=400,
                 detail="Instalaciones requieren especificar tecnología (fiber/wireless/hybrid)"
             )
+        if not payload.customer_dni and not payload.ispcube_customer:
+            raise HTTPException(
+                status_code=400,
+                detail="Instalaciones requieren customer_dni o payload ISPCube confirmado"
+            )
     
     elif payload.ticket_type == TicketType.withdrawal:
         if not payload.connection_id:
@@ -559,6 +569,21 @@ def create_ticket(
 
     ticket_priority = payload.priority or (category.priority_default if category else TicketPriority.medium)
 
+    # Para instalaciones, sincronizar primero cliente/conexión confirmados desde ISPCube.
+    # Si falla, NO crear ticket para evitar inconsistencias con datos inexistentes en Emerald.
+    if payload.ticket_type == TicketType.installation:
+        try:
+            sync_installation_context(
+                destination_connection_id=payload.destination_connection_id,
+                customer_dni=payload.customer_dni,
+                ispcube_customer=payload.ispcube_customer,
+                ispcube_connections=payload.ispcube_connections,
+            )
+        except InstallationValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except InstallationSyncError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     # Crear ticket
     ticket = Ticket(
         subject=payload.subject,
@@ -579,61 +604,6 @@ def create_ticket(
     
     db.add(ticket)
     db.flush()
-    
-    # Si es instalación, sincronizar cliente + conexión desde ISPCube a Postgres
-    if payload.ticket_type == TicketType.installation:
-        try:
-            from src.clients import ispcube
-            from src.db.postgres import Database
-
-            db_sync = Database()
-
-            # Camino preferido: usar payload del wizard (no re-consultar)
-            if payload.ispcube_customer:
-                try:
-                    selected_conn = None
-                    if payload.destination_connection_id and (payload.ispcube_connections or []):
-                        for conn in payload.ispcube_connections:
-                            if str(conn.get("id")) == str(payload.destination_connection_id):
-                                selected_conn = conn
-                                break
-                    connections_to_sync = [selected_conn] if selected_conn else (payload.ispcube_connections or [])
-                    db_sync.sync_cliente_instalacion(
-                        customer_data=payload.ispcube_customer,
-                        connections_data=connections_to_sync
-                    )
-                except Exception as inner_e:
-                    from src.config import logger
-                    logger.warning(f"Sync (wizard payload) falló para ticket {ticket.id}: {inner_e}")
-
-            elif payload.customer_dni:
-                # Camino preferido: lookup directo por DNI (retorna cliente y conexiones)
-                pack = ispcube.obtener_cliente_por_dni(payload.customer_dni)
-                if pack and pack.get("customer"):
-                    db_sync.sync_cliente_instalacion(
-                        customer_data=pack.get("customer"),
-                        connections_data=pack.get("connections") or []
-                    )
-            elif payload.destination_connection_id:
-                # Fallback: obtener la conexión y usar customer_id para lookup por ID
-                todas_conexiones = ispcube.obtener_todas_conexiones()
-                conexion_data = next(
-                    (c for c in todas_conexiones if c.get("id") == payload.destination_connection_id),
-                    None
-                )
-                if conexion_data and conexion_data.get("customer_id"):
-                    cliente_pack = ispcube.obtener_cliente_por_id(int(conexion_data.get("customer_id")))
-                    if cliente_pack and cliente_pack.get("customer"):
-                        db_sync.sync_cliente_instalacion(
-                            customer_data=cliente_pack.get("customer"),
-                            connections_data=[conexion_data]
-                        )
-
-            db_sync.close()
-        except Exception as e:
-            # No fallar la creación del ticket si falla la sincronización
-            from src.config import logger
-            logger.warning(f"Error sincronizando cliente para ticket {ticket.id}: {e}")
     
     # Crear evento de timeline para creación del ticket
     ticket_created_event = TicketTimeline(

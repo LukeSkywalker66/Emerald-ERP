@@ -99,12 +99,12 @@ def external_customer_lookup(
 
     return {
         "customer": {
+            **customer,
             "external_id": customer.get("id"),
-            "name": customer.get("name"),
-            "doc_number": customer.get("doc_number"),
         },
         "connections": [
             {
+                **conn,
                 "external_id": conn.get("id"),
                 "pppoe_username": conn.get("user"),
                 "address": conn.get("address") or conn.get("direccion"),
