@@ -185,7 +185,12 @@ export default function CoordinationSheet({
 
     try {
       setIsSavingPriority(true);
-      console.log('🔧 [DEBUG] Guardando prioridad:', { woId: workOrder.id, priority: woPriority });
+      console.log('🔧 [DEBUG] Guardando prioridad:', { 
+        woId: workOrder.id, 
+        priority: woPriority,
+        currentStatus: workOrder.status,
+        scheduledStart: workOrder.scheduled_start 
+      });
       const response = await api.patch(`/v2/work-orders/${workOrder.id}`, {
         priority: woPriority,
       });
@@ -195,6 +200,7 @@ export default function CoordinationSheet({
     } catch (err) {
       console.error('❌ [DEBUG] Error completo saving priority:', err);
       console.error('❌ [DEBUG] Error response:', err.response);
+      console.error('❌ [DEBUG] Error detail:', err.response?.data?.detail);
       
       if (err.response?.status === 423) {
         alert('❌ OT completada o tiene fecha pasada. No se puede editar.');
@@ -621,11 +627,16 @@ export default function CoordinationSheet({
 
         {/* ========== BOTÓN MARCAR INCOMPLETA / DEVOLVER AL BACKLOG ========== */}
         {(() => {
-          console.log('🔍 [DEBUG] CoordinationSheet - Rendering button check:', {
+          const debugInfo = {
             woId: workOrder.id,
             status: workOrder.status,
+            scheduledStart: workOrder.scheduled_start,
+            teamId: workOrder.team_id,
             shouldShow: (workOrder.status === 'in_progress' || workOrder.status === 'coordinated'),
-          });
+            isInProgress: workOrder.status === 'in_progress',
+            isCoordinated: workOrder.status === 'coordinated',
+          };
+          console.log('🔍 [DEBUG] CoordinationSheet - Rendering button check:', debugInfo);
           return null;
         })()}
         {(workOrder.status === 'in_progress' || workOrder.status === 'coordinated') && (
