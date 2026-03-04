@@ -615,15 +615,17 @@ export default function CoordinationSheet({
           </div>
         </div>
 
-        {/* ========== BOTÓN MARCAR INCOMPLETA ========== */}
-        {workOrder.status === 'in_progress' && (
+        {/* ========== BOTÓN MARCAR INCOMPLETA / DEVOLVER AL BACKLOG ========== */}
+        {(workOrder.status === 'in_progress' || workOrder.status === 'coordinated') && (
           <div className="border-t border-zinc-800 py-4 mt-6 space-y-3">
-            <p className="text-xs text-zinc-400 font-medium">¿Trabajo no completado?</p>
+            <p className="text-xs text-zinc-400 font-medium">
+              {workOrder.status === 'in_progress' ? '¿Trabajo no completado?' : '¿Deshacer coordinación?'}
+            </p>
             <Button
               onClick={() => setShowIncompleteModal(true)}
               className="w-full bg-amber-600 hover:bg-amber-700 text-white"
             >
-              📝 Marcar como Incompleta
+              {workOrder.status === 'in_progress' ? '📝 Marcar como Incompleta' : '↩️ Devolver al Backlog'}
             </Button>
           </div>
         )}
