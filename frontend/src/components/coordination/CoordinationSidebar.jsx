@@ -14,6 +14,13 @@ import {
 } from '@/components/ui/accordion';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { MapPin } from 'lucide-react';
 import DraggableWorkOrderCard from './DraggableWorkOrderCard';
 import CoordinationFilters from './CoordinationFilters';
@@ -31,50 +38,97 @@ export default function CoordinationSidebar({
   onQuickAction,
   defaultCity = null,
 }) {
+  // ========== ESTADO LOCAL PARA FILTRO DE CIUDAD ==========
+  const [selectedCity, setSelectedCity] = useState(defaultCity || '');
+
   // ========== HOOKS DE FILTROS ==========
   const { filters, updateFilter, toggleCity, toggleType, clearFilters } = useTicketFilters();
 
   // ========== EXTRAER CIUDADES ÚNICAS ==========
   const availableCities = useMemo(() => {
     const citiesSet = new Set();
+    
+    // Agregar ciudades del prop `cities` (si vienen desde arriba)
+    if (cities && Array.isArray(cities)) {
+      cities.forEach(c => {
+        if (c && c.trim()) citiesSet.add(c.trim());
+      });
+    }
+    
+    // Intentar extraer ciudades de los work orders
     workOrders.forEach(wo => {
-      // Intentar extraer ciudad desde múltiples rutas
       let city = null;
 
-      // Ruta 1: ticket.city (directo)
-      if (wo.ticket?.city) {
-        city = wo.ticket.city;
-      }
-      // Ruta 2: ticket.contact_info.city
-      else if (wo.ticket?.contact_info?.city) {
+      // Ruta 1: ticket.contact_info.city (enriquecido por backend)
+      if (wo.ticket?.contact_info?.city) {
         city = wo.ticket.contact_info.city;
+      }
+      // Ruta 2: ticket.city (directo)
+      else if (wo.ticket?.city) {
+        city = wo.ticket.city;
       }
       // Ruta 3: ticket.connection_details.city (JSONB desde backend)
       else if (wo.ticket?.connection_details?.city) {
         city = wo.ticket.connection_details.city;
       }
-      // Ruta 4: Extraer del address si contiene patrón "Localidad: X"
+      // Ruta 4: Extraer del address usando patrones comunes
       else if (wo.ticket?.address) {
-        const addressMatch = wo.ticket.address.match(/Localidad:\s*([A-Za-záéíóúñ\s]+?)(?:$|,|\.|;)/i);
-        if (addressMatch) {
-          city = addressMatch[1].trim();
+        const address = wo.ticket.address;
+        
+        // Patrón 1: "Localidad: CIUDAD"
+        let match = address.match(/Localidad:\s*([A-Za-záéíóúñ\s]+?)(?:$|,|\.|;)/i);
+        if (match && match[1]) {
+          city = match[1].trim();
+        }
+        // Patrón 2: "Barrio: CIUDAD" o similar
+        else {
+          match = address.match(/(?:Zona|Barrio|Ciudad|Localidad):\s*([A-Za-záéíóúñ\s]+?)(?:$|,|\.|;)/i);
+          if (match && match[1]) {
+            city = match[1].trim().split('/')[0]; // Tomar la primera parte si hay múltiples
+          }
+        }
+        // Patrón 3: Última parte después de la última coma (fallback crude pero útil)
+        if (!city) {
+          const parts = address.split(',');
+          if (parts.length > 1) {
+            const lastPart = parts[parts.length - 1].trim();
+            // Filtrar partes cortas (típicamente serían provincias o códigos)
+            if (lastPart.length > 5 && !lastPart.match(/^\d+$/)) {
+              city = lastPart;
+            }
+          }
         }
       }
 
-      if (city && city.trim()) {
+      if (city && city.trim() && city.length > 2) {
         citiesSet.add(city.trim());
       }
     });
 
     const result = Array.from(citiesSet).sort();
-    console.log('🏙️ Ciudades extraídas del backlog:', result, 'de', workOrders.length, 'OTs');
+    console.log('🏙️ Ciudades/Localidades extraídas:', result, 'de', workOrders.length, 'OTs');
+    if (result.length === 0) {
+      console.warn('⚠️ Sin ciudades disponibles - verifica que tickets tengan contact_info.city o address con patrón ciudad');
+    }
     return result;
-  }, [workOrders]);
+  }, [workOrders, cities]);
 
-  // ========== APLICAR FILTROS MULTICRITERIO ==========
+  // ========== APLICAR FILTROS MULTICRITERIO + CIUDAD SELECCIONADA ==========
   const filteredWorkOrders = useMemo(() => {
-    return applyTicketFilters(workOrders, filters);
-  }, [workOrders, filters]);
+    let result = applyTicketFilters(workOrders, filters);
+    
+    // Filtrar adicionalmente por ciudad seleccionada si existe
+    if (selectedCity && selectedCity.trim()) {
+      result = result.filter(wo => {
+        const woCity = wo.ticket?.contact_info?.city 
+          || wo.ticket?.city 
+          || wo.ticket?.connection_details?.city;
+        return woCity === selectedCity;
+      });
+    }
+    
+    return result;
+  }, [workOrders, filters, selectedCity]);
 
   // ========== AGRUPAR POR BARRIO (DESPUÉS DE FILTRAR) ==========
   const grouped = useMemo(() => {
@@ -94,6 +148,39 @@ export default function CoordinationSidebar({
 
   return (
     <div className="h-full flex flex-col bg-zinc-900/50 border-r border-zinc-800">
+      {/* ========== SELECTOR DESTACADO DE LOCALIDADES ========== */}
+      {availableCities.length > 0 && (
+        <div className="px-3 py-3 border-b border-zinc-800 bg-zinc-800/20">
+          <label className="text-[10px] text-zinc-400 uppercase tracking-wide font-bold block mb-2 flex items-center gap-1.5">
+            <MapPin size={12} className="text-emerald-400" />
+            Localidad/Zona
+          </label>
+          <Select value={selectedCity} onValueChange={(val) => setSelectedCity(val)}>
+            <SelectTrigger className="h-8 text-xs bg-zinc-800 border-zinc-700 text-white">
+              <SelectValue placeholder="Todas las localidades" />
+            </SelectTrigger>
+            <SelectContent className="bg-zinc-900 border-zinc-700">
+              <SelectItem value="" className="text-xs">
+                📍 Todas las localidades ({workOrders.length})
+              </SelectItem>
+              {availableCities.map((city) => {
+                const count = workOrders.filter(wo => {
+                  const woCity = wo.ticket?.contact_info?.city 
+                    || wo.ticket?.city 
+                    || wo.ticket?.connection_details?.city;
+                  return woCity === city;
+                }).length;
+                return (
+                  <SelectItem key={city} value={city} className="text-xs">
+                    📍 {city} ({count})
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       {/* ========== PANEL DE FILTROS MULTICRITERIO ========== */}
       <CoordinationFilters
         filters={filters}
