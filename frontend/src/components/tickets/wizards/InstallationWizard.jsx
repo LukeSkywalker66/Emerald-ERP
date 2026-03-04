@@ -6,6 +6,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ChevronLeft, Loader, Search, MapPin, AlertCircle } from 'lucide-react';
+import api from '@/api/client';
 import ticketsService from '@/services/tickets.service';
 
 export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
