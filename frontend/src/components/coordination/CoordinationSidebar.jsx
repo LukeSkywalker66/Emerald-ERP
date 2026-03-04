@@ -14,13 +14,6 @@ import {
 } from '@/components/ui/accordion';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { MapPin } from 'lucide-react';
 import DraggableWorkOrderCard from './DraggableWorkOrderCard';
 import CoordinationFilters from './CoordinationFilters';
@@ -38,9 +31,6 @@ export default function CoordinationSidebar({
   onQuickAction,
   defaultCity = null,
 }) {
-  // ========== ESTADO LOCAL PARA FILTRO DE CIUDAD ==========
-  const [selectedCity, setSelectedCity] = useState(defaultCity || 'ALL_CITIES');
-
   // ========== HOOKS DE FILTROS ==========
   const { filters, updateFilter, toggleCity, toggleType, clearFilters } = useTicketFilters();
 
@@ -113,22 +103,10 @@ export default function CoordinationSidebar({
     return result;
   }, [workOrders, cities]);
 
-  // ========== APLICAR FILTROS MULTICRITERIO + CIUDAD SELECCIONADA ==========
+  // ========== APLICAR FILTROS MULTICRITERIO ==========
   const filteredWorkOrders = useMemo(() => {
-    let result = applyTicketFilters(workOrders, filters);
-    
-    // Filtrar adicionalmente por ciudad seleccionada si existe (y no es "todas")
-    if (selectedCity && selectedCity !== 'ALL_CITIES' && selectedCity.trim()) {
-      result = result.filter(wo => {
-        const woCity = wo.ticket?.contact_info?.city 
-          || wo.ticket?.city 
-          || wo.ticket?.connection_details?.city;
-        return woCity === selectedCity;
-      });
-    }
-    
-    return result;
-  }, [workOrders, filters, selectedCity]);
+    return applyTicketFilters(workOrders, filters);
+  }, [workOrders, filters]);
 
   // ========== AGRUPAR POR BARRIO (DESPUÉS DE FILTRAR) ==========
   const grouped = useMemo(() => {
@@ -148,39 +126,6 @@ export default function CoordinationSidebar({
 
   return (
     <div className="h-full flex flex-col bg-zinc-900/50 border-r border-zinc-800">
-      {/* ========== SELECTOR DESTACADO DE LOCALIDADES ========== */}
-      {availableCities.length > 0 && (
-        <div className="px-3 py-3 border-b border-zinc-800 bg-zinc-800/20">
-          <label className="text-[10px] text-zinc-400 uppercase tracking-wide font-bold block mb-2 flex items-center gap-1.5">
-            <MapPin size={12} className="text-emerald-400" />
-            Localidad/Zona
-          </label>
-          <Select value={selectedCity} onValueChange={(val) => setSelectedCity(val)}>
-            <SelectTrigger className="h-8 text-xs bg-zinc-800 border-zinc-700 text-white">
-              <SelectValue placeholder="Todas las localidades" />
-            </SelectTrigger>
-            <SelectContent className="bg-zinc-900 border-zinc-700">
-              <SelectItem value="ALL_CITIES" className="text-xs">
-                📍 Todas las localidades ({workOrders.length})
-              </SelectItem>
-              {availableCities.map((city) => {
-                const count = workOrders.filter(wo => {
-                  const woCity = wo.ticket?.contact_info?.city 
-                    || wo.ticket?.city 
-                    || wo.ticket?.connection_details?.city;
-                  return woCity === city;
-                }).length;
-                return (
-                  <SelectItem key={city} value={city} className="text-xs">
-                    📍 {city} ({count})
-                  </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-
       {/* ========== PANEL DE FILTROS MULTICRITERIO ========== */}
       <CoordinationFilters
         filters={filters}
