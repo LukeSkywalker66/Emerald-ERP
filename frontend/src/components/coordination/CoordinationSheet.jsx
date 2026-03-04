@@ -628,7 +628,7 @@ export default function CoordinationSheet({
                 <p className="font-medium text-emerald-400">#{workOrder.ticket_id}</p>
               </div>
 
-              {workOrder.scheduled_start && (
+              {workOrder.scheduled_start && workOrder.team_id && (
                 <div className="col-span-2 rounded bg-zinc-800/30 p-2">
                   <p className="text-zinc-500 mb-1">Programado</p>
                   <p className="font-medium text-white">

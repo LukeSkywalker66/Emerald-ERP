@@ -1245,8 +1245,10 @@ def unassign_work_order(
     old_team_id = wo.team_id
     old_team_name = wo.team.name if wo.team else "Unknown"
     
+    # ===== LIMPIEZA AL DEVOLVER AL BACKLOG (NASA-grade consistency) =====
     wo.team_id = None
-    wo.status = WorkOrderStatus.coordinated if wo.scheduled_start else WorkOrderStatus.pending_planning
+    wo.scheduled_start = None  # Limpiar fecha programada (sin equipo = sin programación)
+    wo.status = WorkOrderStatus.pending_planning  # Vuelve a planning, debe recoordinarse
     
     db.add(TicketTimeline(
         ticket_id=wo.ticket_id,
