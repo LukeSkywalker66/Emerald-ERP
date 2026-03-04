@@ -232,6 +232,23 @@ export default function CoordinationSheet({
     }
   };
 
+  const unassignWorkOrder = async () => {
+    if (!confirm('¿Devolver esta OT al backlog para recoordinar?')) {
+      return;
+    }
+
+    try {
+      await api.patch(`/v2/work-orders/${workOrder.id}/unassign`);
+      console.log('✅ OT devuelta al backlog');
+      alert('✓ OT devuelta al backlog');
+      onClose();
+      window.location.reload(); // Refresh para actualizar grid
+    } catch (err) {
+      console.error('❌ Error al desasignar OT:', err);
+      alert(`Error al devolver al backlog: ${err.response?.data?.detail || err.message}`);
+    }
+  };
+
   const markAsIncomplete = async () => {
     if (!incompleteReason.trim()) {
       alert('⚠️ Ingresa una razón');
@@ -625,30 +642,41 @@ export default function CoordinationSheet({
           </div>
         </div>
 
-        {/* ========== BOTÓN MARCAR INCOMPLETA / DEVOLVER AL BACKLOG ========== */}
+        {/* ========== BOTONES DE ACCIÓN SEGÚN STATUS ========== */}
         {(() => {
           const debugInfo = {
             woId: workOrder.id,
             status: workOrder.status,
             scheduledStart: workOrder.scheduled_start,
             teamId: workOrder.team_id,
-            shouldShow: (workOrder.status === 'in_progress' || workOrder.status === 'coordinated'),
-            isInProgress: workOrder.status === 'in_progress',
-            isCoordinated: workOrder.status === 'coordinated',
+            hasTeam: !!workOrder.team_id,
           };
-          console.log('🔍 [DEBUG] CoordinationSheet - Rendering button check:', debugInfo);
+          console.log('🔍🔍🔍 [BUTTON DEBUG] Status:', workOrder.status, '| Team:', workOrder.team_id, '| Start:', workOrder.scheduled_start);
           return null;
         })()}
-        {(workOrder.status === 'in_progress' || workOrder.status === 'coordinated') && (
+
+        {/* BOTÓN DEVOLVER AL BACKLOG - Para OTs coordinadas */}
+        {workOrder.status === 'coordinated' && workOrder.team_id && (
           <div className="border-t border-zinc-800 py-4 mt-6 space-y-3">
-            <p className="text-xs text-zinc-400 font-medium">
-              {workOrder.status === 'in_progress' ? '¿Trabajo no completado?' : '¿Deshacer coordinación?'}
-            </p>
+            <p className="text-xs text-zinc-400 font-medium">¿Recoordinar esta OT?</p>
+            <Button
+              onClick={unassignWorkOrder}
+              className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              ↩️ Devolver al Backlog
+            </Button>
+          </div>
+        )}
+
+        {/* BOTÓN MARCAR INCOMPLETA - Para OTs en progreso */}
+        {workOrder.status === 'in_progress' && (
+          <div className="border-t border-zinc-800 py-4 mt-6 space-y-3">
+            <p className="text-xs text-zinc-400 font-medium">¿Trabajo no completado?</p>
             <Button
               onClick={() => setShowIncompleteModal(true)}
               className="w-full bg-amber-600 hover:bg-amber-700 text-white"
             >
-              {workOrder.status === 'in_progress' ? '📝 Marcar como Incompleta' : '↩️ Devolver al Backlog'}
+              📝 Marcar como Incompleta
             </Button>
           </div>
         )}
