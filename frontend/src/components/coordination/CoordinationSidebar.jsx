@@ -39,7 +39,7 @@ export default function CoordinationSidebar({
   defaultCity = null,
 }) {
   // ========== ESTADO LOCAL PARA FILTRO DE CIUDAD ==========
-  const [selectedCity, setSelectedCity] = useState(defaultCity || '');
+  const [selectedCity, setSelectedCity] = useState(defaultCity || 'ALL_CITIES');
 
   // ========== HOOKS DE FILTROS ==========
   const { filters, updateFilter, toggleCity, toggleType, clearFilters } = useTicketFilters();
@@ -117,8 +117,8 @@ export default function CoordinationSidebar({
   const filteredWorkOrders = useMemo(() => {
     let result = applyTicketFilters(workOrders, filters);
     
-    // Filtrar adicionalmente por ciudad seleccionada si existe
-    if (selectedCity && selectedCity.trim()) {
+    // Filtrar adicionalmente por ciudad seleccionada si existe (y no es "todas")
+    if (selectedCity && selectedCity !== 'ALL_CITIES' && selectedCity.trim()) {
       result = result.filter(wo => {
         const woCity = wo.ticket?.contact_info?.city 
           || wo.ticket?.city 
@@ -160,7 +160,7 @@ export default function CoordinationSidebar({
               <SelectValue placeholder="Todas las localidades" />
             </SelectTrigger>
             <SelectContent className="bg-zinc-900 border-zinc-700">
-              <SelectItem value="" className="text-xs">
+              <SelectItem value="ALL_CITIES" className="text-xs">
                 📍 Todas las localidades ({workOrders.length})
               </SelectItem>
               {availableCities.map((city) => {
