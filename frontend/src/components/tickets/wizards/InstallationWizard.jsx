@@ -16,6 +16,8 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
   const [isSearching, setIsSearching] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const [installationTypes, setInstallationTypes] = useState([]);
+  const [isLoadingTypes, setIsLoadingTypes] = useState(true);
   const [formData, setFormData] = useState({
     connection: null,
     installation_tech: 'fiber',
@@ -29,7 +31,26 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
     return /^\d{7,9}$/.test(clean) || /^\d{11}$/.test(clean);
   };
 
-  // Auto-search con debounce de 500ms
+  // Cargar tipos de instalación disponibles
+  useEffect(() => {
+    const loadInstallationTypes = async () => {
+      try {
+        setIsLoadingTypes(true);
+        const { data } = await api.get('/v2/installation-types');
+        setInstallationTypes(data || []);
+        // Si hay tipos y aún no hay selección, tomar el primer tipo
+        if (data && data.length > 0 && !formData.installation_tech) {
+          setFormData(prev => ({ ...prev, installation_tech: data[0].code }));
+        }
+      } catch (err) {
+        console.error('Error loading installation types:', err);
+        setError('No se pudieron cargar los tipos de instalación disponibles');
+      } finally {
+        setIsLoadingTypes(false);
+      }
+    };
+    loadInstallationTypes();
+  }, []);
   useEffect(() => {
     if (!searchQuery.trim()) {
       setSearchResults([]);
@@ -225,11 +246,13 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
           <select
             value={formData.installation_tech}
             onChange={(e) => setFormData(p => ({ ...p, installation_tech: e.target.value }))}
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white"
+            disabled={isLoadingTypes}
+            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white disabled:opacity-50"
           >
-            <option value="fiber">Fibra Óptica (FTTH)</option>
-            <option value="wireless">Inalámbrico (Punto a Punto)</option>
-            <option value="hybrid">Híbrido</option>
+            <option value="">Selecciona tipo de instalación</option>
+            {installationTypes.map(type => (
+              <option key={type.code} value={type.code}>{type.name}</option>
+            ))}
           </select>
         </div>
         <div>

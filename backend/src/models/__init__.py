@@ -4,6 +4,7 @@ Unifica todos los modelos: Auth, Tickets, Beholder, API Keys, WorkOrders, Engine
 """
 from .user import Role, User
 from .audit import AuditLog, LoginAttempt
+from .installation import InstallationType
 # DEPRECATED: Old ticket models replaced by new tickets.py version
 # Do NOT import from .ticket to avoid SQLAlchemy registry conflicts
 from .tickets import (
