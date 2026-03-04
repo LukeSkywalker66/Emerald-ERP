@@ -38,7 +38,7 @@ def upgrade() -> None:
         INSERT INTO installation_types (code, name, description, is_active)
         VALUES
             ('fiber', 'Fibra Óptica (FTTH)', 'Instalación de fibra óptica hasta el hogar. Tecnología de máxima velocidad para usuarios residenciales.', true),
-            ('wireless', 'Inalámbrico Dedicado', 'Enlace inalámbrico punto a punto dedicado con equipamiento en azotea. Apto para zonas sin acceso a fibra.', true),
+            ('wireless', 'Inalámbrico - Antena domiciliaria', 'Antena receptora en domicilio conectada a panel en nodo. Arquitectura many-to-one para cobertura inalámbrica compartida.', true),
             ('hybrid', 'Híbrido', 'Combinación de fibra e inalámbrico. Fibra hasta nodo + enlace inalámbrico final.', true);
         """
     )
