@@ -667,6 +667,15 @@ class WorkOrder(Base, TimestampMixin):
         comment="Estado actual: pending_planning, assigned, in_progress, completed, failed"
     )
 
+    # Prioridad (heredada del ticket, pero modificable independientemente)
+    priority: Mapped[TicketPriority] = mapped_column(
+        Enum(TicketPriority, name="ticket_priority_enum", native_enum=False),
+        default=TicketPriority.medium,
+        nullable=False,
+        index=True,
+        comment="Prioridad de la OT: critical, high, medium, low (heredada del ticket padre)"
+    )
+
     # Planificación y ejecución
     scheduled_at: Mapped[Optional[DateTime]] = mapped_column(
         DateTime(timezone=True),

@@ -672,6 +672,7 @@ def create_ticket(
             ticket_id=ticket.id,
             ot_type=ot_type_map[payload.ticket_type],
             status=WorkOrderStatus.pending_planning,
+            priority=ticket_priority,  # Heredar priority del ticket (modificable después)
             notes=wo_note,
             custom_data={
                 "ticket_type": payload.ticket_type.value,

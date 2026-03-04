@@ -100,6 +100,7 @@ class WorkOrderCreate(BaseModel):
 class WorkOrderResponse(BaseModel):
     id: int
     status: WorkOrderStatus
+    priority: Optional[TicketPriority] = TicketPriority.medium  # Default si no existe
     ot_type: WorkOrderType
     technician_name: Optional[str] = None
     scheduled_at: Optional[datetime] = None
@@ -131,6 +132,7 @@ class WorkOrderListResponse(BaseModel):
 class WorkOrderUpdate(BaseModel):
     """Schema para actualización de WorkOrder (usado por técnicos Y coordinadores)."""
     status: Optional[WorkOrderStatus] = None
+    priority: Optional[TicketPriority] = Field(None, description="Prioridad de la OT (modificable independientemente del ticket)")
     
     # NUEVOS campos de coordinación
     team_id: Optional[int] = Field(None, description="Cuadrilla asignada")
@@ -186,6 +188,7 @@ class WorkOrderDetailResponse(BaseModel):
     ticket_id: int
     ot_type: WorkOrderType
     status: WorkOrderStatus
+    priority: Optional[TicketPriority] = TicketPriority.medium  # Default si no existe
     technician_id: Optional[int] = None
     technician_name: Optional[str] = None
     

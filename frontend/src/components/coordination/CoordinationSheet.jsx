@@ -66,6 +66,9 @@ export default function CoordinationSheet({
   const [showIncompleteModal, setShowIncompleteModal] = useState(false);
   const [incompleteReason, setIncompleteReason] = useState('');
   const [isMarkingIncomplete, setIsMarkingIncomplete] = useState(false);
+  const [woPriority, setWoPriority] = useState(workOrder?.priority || 'medium');
+  const [priorityChanged, setPriorityChanged] = useState(false);
+  const [isSavingPriority, setIsSavingPriority] = useState(false);
 
   // ========== HELPER FUNCTIONS ==========
 
@@ -106,6 +109,8 @@ export default function CoordinationSheet({
   useEffect(() => {
     setDuration(workOrder?.estimated_duration || 60);
     setDurationChanged(false);
+    setWoPriority(workOrder?.priority || 'medium');
+    setPriorityChanged(false);
   }, [workOrder?.id]);
 
   // ========== FUNCIONES ==========
@@ -172,6 +177,29 @@ export default function CoordinationSheet({
       }
     } finally {
       setIsSavingDuration(false);
+    }
+  };
+
+  const savePriority = async () => {
+    if (!priorityChanged) return;
+
+    try {
+      setIsSavingPriority(true);
+      await api.patch(`/v2/work-orders/${workOrder.id}`, {
+        priority: woPriority,
+      });
+      setPriorityChanged(false);
+      console.log(`✅ Prioridad actualizada a ${woPriority}`);
+    } catch (err) {
+      console.error('Error saving priority:', err);
+      
+      if (err.response?.status === 423) {
+        alert('❌ OT completada o tiene fecha pasada. No se puede editar.');
+      } else {
+        alert('Error al guardar la prioridad');
+      }
+    } finally {
+      setIsSavingPriority(false);
     }
   };
 
@@ -387,7 +415,7 @@ export default function CoordinationSheet({
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wide flex items-center gap-2">
                   <AlertCircle size={16} className="text-amber-400" />
-                  Criticidad
+                  Criticidad del Ticket
                 </h3>
                 <div className={`px-2 py-0.5 rounded-full text-xs font-bold text-white ${
                   ticket.priority === 'critical' ? 'bg-red-600' :
@@ -403,6 +431,53 @@ export default function CoordinationSheet({
               </div>
             </div>
           )}
+
+          {/* SECCIÓN 2B: PRIORIDAD DE LA ORDEN DE TRABAJO (EDITABLE) */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wide flex items-center gap-2">
+              <AlertCircle size={16} className="text-emerald-400" />
+              Prioridad de la OT
+            </h3>
+            
+            <select
+              value={woPriority}
+              onChange={(e) => {
+                setWoPriority(e.target.value);
+                setPriorityChanged(e.target.value !== workOrder?.priority);
+              }}
+              disabled={isLocked}
+              className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <option value="critical">🔴 Crítica (urgencia extrema)</option>
+              <option value="high">🟠 Alta (urgente hoy)</option>
+              <option value="medium">🟡 Media (normal, recomendada)</option>
+              <option value="low">🟢 Baja (puede esperar)</option>
+            </select>
+
+            <p className="text-xs text-zinc-400">
+              Modifica la prioridad de esta orden. Puede ser diferente a la del ticket.
+            </p>
+
+            {priorityChanged && !isLocked && (
+              <Button
+                onClick={savePriority}
+                disabled={isSavingPriority}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm"
+              >
+                {isSavingPriority ? (
+                  <>
+                    <span className="animate-spin mr-2">⏳</span>
+                    Guardando...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={14} className="mr-2" />
+                    Guardar prioridad
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
 
           {/* SECCIÓN 2B: DISPONIBILIDAD */}
           {hasAvailability && (

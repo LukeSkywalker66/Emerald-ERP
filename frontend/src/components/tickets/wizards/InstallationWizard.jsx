@@ -23,6 +23,7 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
     connection: null,
     installation_tech: 'fiber',
     availabilityNote: '',
+    priority: 'medium',  // Default: media (modificable por operador)
   });
 
   // Helper: Detectar si el query es un DNI/CUIT/CUIL válido (solo números, 7-9 o 11 dígitos)
@@ -149,7 +150,7 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
         ticket_type: 'installation',
         subject: `Instalación - ${formData.connection.client_name}`,
         description: `Nueva instalación en ${formData.connection.installation_address}`,
-        priority: 'medium',
+        priority: formData.priority,  // Usar prioridad seleccionada por el operador
         category_id: categoryId,
         destination_connection_id: formData.connection.connection_id,
         installation_tech: formData.installation_tech,
@@ -255,6 +256,20 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
               <option key={type.code} value={type.code}>{type.name}</option>
             ))}
           </select>
+        </div>
+        <div>
+          <label className="text-sm font-medium text-zinc-300 block mb-2">Prioridad</label>
+          <select
+            value={formData.priority}
+            onChange={(e) => setFormData(p => ({ ...p, priority: e.target.value }))}
+            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white"
+          >
+            <option value="critical">🔴 Crítica</option>
+            <option value="high">🟠 Alta</option>
+            <option value="medium">🟢 Media (recomendada)</option>
+            <option value="low">⚪ Baja</option>
+          </select>
+          <p className="text-xs text-zinc-500 mt-1">La prioridad determina la urgencia de la instalación. Por defecto es Media.</p>
         </div>
         <div>
           <label className="text-sm font-medium text-zinc-300 block mb-2">Horarios de Disponibilidad</label>
