@@ -456,18 +456,22 @@ def update_work_order(
     
     # ===== VALIDACIÓN: BLOQUEAR EDICIONES DE OTs CON FECHA PASADA =====
     # Si la OT fue programada para el pasado (+ grace de 5 min), no se puede editar
+    # EXCEPCIÓN: Si está en 'coordinated' (no iniciada), permitir cambios de prioridad/duración
+    # porque el técnico aún no comenzó y el coordinador puede necesitar ajustar
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     grace_period = timedelta(minutes=5)
     
     if wo.scheduled_start and wo.scheduled_start < now - grace_period:
-        raise HTTPException(
-            status_code=status.HTTP_423_LOCKED,
-            detail=f"Orden programada para {wo.scheduled_start.strftime('%d/%m %H:%M')}. No se puede editar OTs con fecha pasada.",
-            headers={
-                "X-Locked-Reason": "LOCKED_PAST_DATE",
-                "X-Scheduled-Start": wo.scheduled_start.isoformat(),
-            }
-        )
+        # Si está en progreso o completada y tiene fecha pasada, bloquear
+        if wo.status not in [WorkOrderStatus.pending_planning, WorkOrderStatus.coordinated]:
+            raise HTTPException(
+                status_code=status.HTTP_423_LOCKED,
+                detail=f"Orden programada para {wo.scheduled_start.strftime('%d/%m %H:%M')}. No se puede editar OTs con fecha pasada.",
+                headers={
+                    "X-Locked-Reason": "LOCKED_PAST_DATE",
+                    "X-Scheduled-Start": wo.scheduled_start.isoformat(),
+                }
+            )
     
     # Actualizar campos
     update_data = payload.model_dump(exclude_unset=True)

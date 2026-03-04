@@ -185,18 +185,22 @@ export default function CoordinationSheet({
 
     try {
       setIsSavingPriority(true);
-      await api.patch(`/v2/work-orders/${workOrder.id}`, {
+      console.log('🔧 [DEBUG] Guardando prioridad:', { woId: workOrder.id, priority: woPriority });
+      const response = await api.patch(`/v2/work-orders/${workOrder.id}`, {
         priority: woPriority,
       });
+      console.log('✅ [DEBUG] Respuesta guardar prioridad:', response);
       setPriorityChanged(false);
       console.log(`✅ Prioridad actualizada a ${woPriority}`);
     } catch (err) {
-      console.error('Error saving priority:', err);
+      console.error('❌ [DEBUG] Error completo saving priority:', err);
+      console.error('❌ [DEBUG] Error response:', err.response);
       
       if (err.response?.status === 423) {
         alert('❌ OT completada o tiene fecha pasada. No se puede editar.');
       } else {
-        alert('Error al guardar la prioridad');
+        const errorMsg = err.response?.data?.detail || err.message || 'Error desconocido';
+        alert(`Error al guardar la prioridad: ${errorMsg}`);
       }
     } finally {
       setIsSavingPriority(false);
@@ -616,6 +620,14 @@ export default function CoordinationSheet({
         </div>
 
         {/* ========== BOTÓN MARCAR INCOMPLETA / DEVOLVER AL BACKLOG ========== */}
+        {(() => {
+          console.log('🔍 [DEBUG] CoordinationSheet - Rendering button check:', {
+            woId: workOrder.id,
+            status: workOrder.status,
+            shouldShow: (workOrder.status === 'in_progress' || workOrder.status === 'coordinated'),
+          });
+          return null;
+        })()}
         {(workOrder.status === 'in_progress' || workOrder.status === 'coordinated') && (
           <div className="border-t border-zinc-800 py-4 mt-6 space-y-3">
             <p className="text-xs text-zinc-400 font-medium">
