@@ -661,10 +661,16 @@ export default function CoordinationSheet({
             <p className="text-xs text-zinc-400 font-medium">¿Recoordinar esta OT?</p>
             <Button
               onClick={unassignWorkOrder}
-              className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+              disabled={isLocked}
+              className="w-full bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
             >
               ↩️ Devolver al Backlog
             </Button>
+            {isLocked && (
+              <p className="text-xs text-red-400">
+                🔒 OT {lockedReason}. No se puede devolver al backlog.
+              </p>
+            )}
           </div>
         )}
 

@@ -8,8 +8,9 @@ celery_app = Celery(
     broker="redis://redis:6379/0",
     backend="redis://redis:6379/0",
     include=[
-        "src.jobs.sync",                # Sync tasks
-        "src.jobs.api_key_rotation"     # API Key rotation tasks
+        "src.jobs.sync",                      # Sync tasks
+        "src.jobs.api_key_rotation",          # API Key rotation tasks
+        "src.jobs.work_order_cleanup"         # Work Order auto-cleanup (NASA-grade)
     ]
 )
 
@@ -83,4 +84,16 @@ celery_app.conf.beat_schedule = {
     #     "schedule": crontab(hour=4, minute=0, day_of_week=0),  # Domingos a las 4:00 AM
     #     "kwargs": {}
     # },
+    
+    # ════════════════════════════════════════════════════════════════════════════════
+    # 🤖 WORK ORDER AUTO-CLEANUP (NASA-GRADE CONSISTENCY)
+    # ════════════════════════════════════════════════════════════════════════════════
+    # Detecta OTs coordinadas que pasaron su fecha/hora sin iniciarse y las devuelve
+    # automáticamente al backlog para reprogramación.
+    # Grace period: 30 minutos después de la hora programada.
+    # ════════════════════════════════════════════════════════════════════════════════
+    "cleanup-abandoned-work-orders": {
+        "task": "cleanup_abandoned_work_orders",
+        "schedule": crontab(minute="*/30"),  # Cada 30 minutos
+    },
 }
