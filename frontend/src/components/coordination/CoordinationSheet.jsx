@@ -655,8 +655,8 @@ export default function CoordinationSheet({
           return null;
         })()}
 
-        {/* BOTÓN DEVOLVER AL BACKLOG - Para OTs coordinadas */}
-        {workOrder.status === 'coordinated' && workOrder.team_id && (
+        {/* BOTÓN DEVOLVER AL BACKLOG - Para OTs coordinadas (status: scheduled) */}
+        {workOrder.status === 'scheduled' && workOrder.team_id && (
           <div className="border-t border-zinc-800 py-4 mt-6 space-y-3">
             <p className="text-xs text-zinc-400 font-medium">¿Recoordinar esta OT?</p>
             <Button
