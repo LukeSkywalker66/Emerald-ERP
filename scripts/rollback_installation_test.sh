@@ -82,11 +82,50 @@ delete_ticket() {
         echo -e "${YELLOW}ℹ️  El ticket no tiene conexión asociada.${NC}"
         conn_id=""
     fi
+
+    # Resolver customer_id desde la conexión
+    local customer_id=""
+    local customer_connections_count=0
+    local legacy_tickets_count=0
+    local customer_phones_count=0
+    local customer_emails_count=0
+    local should_delete_customer="false"
+
+    if [ -n "$conn_id" ]; then
+        customer_id=$(docker exec emerald_db psql -U "$DB_USER" -d "$DB_NAME" -t -c "
+            SELECT customer_id FROM connections WHERE connection_id = $conn_id;
+        " | xargs)
+
+        if [ -n "$customer_id" ] && [ "$customer_id" != "NULL" ]; then
+            customer_connections_count=$(docker exec emerald_db psql -U "$DB_USER" -d "$DB_NAME" -t -c "
+                SELECT COUNT(*) FROM connections WHERE customer_id = $customer_id;
+            " | xargs)
+
+            legacy_tickets_count=$(docker exec emerald_db psql -U "$DB_USER" -d "$DB_NAME" -t -c "
+                SELECT COUNT(*) FROM tickets_legacy WHERE customer_id = $customer_id;
+            " | xargs)
+
+            customer_phones_count=$(docker exec emerald_db psql -U "$DB_USER" -d "$DB_NAME" -t -c "
+                SELECT COUNT(*) FROM clientes_telefonos WHERE customer_id = $customer_id;
+            " | xargs)
+
+            customer_emails_count=$(docker exec emerald_db psql -U "$DB_USER" -d "$DB_NAME" -t -c "
+                SELECT COUNT(*) FROM clientes_emails WHERE customer_id = $customer_id;
+            " | xargs)
+
+            if [ "$customer_connections_count" -eq 1 ] && [ "$legacy_tickets_count" -eq 0 ]; then
+                should_delete_customer="true"
+            fi
+        else
+            customer_id=""
+        fi
+    fi
     
     # Mostrar lo que se va a eliminar
     echo -e "\n${YELLOW}Datos a eliminar:${NC}"
     echo -e "  • Ticket ID: $ticket_id"
     [ -n "$conn_id" ] && echo -e "  • Connection ID: $conn_id" || echo -e "  • Connection ID: (sin conexión)"
+    [ -n "$customer_id" ] && echo -e "  • Customer ID: $customer_id" || echo -e "  • Customer ID: (no aplica)"
     
     # Contar registros asociados
     local timeline_count=$(docker exec emerald_db psql -U "$DB_USER" -d "$DB_NAME" -t -c "
@@ -104,13 +143,29 @@ delete_ticket() {
     local tags_count=$(docker exec emerald_db psql -U "$DB_USER" -d "$DB_NAME" -t -c "
         SELECT COUNT(*) FROM ticket_tags WHERE ticket_id = $ticket_id;
     " | xargs)
+
+    local subscribers_count=0
+    if [ -n "$conn_id" ]; then
+        subscribers_count=$(docker exec emerald_db psql -U "$DB_USER" -d "$DB_NAME" -t -c "
+            SELECT COUNT(*) FROM subscribers WHERE connection_id = $conn_id;
+        " | xargs)
+    fi
     
     echo -e "\n${YELLOW}Registros asociados a eliminar:${NC}"
     [ "$timeline_count" -gt 0 ] && echo -e "  • Timeline events: $timeline_count" || true
     [ "$events_count" -gt 0 ] && echo -e "  • Ticket events: $events_count" || true
     [ "$attachments_count" -gt 0 ] && echo -e "  • Attachments: $attachments_count" || true
     [ "$tags_count" -gt 0 ] && echo -e "  • Tags: $tags_count" || true
+    [ "$subscribers_count" -gt 0 ] && echo -e "  • Subscribers: $subscribers_count" || true
     [ -z "$conn_id" ] || echo -e "  • Connection row: 1"
+
+    if [ -n "$customer_id" ] && [ "$should_delete_customer" = "true" ]; then
+        echo -e "  • Cliente row: 1"
+        [ "$customer_phones_count" -gt 0 ] && echo -e "  • Cliente teléfonos: $customer_phones_count" || true
+        [ "$customer_emails_count" -gt 0 ] && echo -e "  • Cliente emails: $customer_emails_count" || true
+    elif [ -n "$customer_id" ]; then
+        echo -e "  • Cliente NO se elimina (conexiones del cliente: $customer_connections_count, tickets_legacy: $legacy_tickets_count)"
+    fi
     
     # Confirmación
     echo ""
@@ -136,7 +191,14 @@ DELETE FROM ticket_tags WHERE ticket_id = $ticket_id;
 DELETE FROM tickets WHERE id = $ticket_id;
 
 $(if [ -n "$conn_id" ] && [ "$conn_id" != "NULL" ]; then
+    echo "DELETE FROM subscribers WHERE connection_id = $conn_id;"
     echo "DELETE FROM connections WHERE connection_id = $conn_id;"
+fi)
+
+$(if [ -n "$customer_id" ] && [ "$should_delete_customer" = "true" ]; then
+    echo "DELETE FROM clientes_telefonos WHERE customer_id = $customer_id;"
+    echo "DELETE FROM clientes_emails WHERE customer_id = $customer_id;"
+    echo "DELETE FROM clientes WHERE id = $customer_id;"
 fi)
 
 COMMIT;
@@ -146,7 +208,13 @@ EOSQL
         echo -e "${GREEN}✅ Rollback completado exitosamente${NC}"
         echo -e "\n${BLUE}Resumen de cambios:${NC}"
         echo -e "  ✓ Ticket $ticket_id eliminado"
+        [ "$subscribers_count" -gt 0 ] && echo -e "  ✓ Subscribers para conexión $conn_id eliminados" || true
         [ -n "$conn_id" ] && echo -e "  ✓ Conexión $conn_id eliminada" || true
+        if [ -n "$customer_id" ] && [ "$should_delete_customer" = "true" ]; then
+            echo -e "  ✓ Cliente $customer_id eliminado (alta nueva)"
+        elif [ -n "$customer_id" ]; then
+            echo -e "  • Cliente $customer_id preservado"
+        fi
         echo ""
     else
         echo -e "${RED}❌ Error durante la eliminación${NC}"
