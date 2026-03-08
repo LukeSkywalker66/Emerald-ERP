@@ -240,7 +240,8 @@ export default function CoordinationGridPage() {
       {gridData && (
         <CoordinationSidebar
           workOrders={gridData?.backlog || []}
-          onQuickAction={() => {}}
+          onQuickAction={() => handleManualRefresh()}
+          onSelectWorkOrder={handleEventClick}
         />
       )}
 
@@ -377,6 +378,7 @@ export default function CoordinationGridPage() {
           // Refrescar datos después de cambiar duración
           handleManualRefresh();
         }}
+        onWorkOrderUpdated={() => handleManualRefresh()}
       />
     </div>
   );

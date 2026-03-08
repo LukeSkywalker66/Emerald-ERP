@@ -310,9 +310,11 @@ export default function CloseWorkOrderDialog({
   // Validaciones por paso
   const isStep1Valid = selectedCategory && resolutionNotes.length >= 10;
   const isStep2Valid = true; // Opcional
-  const isStep3Valid =
-    uploadedPhotos.length > 0 ||
-    (workOrder.ot_type === 'pending_planning' || workOrder.ot_type === 'pickup');
+  const requiresPhotoEvidence =
+    workOrder?.status === 'pending_closure' ||
+    (workOrder?.ot_type !== 'pickup' && workOrder?.ot_type !== 'pending_planning');
+
+  const isStep3Valid = requiresPhotoEvidence ? uploadedPhotos.length > 0 : true;
 
   // Handlers de navegación
   const handleNext = () => {

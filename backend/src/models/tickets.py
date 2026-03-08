@@ -106,6 +106,10 @@ class WorkOrderStatus(StrEnum):
     scheduled = "scheduled"                # Fecha pactada Y cuadrilla asignada
     assigned = "assigned"  # Asignada a un técnico individual
     in_progress = "in_progress"  # Técnico trabajando en sitio
+    
+    # ========== PRISIÓN DEL TÉCNICO ==========
+    pending_closure = "pending_closure"  # OT vencida sin cerrar (bloquea agenda del técnico)
+    
     completed = "completed"  # Trabajo completado
     failed = "failed"  # Fallo en ejecución
 

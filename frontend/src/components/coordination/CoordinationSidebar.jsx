@@ -5,7 +5,7 @@
  * Diseño compacto para máximo aprovechamiento vertical.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Accordion,
   AccordionContent,
@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { MapPin } from 'lucide-react';
 import DraggableWorkOrderCard from './DraggableWorkOrderCard';
 import CoordinationFilters from './CoordinationFilters';
+import { PendingClosureAlert } from './PendingClosureAlert';
 import { useTicketFilters } from '@/hooks/useTicketFilters';
 import { applyTicketFilters } from '@/utils/filterWorkOrders';
 import {
@@ -24,15 +25,41 @@ import {
   hasHighPriorityTasks,
   countByPriority,
 } from '@/utils/groupWorkOrders';
+import workOrdersService from '@/services/workOrders.service';
 
 export default function CoordinationSidebar({
   workOrders = [],
   cities = [],
   onQuickAction,
+  onSelectWorkOrder,
   defaultCity = null,
 }) {
   // ========== HOOKS DE FILTROS ==========
   const { filters, updateFilter, toggleCity, toggleType, clearFilters } = useTicketFilters();
+
+  // ========== STATE PARA PENDING CLOSURE ALERT ==========
+  const [pendingClosureStats, setPendingClosureStats] = useState(null);
+  const [isLoadingPendingStats, setIsLoadingPendingStats] = useState(false);
+  const [pendingStatsError, setPendingStatsError] = useState(null);
+
+  // ========== CARGAR STATS AL MONTAR ==========
+  useEffect(() => {
+    loadPendingClosureStats();
+  }, []);
+
+  const loadPendingClosureStats = async () => {
+    try {
+      setIsLoadingPendingStats(true);
+      setPendingStatsError(null);
+      const data = await workOrdersService.getPendingClosureStats();
+      setPendingClosureStats(data || null);
+    } catch (err) {
+      console.error('Error loading pending closure stats:', err);
+      setPendingStatsError(err?.response?.data?.detail || err.message || 'Error al cargar alertas');
+    } finally {
+      setIsLoadingPendingStats(false);
+    }
+  };
 
   // ========== EXTRAER CIUDADES ÚNICAS ==========
   const availableCities = useMemo(() => {
@@ -136,6 +163,17 @@ export default function CoordinationSidebar({
         onCriticalChange={(val) => updateFilter('onlyCritical', val)}
         onClearAll={clearFilters}
       />
+
+      {/* ========== ALERTA GLOBAL: EQUIPOS BLOQUEADOS ========== */}
+      <div className="px-3 pt-3">
+        <PendingClosureAlert
+          stats={pendingClosureStats}
+          isLoading={isLoadingPendingStats}
+          error={pendingStatsError}
+          onRefresh={loadPendingClosureStats}
+          onSelectWorkOrder={onSelectWorkOrder}
+        />
+      </div>
 
       {/* ========== CONTADOR ========== */}
       <div className="px-3 py-1.5 bg-zinc-900/80 border-b border-zinc-700/50 flex items-center justify-between">

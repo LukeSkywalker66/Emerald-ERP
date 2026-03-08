@@ -8,7 +8,8 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { format, addMinutes, parse } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { AlertTriangle, Clock, MapPin } from 'lucide-react';
+import { AlertTriangle, Clock, MapPin, ShieldAlert } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import api from '@/api/client';
 import './ImprovedCoordinationGrid.css';
 
@@ -423,6 +424,19 @@ export default function ImprovedCoordinationGrid({
 
     const wo = JSON.parse(data);
     
+    // ========== PRISIÓN DEL TÉCNICO: SOFT BLOCK (Coordinador) ==========
+    const targetTeam = teams.find(t => t.id === teamId);
+    if (targetTeam && targetTeam.pending_closure_count > 0) {
+      const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QOwgcZ7Xt559NEAxPp+LvtFwaByJ71/DLdykGI3fJ8NuNOAoblrXs5qBRDQtOouHusVsZCCCH0O+++y8FKX3P8N6SPAkcabjs5KFTDQxQo9zqr1oaBR9+z/DAfi4GKXzO8N2ROwoblbnv5qBSEBBQouHtr1oaBx9+0O6/gTQIDWS76eajUA0MUKTj7LBaGAYefM/vwH0uBSZ+z+/dkToHGo+87OajUQ0MUKPi661ZGAg ...');
+      audio.volume = 0.3;
+      audio.play().catch(() => {});
+      
+      setError(`⚠️ ${targetTeam.name} en infracción: Tiene ${targetTeam.pending_closure_count} OT${targetTeam.pending_closure_count > 1 ? 's' : ''} atrasada${targetTeam.pending_closure_count > 1 ? 's' : ''} sin cerrar. El técnico NO verá esta tarea en su app hasta que cierre las vencidas. Contáctalo primero.`);
+      setTimeout(() => setError(null), 7000);
+      setIsAssigning(false);
+      return;
+    }
+    
     try {
       setIsAssigning(true);
       
@@ -634,7 +648,19 @@ export default function ImprovedCoordinationGrid({
               <div key={team.id} className="flex min-h-20 hover:bg-zinc-800/30 transition-colors group">
                 {/* Nombre del equipo */}
                 <div className="w-40 flex-shrink-0 px-3 py-2 border-r border-zinc-700 bg-zinc-900/50 flex flex-col justify-center">
-                  <p className="text-sm font-bold text-white truncate">{team.name}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-bold text-white truncate">{team.name}</p>
+                    {team.pending_closure_count > 0 && (
+                      <Badge 
+                        variant="outline" 
+                        className="border-rose-500/70 bg-rose-900/40 text-rose-200 px-1.5 py-0 text-[10px] leading-tight flex items-center gap-0.5"
+                        title={`⚠️ Equipo bloqueado: ${team.pending_closure_count} OT${team.pending_closure_count > 1 ? 's' : ''} vencida${team.pending_closure_count > 1 ? 's' : ''} sin cerrar`}
+                      >
+                        <ShieldAlert size={10} />
+                        {team.pending_closure_count}
+                      </Badge>
+                    )}
+                  </div>
                   <p className="text-xs text-zinc-400">{team.members?.length || 0} técnicos</p>
                 </div>
 

@@ -35,6 +35,7 @@ import {
   Send,
 } from 'lucide-react';
 import api from '@/api/client';
+import CloseWorkOrderDialog from '@/components/work-orders/CloseWorkOrderDialog';
 
 const OT_TYPE_LABELS = {
   repair: 'Reparación',
@@ -55,6 +56,7 @@ export default function CoordinationSheet({
   isOpen,
   onClose,
   onDurationChange,
+  onWorkOrderUpdated,
 }) {
   const [duration, setDuration] = useState(workOrder?.estimated_duration || 60);
   const [isSavingDuration, setIsSavingDuration] = useState(false);
@@ -69,6 +71,7 @@ export default function CoordinationSheet({
   const [woPriority, setWoPriority] = useState(workOrder?.priority || 'medium');
   const [priorityChanged, setPriorityChanged] = useState(false);
   const [isSavingPriority, setIsSavingPriority] = useState(false);
+  const [showCloseDialog, setShowCloseDialog] = useState(false);
 
   // ========== HELPER FUNCTIONS ==========
 
@@ -138,6 +141,8 @@ export default function CoordinationSheet({
       setIsLoadingAttempts(false);
     }
   };
+
+
 
   const handleDurationChange = (newDuration) => {
     // Validar: mínimo 5 min, máximo 480 min (8 horas)
@@ -237,12 +242,18 @@ export default function CoordinationSheet({
       return;
     }
 
+    if (typeof onWorkOrderUpdated !== 'function') {
+      console.error('❌ [ARQUITECTURA] CoordinationSheet.unassignWorkOrder: callback onWorkOrderUpdated no existe. Contrato arquitectónico roto.');
+      alert('Error interno: falta callback de sincronización. Contacta a soporte.');
+      return;
+    }
+
     try {
       await api.patch(`/v2/work-orders/${workOrder.id}/unassign`);
       console.log('✅ OT devuelta al backlog');
       alert('✓ OT devuelta al backlog');
       onClose();
-      window.location.reload(); // Refresh para actualizar grid
+      onWorkOrderUpdated();
     } catch (err) {
       console.error('❌ Error al desasignar OT:', err);
       alert(`Error al devolver al backlog: ${err.response?.data?.detail || err.message}`);
@@ -342,12 +353,15 @@ export default function CoordinationSheet({
           </div>
         </SheetHeader>
 
-        {/* ========== ALERTA SI COMPLETADA ========== */}
+        {/* ========== ALERTA SI COMPLETADA/BLOQUEADA ========== */}
         {isLocked && (
           <Alert className="bg-red-900/20 border-red-700/50 mt-4">
             <Lock size={16} className="text-red-400" />
             <AlertDescription className="text-red-300">
-              {lockedReason === 'completada' ? 'Orden completada. No se puede editar.' : 'Orden programada para el pasado. No se puede editar.'} Solo admin/técnico puede reabrir dentro de 2h.
+              {lockedReason === 'completada' 
+                ? '✅ Orden ya completada. Para reabrir, contactá a un administrador o al técnico responsable (ventana de 2h desde cierre).' 
+                : '🔒 Orden programada en el pasado y no fue ejecutada. Para editar, contactá a un administrador.'
+              }
             </AlertDescription>
           </Alert>
         )}
@@ -643,17 +657,41 @@ export default function CoordinationSheet({
         </div>
 
         {/* ========== BOTONES DE ACCIÓN SEGÚN STATUS ========== */}
-        {(() => {
-          const debugInfo = {
-            woId: workOrder.id,
-            status: workOrder.status,
-            scheduledStart: workOrder.scheduled_start,
-            teamId: workOrder.team_id,
-            hasTeam: !!workOrder.team_id,
-          };
-          console.log('🔍🔍🔍 [BUTTON DEBUG] Status:', workOrder.status, '| Team:', workOrder.team_id, '| Start:', workOrder.scheduled_start);
-          return null;
-        })()}
+
+        {/* RESTRICCIÓN: OTs VENCIDAS (pending_closure) - Solo Completar o Devolver al Backlog */}
+        {workOrder.status === 'pending_closure' && (
+          <div className="border-t border-zinc-800 py-4 mt-6 space-y-3">
+            <Alert className="bg-rose-900/20 border-rose-700/50">
+              <AlertCircle size={16} className="text-rose-400" />
+              <AlertDescription className="text-rose-300 text-xs">
+                <strong>🔒 OT Vencida:</strong> Esta orden está bloqueando la agenda del técnico. 
+                Solo se permite completar el trabajo con evidencia fotográfica, o devolver al backlog para replanificar.
+              </AlertDescription>
+            </Alert>
+            
+            <div className="space-y-2">
+              <Button
+                onClick={() => setShowCloseDialog(true)}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                <CheckCircle2 size={16} className="mr-2" />
+                Completar OT (Técnico)
+              </Button>
+              
+              <Button
+                onClick={unassignWorkOrder}
+                variant="outline"
+                className="w-full border-amber-600 text-amber-300 hover:bg-amber-900/20"
+              >
+                ↩️ Devolver al Backlog (Coordinator)
+              </Button>
+            </div>
+
+            <p className="text-[10px] text-zinc-500 text-center">
+              ⚠️ No se permiten otras acciones mientras la OT esté vencida
+            </p>
+          </div>
+        )}
 
         {/* BOTÓN DEVOLVER AL BACKLOG - Para OTs coordinadas (status: scheduled) */}
         {workOrder.status === 'scheduled' && workOrder.team_id && (
@@ -764,6 +802,21 @@ export default function CoordinationSheet({
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      <CloseWorkOrderDialog
+        workOrder={workOrder}
+        isOpen={showCloseDialog}
+        onClose={() => setShowCloseDialog(false)}
+        onComplete={() => {
+          setShowCloseDialog(false);
+          onClose();
+          if (typeof onWorkOrderUpdated !== 'function') {
+            console.error('❌ [ARQUITECTURA] CoordinationSheet.CloseWorkOrderDialog.onComplete: callback onWorkOrderUpdated no existe. Contrato arquitectónico roto.');
+            return;
+          }
+          onWorkOrderUpdated();
+        }}
+      />
     </Sheet>
   );
 }

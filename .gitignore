@@ -21,3 +21,15 @@ backend/media/
 .DS_Store
 Thumbs.db
 data/
+
+# --- Runtime Celery / Beat (generados en entorno) ---
+backend/celerybeat-schedule
+backend/celerybeat-schedule.*
+backend/*.pid
+backend/*.db
+
+# --- Certbot/Nginx runtime conf (generados en entorno) ---
+data/certbot/conf/renewal/*.conf
+data/certbot/conf/archive/**
+data/certbot/conf/live/**
+data/certbot/conf/accounts/**

@@ -12,6 +12,8 @@ import {
   Zap,
   Users,
   User,
+  Lock,
+  ShieldAlert,
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
@@ -20,6 +22,7 @@ import workOrdersService from '@/services/workOrders.service';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import CloseWorkOrderDialog from '@/components/work-orders/CloseWorkOrderDialog';
 import {
   Table,
   TableBody,
@@ -42,6 +45,10 @@ const STATUS_CONFIG = {
   in_progress: { 
     label: 'En curso', 
     variant: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300',
+  },
+  pending_closure: {
+    label: 'Pendiente Cierre',
+    variant: 'bg-rose-500/10 border-rose-500/30 text-rose-300',
   },
   completed: { 
     label: 'Completada', 
@@ -85,6 +92,10 @@ export default function WorkOrdersPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [technicians, setTechnicians] = useState([]); // Lista de técnicos disponibles
+  const [pendingClosureOrders, setPendingClosureOrders] = useState([]);
+  const [selectedPendingClosure, setSelectedPendingClosure] = useState(null);
+  const [showCloseDialog, setShowCloseDialog] = useState(false);
+  const [isOpeningCloseDialog, setIsOpeningCloseDialog] = useState(false);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -102,10 +113,15 @@ export default function WorkOrdersPage() {
       if (isTechnician) {
         // ========== TÉCNICOS: Agenda del día (my-schedule) ==========
         const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-        const { data } = await api.get('/v2/work-orders/my-schedule', {
-          params: { date: today },
-        });
-        items = Array.isArray(data) ? data : [];
+        const [{ data: scheduleData }, pendingClosureData] = await Promise.all([
+          api.get('/v2/work-orders/my-schedule', {
+            params: { date: today },
+          }),
+          workOrdersService.getMyPendingClosure(),
+        ]);
+
+        items = Array.isArray(scheduleData) ? scheduleData : [];
+        setPendingClosureOrders(Array.isArray(pendingClosureData) ? pendingClosureData : []);
       } else {
         // ========== ADMIN/COORDINADOR: Vista global con filtros ==========
         const data = await workOrdersService.listWorkOrders({
@@ -136,6 +152,8 @@ export default function WorkOrdersPage() {
           // Filtro por técnico específico
           items = items.filter((wo) => wo.technician_name === assigneeFilter);
         }
+
+        setPendingClosureOrders([]);
       }
 
       setWorkOrders(items);
@@ -152,7 +170,7 @@ export default function WorkOrdersPage() {
     setIsLoading(true);
     loadWorkOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, typeFilter, searchQuery, assigneeFilter]);
+  }, [isTechnician, statusFilter, typeFilter, searchQuery, assigneeFilter]);
 
   // Formatear fecha
   const formatScheduledDate = (dateStr) => {
@@ -164,6 +182,29 @@ export default function WorkOrdersPage() {
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const isTechnicianBlocked = isTechnician && pendingClosureOrders.length > 0;
+
+  const openPendingClosureDialog = async (workOrderId) => {
+    try {
+      setIsOpeningCloseDialog(true);
+      const detail = await workOrdersService.getWorkOrderDetail(workOrderId);
+      setSelectedPendingClosure(detail);
+      setShowCloseDialog(true);
+    } catch (err) {
+      const detail = err?.response?.data?.detail || err.message || 'Error al abrir el cierre de OT';
+      alert(detail);
+    } finally {
+      setIsOpeningCloseDialog(false);
+    }
+  };
+
+  const handlePendingClosureCompleted = async () => {
+    setShowCloseDialog(false);
+    setSelectedPendingClosure(null);
+    setIsRefreshing(true);
+    await loadWorkOrders();
   };
 
   return (
@@ -211,6 +252,51 @@ export default function WorkOrdersPage() {
             <p className="text-xs text-rose-200/80 mt-1">
               Intenta refrescar o ajusta los filtros.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* PRISIÓN DEL TÉCNICO: bloqueo de agenda */}
+      {isTechnicianBlocked && (
+        <div className="rounded-xl border border-rose-700/60 bg-gradient-to-r from-rose-950/70 to-zinc-950 p-4 space-y-3 shadow-lg shadow-rose-900/20">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-lg bg-rose-900/60 border border-rose-700/50">
+              <ShieldAlert size={18} className="text-rose-300" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <Lock size={14} className="text-rose-300" />
+                <p className="text-sm font-semibold text-rose-100">🔒 Agenda Bloqueada</p>
+                <Badge className="bg-rose-700/30 border border-rose-600 text-rose-200">
+                  {pendingClosureOrders.length} vencida{pendingClosureOrders.length > 1 ? 's' : ''}
+                </Badge>
+              </div>
+              <p className="text-xs text-rose-200/90">
+                Tu agenda está bloqueada. Debes cerrar estas OTs vencidas con notas y fotos antes de ejecutar nuevas asignaciones.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {pendingClosureOrders.map((wo) => (
+              <button
+                key={wo.id}
+                type="button"
+                onClick={() => openPendingClosureDialog(wo.id)}
+                disabled={isOpeningCloseDialog}
+                className="w-full text-left rounded-lg border border-rose-800/60 bg-zinc-900/70 px-3 py-2 hover:bg-zinc-800/80 transition disabled:opacity-60"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-rose-100">OT #{wo.id} · {wo.client_name || 'Sin cliente'}</p>
+                    <p className="text-xs text-zinc-300 truncate">{wo.address || 'Sin dirección'} · Programada: {formatScheduledDate(wo.scheduled_start || wo.scheduled_at)}</p>
+                  </div>
+                  <Badge variant="outline" className="border-rose-600 text-rose-300">
+                    Cerrar ahora
+                  </Badge>
+                </div>
+              </button>
+            ))}
           </div>
         </div>
       )}
@@ -296,7 +382,7 @@ export default function WorkOrdersPage() {
       </div>
 
       {/* Data Table */}
-      <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 overflow-hidden shadow-2xl shadow-black/30">
+      <div className={`rounded-xl border border-zinc-800/80 bg-zinc-900/40 overflow-hidden shadow-2xl shadow-black/30 ${isTechnicianBlocked ? 'opacity-55 pointer-events-none' : ''}`}>
         {isLoading ? (
           <div className="p-8 flex items-center justify-center gap-3 text-zinc-400">
             <RefreshCw size={18} className="animate-spin text-emerald-400" />
@@ -336,7 +422,10 @@ export default function WorkOrdersPage() {
                 return (
                   <TableRow
                     key={wo.id}
-                    onClick={() => navigate(`/app/work-orders/${wo.id}/execute`)}
+                    onClick={() => {
+                      if (isTechnicianBlocked) return;
+                      navigate(`/app/work-orders/${wo.id}/execute`);
+                    }}
                     className="border-b border-zinc-800/40 hover:bg-zinc-800/60 cursor-pointer transition-colors group"
                   >
                     {/* ID */}
@@ -408,6 +497,22 @@ export default function WorkOrdersPage() {
           </Table>
         )}
       </div>
+
+      {/* Wizard de cierre desde Prisión del Técnico */}
+      <CloseWorkOrderDialog
+        workOrder={selectedPendingClosure}
+        isOpen={showCloseDialog && !!selectedPendingClosure}
+        onClose={() => {
+          setShowCloseDialog(false);
+          setSelectedPendingClosure(null);
+        }}
+        onComplete={handlePendingClosureCompleted}
+        onMaterialsUpdated={async () => {
+          if (!selectedPendingClosure?.id) return;
+          const refreshed = await workOrdersService.getWorkOrderDetail(selectedPendingClosure.id);
+          setSelectedPendingClosure(refreshed);
+        }}
+      />
     </div>
   );
 }

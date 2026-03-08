@@ -310,6 +310,7 @@ export default function DraggableWorkOrderCard({
         isOpen={showCoordinationSheet}
         onClose={() => setShowCoordinationSheet(false)}
         onDurationChange={handleDurationChange}
+        onWorkOrderUpdated={() => onQuickAction?.('work_order_updated', workOrder)}
       />
     </>
   );

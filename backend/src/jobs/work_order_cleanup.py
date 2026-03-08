@@ -1,11 +1,16 @@
 """
-Job de Celery para auto-cleanup de Work Orders abandonadas.
+Job de Celery para gestión automática de Work Orders vencidas (Equipos Bloqueados).
 
-NASA-grade Consistency: OTs con status='scheduled' que pasaron su fecha/hora
-y nunca se iniciaron, deben volver automáticamente al backlog para reprogramación.
+NASA-grade Responsibility: OTs con status='scheduled' que pasaron su fecha/hora
+programada y nunca se iniciaron, entran en modo 'pending_closure'.
 
-Este job corre periódicamente y garantiza que no existan OTs "fantasma" en estado
-coordinado que nunca se ejecutaron.
+EQUIPOS BLOQUEADOS:
+- El técnico/equipo asignado NO puede recibir nuevas OTs hasta que cierre la vencida.
+- La OT permanece asignada al equipo (tracking de responsabilidad).
+- Se requiere cierre forzado con fotos, materiales y motivo.
+
+Este job corre periódicamente y garantiza que no existan OTs "fantasma" sin
+accountability.
 """
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
@@ -18,17 +23,23 @@ from src.config import logger
 @celery_app.task(name="cleanup_abandoned_work_orders")
 def cleanup_abandoned_work_orders():
     """
-    Detecta y limpia OTs abandonadas.
+    Detecta OTs vencidas no ejecutadas y las marca como 'pending_closure'.
     
-    Criterios de abandono:
+    EQUIPOS BLOQUEADOS - Criterios de bloqueo:
     - status = 'scheduled' (coordinada pero no iniciada)
     - scheduled_start < now - grace_period (pasó la fecha programada)
-    - team_id != None (tiene equipo asignado pero no se presentó)
+    - team_id o technician_id != None (responsable asignado)
     
     Acción:
-    - Devuelve al backlog (team_id = None, scheduled_start = None)
-    - Cambia status a 'pending_planning' 
+    - Cambia status a 'pending_closure' (bloquea agenda del técnico)
+    - MANTIENE team_id/technician_id (tracking de responsabilidad)
+    - MANTIENE scheduled_start (historial inmutable)
     - Registra evento en timeline
+    
+    El técnico no puede recibir nuevas OTs hasta que cierre esta con:
+    - Fotos obligatorias
+    - Materiales utilizados
+    - Motivo de cierre (éxito/fallo)
     
     Returns:
         dict: Estadísticas de la operación
@@ -41,10 +52,10 @@ def cleanup_abandoned_work_orders():
         now = datetime.now(timezone.utc)
         cutoff_time = now - grace_period
         
-        logger.info(f"[CLEANUP] Iniciando auto-cleanup de OTs abandonadas...")
-        logger.info(f"[CLEANUP] Cutoff time: {cutoff_time.isoformat()}")
+        logger.info(f"[BLOQUEO] Iniciando detección de OTs vencidas (Equipos Bloqueados)...")
+        logger.info(f"[BLOQUEO] Cutoff time: {cutoff_time.isoformat()}")
         
-        # Buscar OTs abandonadas
+        # Buscar OTs vencidas no ejecutadas
         abandoned_orders = db.query(WorkOrder).filter(
             WorkOrder.status == WorkOrderStatus.scheduled,
             WorkOrder.team_id.isnot(None),
@@ -53,56 +64,58 @@ def cleanup_abandoned_work_orders():
         ).all()
         
         if not abandoned_orders:
-            logger.info("[CLEANUP] ✅ No hay OTs abandonadas para limpiar")
+            logger.info("[BLOQUEO] ✅ No hay OTs vencidas sin ejecutar")
             return {
                 "status": "success",
-                "abandoned_count": 0,
-                "cleaned_count": 0
+                "overdue_count": 0,
+                "locked_count": 0
             }
         
-        logger.warning(f"[CLEANUP] ⚠️ Encontradas {len(abandoned_orders)} OTs abandonadas")
+        logger.warning(f"[BLOQUEO] ⚠️ Encontradas {len(abandoned_orders)} OTs vencidas → Bloqueando agendas")
         
-        cleaned_count = 0
+        locked_count = 0
         for wo in abandoned_orders:
-            old_team_id = wo.team_id
-            old_scheduled = wo.scheduled_start
+            team_id = wo.team_id
+            scheduled = wo.scheduled_start
             
-            # Limpiar asignación
-            wo.team_id = None
-            wo.scheduled_start = None
-            wo.status = WorkOrderStatus.pending_planning
+            # ========== EQUIPOS BLOQUEADOS ==========
+            # NO limpiar asignación - el técnico/equipo queda responsable
+            # NO limpiar scheduled_start - historial inmutable para auditoría
+            wo.status = WorkOrderStatus.pending_closure
             
             # Registrar en timeline
             db.add(TicketTimeline(
                 ticket_id=wo.ticket_id,
                 author_id=None,  # Sistema automático
                 event_type=TicketTimelineEventType.ot_event,
-                content=f"🤖 Sistema: OT devuelta automáticamente al backlog (no se ejecutó en fecha programada: {old_scheduled.strftime('%d/%m %H:%M')})",
+                content=f"🔒 Sistema: OT vencida sin ejecutar → Status 'pending_closure' (fecha programada: {scheduled.strftime('%d/%m %H:%M')}). El técnico debe cerrar con fotos/materiales antes de recibir nuevas asignaciones.",
                 meta_data={
                     "work_order_id": wo.id,
-                    "reason": "auto_cleanup_abandoned",
-                    "old_team_id": old_team_id,
-                    "old_scheduled_start": old_scheduled.isoformat()
+                    "reason": "technician_prison_overdue",
+                    "locked_team_id": team_id,
+                    "original_scheduled_start": scheduled.isoformat(),
+                    "pattern": "Equipos Bloqueados"
                 }
             ))
             
-            cleaned_count += 1
-            logger.info(f"[CLEANUP]   ↳ OT #{wo.id} (Ticket #{wo.ticket_id}) devuelta al backlog")
+            locked_count += 1
+            logger.info(f"[BLOQUEO]   ↳ OT #{wo.id} (Ticket #{wo.ticket_id}) → pending_closure (Equipo #{team_id} bloqueado)")
         
         db.commit()
         
-        logger.info(f"[CLEANUP] ✅ {cleaned_count} OTs limpiadas y devueltas al backlog")
+        logger.info(f"[BLOQUEO] ✅ {locked_count} OTs marcadas como 'pending_closure' → Agendas bloqueadas")
         
         return {
             "status": "success",
-            "abandoned_count": len(abandoned_orders),
-            "cleaned_count": cleaned_count,
-            "cutoff_time": cutoff_time.isoformat()
+            "overdue_count": len(abandoned_orders),
+            "locked_count": locked_count,
+            "cutoff_time": cutoff_time.isoformat(),
+            "pattern": "Equipos Bloqueados"
         }
         
     except Exception as e:
         db.rollback()
-        logger.error(f"[CLEANUP] ❌ Error en auto-cleanup: {str(e)}", exc_info=True)
+        logger.error(f"[BLOQUEO] ❌ Error en detección de OTs vencidas: {str(e)}", exc_info=True)
         return {
             "status": "error",
             "error": str(e)

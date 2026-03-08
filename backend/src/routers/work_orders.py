@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import String, and_, cast, or_, select, text
+from sqlalchemy import String, and_, cast, func, or_, select, text
 from sqlalchemy.orm import Session, joinedload, selectinload, attributes
 
 from src.database import get_db
@@ -259,6 +259,140 @@ def get_my_schedule(
 
     # 3) Reusar serializador enriquecido existente
     return [_wo_to_list_response(wo, db) for wo in work_orders]
+
+
+# ==================== EQUIPOS BLOQUEADOS (ANTES DE /{work_order_id}) ====================
+
+@router.get(
+    "/my-pending-closure",
+    response_model=list[dict],
+    summary="Obtener OTs vencidas pendientes de cierre (Equipos Bloqueados)",
+    description="Retorna OTs con status 'pending_closure' asignadas a los equipos del técnico autenticado. El técnico debe cerrar estas OTs con fotos/materiales antes de recibir nuevas asignaciones."
+)
+def get_my_pending_closure(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Equipos Bloqueados: Obtener OTs vencidas que bloquean la agenda del técnico.
+    
+    Criterios:
+    - status = 'pending_closure'
+    - Asignadas a equipos donde el usuario es miembro activo
+    
+    El técnico NO puede recibir nuevas OTs hasta que cierre estas con:
+    - Fotos obligatorias
+    - Materiales utilizados
+    - Motivo de cierre (éxito/fallo)
+    """
+    
+    # 1) Obtener team_ids donde el usuario es miembro
+    team_ids_stmt = (
+        select(TeamMember.team_id)
+        .where(TeamMember.user_id == current_user.id)
+        .distinct()
+    )
+    team_ids = list(db.scalars(team_ids_stmt).all())
+    
+    if not team_ids:
+        return []
+    
+    # 2) Buscar OTs con status 'pending_closure' asignadas a esos equipos
+    work_orders_stmt = (
+        select(WorkOrder)
+        .where(
+            WorkOrder.team_id.in_(team_ids),
+            WorkOrder.status == WorkOrderStatus.pending_closure
+        )
+        .options(
+            joinedload(WorkOrder.ticket).joinedload(Ticket.creator),
+            joinedload(WorkOrder.team),
+            joinedload(WorkOrder.technician),
+        )
+        .order_by(
+            WorkOrder.scheduled_start.asc().nulls_last(),
+            WorkOrder.id.asc()
+        )
+    )
+    
+    work_orders = list(db.scalars(work_orders_stmt).unique().all())
+    
+    # 3) Reusar serializador enriquecido existente
+    return [_wo_to_list_response(wo, db) for wo in work_orders]
+
+
+@router.get(
+    "/coordination/pending-closure-stats",
+    response_model=dict,
+    summary="Estadísticas de OTs en pending_closure para coordinación",
+    description="Retorna métricas de OTs vencidas sin cerrar, agrupadas por equipo. Crítico para identificar técnicos bloqueados y re-asignaciones urgentes."
+)
+def get_pending_closure_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Dashboard de Equipos Bloqueados para coordinadores.
+    
+    Retorna:
+    - Cantidad total de OTs en pending_closure
+    - Breakdown por equipo (team_id, nombre, cantidad de OTs bloqueadas)
+    - OTs más antiguas (mayor tiempo vencido)
+    
+    Permite al coordinador:
+    - Identificar equipos bloqueados (no pueden recibir nuevas OTs)
+    - Priorizar seguimiento con técnicos para cierre
+    - Re-asignar OTs si es necesario
+    """
+    
+    # 1) Contar total de OTs en pending_closure
+    total_pending = db.query(WorkOrder).filter(
+        WorkOrder.status == WorkOrderStatus.pending_closure
+    ).count()
+    
+    # 2) Breakdown por equipo
+    team_breakdown_stmt = (
+        select(
+            WorkOrder.team_id,
+            Team.name,
+            func.count(WorkOrder.id).label("pending_count")
+        )
+        .join(Team, WorkOrder.team_id == Team.id)
+        .where(WorkOrder.status == WorkOrderStatus.pending_closure)
+        .group_by(WorkOrder.team_id, Team.name)
+        .order_by(func.count(WorkOrder.id).desc())
+    )
+    
+    team_breakdown = [
+        {
+            "team_id": row.team_id,
+            "team_name": row.name,
+            "pending_count": row.pending_count
+        }
+        for row in db.execute(team_breakdown_stmt).all()
+    ]
+    
+    # 3) OTs más antiguas (top 10 por fecha programada original)
+    oldest_orders_stmt = (
+        select(WorkOrder)
+        .where(WorkOrder.status == WorkOrderStatus.pending_closure)
+        .options(
+            joinedload(WorkOrder.ticket),
+            joinedload(WorkOrder.team),
+            joinedload(WorkOrder.technician),
+        )
+        .order_by(WorkOrder.scheduled_start.asc().nulls_last())
+        .limit(10)
+    )
+    
+    oldest_orders = list(db.scalars(oldest_orders_stmt).unique().all())
+    oldest_orders_data = [_wo_to_list_response(wo, db) for wo in oldest_orders]
+    
+    return {
+        "total_pending_closure": total_pending,
+        "team_breakdown": team_breakdown,
+        "oldest_orders": oldest_orders_data,
+        "blocked_teams_count": len(team_breakdown),
+        "pattern": "Equipos Bloqueados"
+    }
 
 
 @router.get("/{work_order_id}", response_model=WorkOrderDetailResponse)
@@ -1033,9 +1167,16 @@ def get_coordination_grid(
         
         teams_data = []
         for team in teams:
+            # Contar OTs en pending_closure para este equipo (Equipos Bloqueados)
+            pending_closure_count = db.query(WorkOrder).filter(
+                WorkOrder.team_id == team.id,
+                WorkOrder.status == WorkOrderStatus.pending_closure
+            ).count()
+            
             teams_data.append({
                 "id": team.id,
                 "name": team.name,
+                "pending_closure_count": pending_closure_count,  # ← PRISIÓN DEL TÉCNICO
                 "members": [
                     {
                         "id": m.user.id,

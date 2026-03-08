@@ -11,6 +11,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
+import { useAuth } from '@/context/AuthContext';
+import { hasPermission } from '@/utils/permissions';
 import {
   LayoutDashboard,
   Ticket,
@@ -60,6 +62,7 @@ const MENU_ITEMS = [
         icon: LayoutDashboard,
         href: '/app',
         description: 'Visión general del sistema',
+        resource: 'dashboard', // ← RBAC: Oculto para técnicos
       },
     ],
   },
@@ -74,24 +77,28 @@ const MENU_ITEMS = [
         icon: Ticket,
         href: '/app/tickets',
         description: 'Gestión de reclamos',
+        resource: 'tickets',
       },
       {
         title: 'Cuadrillas',
         icon: Users,
         href: '/app/cuadrillas',
         description: 'Gestión de equipos',
+        resource: 'cuadrillas', // ← RBAC: Oculto para técnicos
       },
       {
         title: 'Coordinación',
         icon: Map,
         href: '/app/coordination',
         description: 'Mapa y agenda',
+        resource: 'coordination', // ← RBAC: Oculto para técnicos
       },
       {
         title: 'Órdenes de Trabajo',
         icon: ClipboardList,
         href: '/app/work-orders',
         description: 'Ejecución técnica',
+        resource: 'work_orders',
       },
     ],
   },
@@ -107,6 +114,7 @@ const MENU_ITEMS = [
         icon: Wrench,
         href: '/app/engineering',
         description: 'Tareas de infraestructura',
+        resource: 'engineering', // ← RBAC: Oculto para técnicos
       },
     ],
   },
@@ -122,42 +130,49 @@ const MENU_ITEMS = [
         icon: BarChart3,
         href: '/app/inventory',
         description: 'Métricas de stock',
+        resource: 'inventory',
       },
       {
         title: 'Almacenes',
         icon: Building2,
         href: '/app/inventory/warehouses',
         description: 'Gestión de depósitos',
+        resource: 'inventory',
       },
       {
         title: 'Flota',
         icon: Truck,
         href: '/app/fleet',
         description: 'Gestión administrativa de vehículos',
+        resource: 'inventory',
       },
       {
         title: 'Catálogo',
         icon: Package,
         href: '/app/inventory/products',
         description: 'Base de productos',
+        resource: 'inventory',
       },
       {
         title: 'Operaciones',
         icon: ArrowLeftRight,
         href: '/app/inventory/transfer',
         description: 'Transferencias y ajustes',
+        resource: 'inventory',
       },
       {
         title: 'Auditoría',
         icon: ClipboardList,
         href: '/app/inventory/movements',
         description: 'Historial de movimientos',
+        resource: 'inventory',
       },
       {
         title: 'Alertas',
         icon: AlertCircle,
         href: '/app/inventory/alerts',
         description: 'Stock crítico',
+        resource: 'inventory',
         badge: 'hot', // Indicador especial
       },
     ],
@@ -173,18 +188,21 @@ const MENU_ITEMS = [
         icon: Network,
         href: '/app/connections',
         description: 'Base instalada (ISPCube)',
+        resource: 'connections', // Sin restricción RBAC de momento
       },
       {
         title: 'Nodos',
         icon: TowerControl,
         href: '/app/nodes',
         description: 'Infraestructura',
+        resource: 'nodes', // Sin restricción RBAC de momento
       },
       {
         title: 'Clientes',
         icon: Users,
         href: '/app/clients',
         description: 'Padrón de clientes',
+        resource: 'clients', // Sin restricción RBAC de momento
       },
     ],
   },
@@ -199,12 +217,14 @@ const MENU_ITEMS = [
         icon: Settings,
         href: '/app/settings',
         description: 'Opciones del sistema',
+        resource: 'settings', // ← RBAC: Oculto para técnicos
       },
       {
         title: 'Usuarios',
         icon: UserCog,
         href: '/app/users',
         description: 'Gestión de cuentas',
+        resource: 'users', // ← RBAC: Oculto para técnicos
       },
     ],
   },
@@ -212,6 +232,7 @@ const MENU_ITEMS = [
 
 export function AppSidebar() {
   const { pathname } = useLocation();
+  const { user } = useAuth(); // ← RBAC: Obtener usuario para filtrar items
 
   // Estado para manejar qué secciones están expandidas (con persistencia)
   const [expandedSections, setExpandedSections] = useState(() => {
@@ -370,7 +391,14 @@ export function AppSidebar() {
                 `}
               >
                 <SidebarMenu className="space-y-1">
-                  {section.items.map((item) => {
+                  {section.items
+                    .filter((item) => {
+                      // Si no hay recurso definido, mostrar siempre
+                      if (!item.resource) return true;
+                      // Si hay recurso, verificar permiso
+                      return user && hasPermission(user.role, item.resource, 'view');
+                    })
+                    .map((item) => {
                     const Icon = item.icon;
                     const active = isItemActive(item.href);
 

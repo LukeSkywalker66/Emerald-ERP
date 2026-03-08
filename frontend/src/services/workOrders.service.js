@@ -142,6 +142,34 @@ export const reopenWorkOrder = async (workOrderId) => {
   }
 };
 
+/**
+ * Obtener OTs vencidas que bloquean agenda del técnico
+ * @returns {Promise<Array>} OTs en pending_closure
+ */
+export const getMyPendingClosure = async () => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/my-pending-closure`);
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error('❌ Error fetching pending closure work orders:', error);
+    throw error;
+  }
+};
+
+/**
+ * Obtener estadísticas de OTs bloqueadas para coordinación
+ * @returns {Promise<Object>} stats
+ */
+export const getPendingClosureStats = async () => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/coordination/pending-closure-stats`);
+    return data;
+  } catch (error) {
+    console.error('❌ Error fetching pending closure stats:', error);
+    throw error;
+  }
+};
+
 export default {
   createWorkOrder,
   listWorkOrders,
@@ -151,4 +179,6 @@ export default {
   removeWorkOrderItem,
   runQuickDiagnostic,
   reopenWorkOrder,
+  getMyPendingClosure,
+  getPendingClosureStats,
 };
