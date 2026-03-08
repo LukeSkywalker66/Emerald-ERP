@@ -45,6 +45,9 @@ import RepeatedIssueAlert from '@/components/tickets/RepeatedIssueAlert';
 import TicketTags from '@/components/tickets/TicketTags';
 import WorkOrderCompletedSummary from '@/components/work-orders/WorkOrderCompletedSummary';
 import CreateEngineeringTaskDialog from '@/components/engineering/CreateEngineeringTaskDialog';
+import { useAuth } from '@/context/AuthContext';
+import { hasPermission } from '@/utils/permissions';
+import Can from '@/components/auth/Can';
 
 const statusConfig = {
   open: { label: 'Abierto', tone: 'text-emerald-400', chip: 'bg-emerald-500/10 border-emerald-500/50' },
@@ -632,6 +635,7 @@ function AvailabilityEditor({ value, onSave, disabled }) {
 export default function TicketDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const fileInputRef = useRef(null);
   const [ticket, setTicket] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -1004,6 +1008,9 @@ export default function TicketDetailPage() {
   const isInSupport = ['open', 'in_progress', 'pending'].includes(ticket.status);
   const isInInfra = ticket.status === 'pending_infra';
   const isClosed = ['resolved', 'closed'].includes(ticket.status);
+  const canEditTicket = hasPermission(user?.role, 'tickets', 'edit');
+  const canCommentTicket = hasPermission(user?.role, 'tickets', 'comment');
+  const canCreateWorkOrder = hasPermission(user?.role, 'work_orders', 'create');
 
   return (
     <div className="space-y-6">
@@ -1049,7 +1056,7 @@ export default function TicketDetailPage() {
                 value={ticket.status}
                 options={Object.entries(statusConfig).map(([value, cfg]) => ({ value, label: cfg.label }))}
                 onSave={(val) => handleQuickUpdate({ status: val })}
-                disabled={isClosed || isSaving}
+                disabled={isClosed || isSaving || !canEditTicket}
                 loading={isSaving}
               />
 
@@ -1059,7 +1066,7 @@ export default function TicketDetailPage() {
                 value={ticket.priority}
                 options={Object.entries(priorityConfig).map(([value, cfg]) => ({ value, label: `Prioridad ${cfg.label}` }))}
                 onSave={(val) => handleQuickUpdate({ priority: val })}
-                disabled={isClosed || isSaving}
+                disabled={isClosed || isSaving || !canEditTicket}
                 loading={isSaving}
               />
 
@@ -1069,7 +1076,7 @@ export default function TicketDetailPage() {
                 value={ticket.assigned_to_id || ''}
                 options={[{ value: '', label: 'Sin asignar' }, ...(users || []).map((u) => ({ value: String(u.id), label: u.name || u.username }))]}
                 onSave={(val) => handleQuickUpdate({ assigned_to_id: val ? Number(val) : null })}
-                disabled={isSaving || loadingUsers}
+                disabled={isSaving || loadingUsers || !canEditTicket}
                 loading={loadingUsers}
               />
             </div>
@@ -1082,7 +1089,7 @@ export default function TicketDetailPage() {
               <AvailabilityEditor
                 value={ticket.availability_note}
                 onSave={handleAvailabilitySave}
-                disabled={isClosed}
+                disabled={isClosed || !canEditTicket}
               />
 
               <div className="space-y-2">
@@ -1120,7 +1127,7 @@ export default function TicketDetailPage() {
               ))}
             </div>
 
-            {!isClosed && (
+            {!isClosed && canCommentTicket && (
               <div className="mt-6 border-t border-zinc-800 pt-4">
                 <p className="text-xs text-zinc-500 uppercase tracking-wide mb-3">
                   Agregar nota o archivo
@@ -1211,7 +1218,7 @@ export default function TicketDetailPage() {
               <TicketTags
                 ticket={ticket}
                 onTagsChanged={(newTags) => setTicket((prev) => ({ ...prev, tags: newTags }))}
-                disabled={isClosed}
+                disabled={isClosed || !canEditTicket}
               />
             </div>
           )}
@@ -1219,19 +1226,27 @@ export default function TicketDetailPage() {
           <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4 space-y-3">
             <p className="text-xs text-zinc-500 uppercase tracking-wide">Acciones</p>
 
-            <Button 
-              className="w-full bg-emerald-600 hover:bg-emerald-500"
-              onClick={() => {
-                setWoForm({ ...woForm, description: ticket?.subject || '' });
-                setShowCreateWODialog(true);
-              }} 
-              disabled={isSaving || isSubmittingWO}
-            >
-              <Zap size={16} className="mr-2" /> Generar Orden de Trabajo
-            </Button>
+            {!canEditTicket && (
+              <div className="text-xs text-zinc-400 rounded-lg border border-zinc-700 bg-zinc-900/70 px-3 py-2">
+                Modo lectura: este rol puede consultar historial y detalle, pero no ejecutar cambios.
+              </div>
+            )}
+
+            <Can resource="work_orders" action="create">
+              <Button 
+                className="w-full bg-emerald-600 hover:bg-emerald-500"
+                onClick={() => {
+                  setWoForm({ ...woForm, description: ticket?.subject || '' });
+                  setShowCreateWODialog(true);
+                }} 
+                disabled={isSaving || isSubmittingWO || !canCreateWorkOrder}
+              >
+                <Zap size={16} className="mr-2" /> Generar Orden de Trabajo
+              </Button>
+            </Can>
 
 
-            {isInInfra && !isClosed && (
+            {isInInfra && !isClosed && canEditTicket && (
               <Button
                 variant="outline"
                 className="w-full border-purple-500/60 text-purple-200"
@@ -1242,7 +1257,7 @@ export default function TicketDetailPage() {
               </Button>
             )}
 
-            {isInInfra && !isClosed && (
+            {isInInfra && !isClosed && canEditTicket && (
               <div className="space-y-2">
                 <textarea
                   value={infraNote}
@@ -1262,7 +1277,7 @@ export default function TicketDetailPage() {
               </div>
             )}
 
-            {!isClosed && (
+            {!isClosed && canEditTicket && (
               <Button
                 className="w-full bg-purple-700 hover:bg-purple-600"
                 onClick={() => setShowEngineeringDialog(true)}
@@ -1272,7 +1287,7 @@ export default function TicketDetailPage() {
               </Button>
             )}
 
-            {!isClosed && (
+            {!isClosed && canEditTicket && (
               <Button
                 variant="ghost"
                 className="w-full text-zinc-200"

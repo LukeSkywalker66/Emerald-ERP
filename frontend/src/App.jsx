@@ -18,6 +18,7 @@ import UsersPage from './pages/UsersPage';
 import SettingsPage from './pages/SettingsPage';
 import NotFoundPage from './pages/NotFoundPage';
 import LoadingScreen from './components/ui/LoadingScreen';
+import RoleGuard from './components/auth/RoleGuard';
 
 // Inventory Module Pages
 import InventoryDashboard from './pages/inventory/InventoryDashboard';
@@ -54,39 +55,39 @@ const AppRoutes = () => (
           </PrivateRoute>
         }
       >
-        <Route index element={<DashboardPage />} />
-        <Route path="tickets" element={<TicketsPage />} />
-        <Route path="tickets/:id" element={<TicketDetailPage />} />
-        <Route path="work-orders/:id/execute" element={<WorkOrderExecutionPage />} />
-        <Route path="coordination" element={<CoordinationPage />} />
-        <Route path="work-orders" element={<WorkOrdersPage />} />
-        <Route path="connections" element={<ConnectionsPage />} />
-        <Route path="nodes" element={<NodesPage />} />
-        <Route path="customers" element={<CustomersPage />} />
-        <Route path="clientes" element={<ClientesPage />} />
-        <Route path="inventario" element={<InventarioPage />} />
+        <Route index element={<RoleGuard resource="dashboard"><DashboardPage /></RoleGuard>} />
+        <Route path="tickets" element={<RoleGuard resource="tickets"><TicketsPage /></RoleGuard>} />
+        <Route path="tickets/:id" element={<RoleGuard resource="tickets"><TicketDetailPage /></RoleGuard>} />
+        <Route path="work-orders/:id/execute" element={<RoleGuard resource="work_orders"><WorkOrderExecutionPage /></RoleGuard>} />
+        <Route path="coordination" element={<RoleGuard resource="coordination"><CoordinationPage /></RoleGuard>} />
+        <Route path="work-orders" element={<RoleGuard resource="work_orders"><WorkOrdersPage /></RoleGuard>} />
+        <Route path="connections" element={<RoleGuard resource="connections"><ConnectionsPage /></RoleGuard>} />
+        <Route path="nodes" element={<RoleGuard resource="nodes"><NodesPage /></RoleGuard>} />
+        <Route path="customers" element={<RoleGuard resource="clients"><CustomersPage /></RoleGuard>} />
+        <Route path="clientes" element={<RoleGuard resource="clients"><ClientesPage /></RoleGuard>} />
+        <Route path="inventario" element={<RoleGuard resource="inventory" action="view_all"><InventarioPage /></RoleGuard>} />
         
         {/* Engineering Module Routes */}
-        <Route path="engineering" element={<EngineeringBoardPage />} />
+        <Route path="engineering" element={<RoleGuard resource="engineering"><EngineeringBoardPage /></RoleGuard>} />
         
         {/* Coordination Module Routes */}
-        <Route path="cuadrillas" element={<CuadrillasPage />} />
+        <Route path="cuadrillas" element={<RoleGuard resource="cuadrillas"><CuadrillasPage /></RoleGuard>} />
 
         {/* Fleet Module Routes */}
-        <Route path="fleet" element={<FleetPage />} />
+        <Route path="fleet" element={<RoleGuard resource="inventory"><FleetPage /></RoleGuard>} />
         
         {/* Inventory Module Routes */}
-        <Route path="inventory" element={<InventoryDashboard />} />
-        <Route path="inventory/warehouses" element={<WarehouseList />} />
-        <Route path="inventory/warehouses/:id" element={<WarehouseDetail />} />
-        <Route path="inventory/products" element={<ProductCatalog />} />
-        <Route path="inventory/transfer" element={<StockTransferWizard />} />
-        <Route path="inventory/adjustments" element={<StockAdjustments />} />
-        <Route path="inventory/movements" element={<MovementsHistory />} />
-        <Route path="inventory/alerts" element={<StockAlerts />} />
+        <Route path="inventory" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><InventoryDashboard /></RoleGuard>} />
+        <Route path="inventory/warehouses" element={<RoleGuard resource="inventory"><WarehouseList /></RoleGuard>} />
+        <Route path="inventory/warehouses/:id" element={<RoleGuard resource="inventory"><WarehouseDetail /></RoleGuard>} />
+        <Route path="inventory/products" element={<RoleGuard resource="inventory" action="view_all"><ProductCatalog /></RoleGuard>} />
+        <Route path="inventory/transfer" element={<RoleGuard resource="inventory" action="transfer"><StockTransferWizard /></RoleGuard>} />
+        <Route path="inventory/adjustments" element={<RoleGuard resource="inventory" action="adjust"><StockAdjustments /></RoleGuard>} />
+        <Route path="inventory/movements" element={<RoleGuard resource="inventory" action="view_all"><MovementsHistory /></RoleGuard>} />
+        <Route path="inventory/alerts" element={<RoleGuard resource="inventory" action="view_all"><StockAlerts /></RoleGuard>} />
         
-        <Route path="users" element={<UsersPage />} />
-        <Route path="settings" element={<SettingsPage />} />
+        <Route path="users" element={<RoleGuard resource="users"><UsersPage /></RoleGuard>} />
+        <Route path="settings" element={<RoleGuard resource="settings"><SettingsPage /></RoleGuard>} />
       </Route>
 
       {/* Redirección de raíz a /app */}

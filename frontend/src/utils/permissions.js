@@ -44,6 +44,9 @@ const PERMISSIONS_MATRIX = {
       'coordinator': true,
       'tecnico': true,
     },
+    deniedActionsByRole: {
+      tecnico: ['create', 'edit', 'comment', 'delete'],
+    },
   },
 
   // Coordinación (Mapa + Asignación)
@@ -65,6 +68,9 @@ const PERMISSIONS_MATRIX = {
       'operator': true,
       'coordinator': true,
       'tecnico': true,
+    },
+    deniedActionsByRole: {
+      tecnico: ['view_all', 'create', 'edit'],
     },
   },
 
@@ -96,8 +102,10 @@ const PERMISSIONS_MATRIX = {
     roleWhitelist: {
       'admin': true,
       'operator': true,
-      // 'coordinator': false,  // Coordinador generalmente NO toca inventario
-      // 'tecnico': false,      // Técnico ve su warehouse móvil en Work Orders
+      'tecnico': true,
+    },
+    deniedActionsByRole: {
+      tecnico: ['view_all', 'edit', 'transfer', 'adjust'],
     },
   },
 
@@ -156,18 +164,32 @@ const PERMISSIONS_MATRIX = {
   },
 };
 
+const ROLE_ALIAS = {
+  technician: 'tecnico',
+  tech: 'tecnico',
+  super_user: 'admin',
+  superuser: 'admin',
+};
+
+const normalizeRole = (role) => {
+  if (!role || typeof role !== 'string') return null;
+  const lower = role.toLowerCase();
+  return ROLE_ALIAS[lower] || lower;
+};
+
 /**
  * Obtiene todos los permisos de un usuario basado en su rol
  * @param {string} role - Rol del usuario ('admin', 'tecnico', etc.)
  * @returns {Object} Objeto con estructura { resource: { action: boolean } }
  */
 export const getPermissionsForRole = (role) => {
+  const normalizedRole = normalizeRole(role);
   const result = {};
   
   Object.entries(PERMISSIONS_MATRIX).forEach(([resource, config]) => {
     result[resource] = {};
     config.actions.forEach((action) => {
-      result[resource][action] = config.roleWhitelist[role] === true;
+      result[resource][action] = hasPermission(normalizedRole, resource, action);
     });
   });
   
@@ -182,7 +204,8 @@ export const getPermissionsForRole = (role) => {
  * @returns {boolean} true si tiene permiso
  */
 export const hasPermission = (role, resource, action = 'view') => {
-  if (!role) return false;
+  const normalizedRole = normalizeRole(role);
+  if (!normalizedRole) return false;
   
   const resourceConfig = PERMISSIONS_MATRIX[resource];
   if (!resourceConfig) {
@@ -194,8 +217,13 @@ export const hasPermission = (role, resource, action = 'view') => {
     console.warn(`❌ RBAC: Acción desconocida "${action}" en recurso "${resource}"`);
     return false;
   }
+
+  const deniedByRole = resourceConfig.deniedActionsByRole?.[normalizedRole] || [];
+  if (deniedByRole.includes(action)) {
+    return false;
+  }
   
-  const hasAccess = resourceConfig.roleWhitelist[role] === true;
+  const hasAccess = resourceConfig.roleWhitelist[normalizedRole] === true;
   return hasAccess;
 };
 
@@ -206,8 +234,9 @@ export const hasPermission = (role, resource, action = 'view') => {
  * @returns {string[]} Array de recursos permitidos
  */
 export const getAccessibleResources = (role) => {
+  const normalizedRole = normalizeRole(role);
   return Object.keys(PERMISSIONS_MATRIX).filter(
-    (resource) => PERMISSIONS_MATRIX[resource].roleWhitelist[role] === true
+    (resource) => PERMISSIONS_MATRIX[resource].roleWhitelist[normalizedRole] === true
   );
 };
 

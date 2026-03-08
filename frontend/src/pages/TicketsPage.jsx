@@ -24,6 +24,7 @@ import AsyncCombobox from '@/components/ui/AsyncCombobox';
 import TagsFilterPopover from '@/components/tickets/TagsFilterPopover';
 import CreateTicketDialog from '@/components/tickets/CreateTicketDialog';
 import ticketsService, { getTags } from '@/services/tickets.service';
+import Can from '@/components/auth/Can';
 
 const statusConfig = {
   open: { label: 'Abierto', variant: 'emerald' },
@@ -37,15 +38,6 @@ const priorityConfig = {
   high: { label: 'Alta', variant: 'high' },
   medium: { label: 'Media', variant: 'gold' },
   low: { label: 'Baja', variant: 'default' },
-};
-
-// Tipo de Ticket (agrupación lógica)
-const typeConfig = {
-  technical: { label: 'Técnico', tone: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/40' },
-  installation: { label: 'Instalación', tone: 'bg-blue-500/10 text-blue-200 border-blue-500/40' },
-  withdrawal: { label: 'Retiro', tone: 'bg-zinc-600/30 text-zinc-100 border-zinc-500/30' },
-  relocation: { label: 'Traslado', tone: 'bg-purple-500/15 text-purple-200 border-purple-500/40' },
-  administrative: { label: 'Administrativo', tone: 'bg-amber-500/15 text-amber-200 border-amber-500/40' },
 };
 
 function StatusBadge({ status }) {
@@ -534,16 +526,18 @@ export default function TicketsPage() {
       )}
 
       {/* Create Ticket Dialog - Multi-Flow Wizards */}
-      <CreateTicketDialog
-        isOpen={showCreateDialog}
-        onClose={() => setShowCreateDialog(false)}
-        onSuccess={(createdTicket) => {
-          setShowCreateDialog(false);
-          setSelectedConnection(null);
-          loadTickets();
-          navigate(`/app/tickets/${createdTicket.id}`);
-        }}
-      />
+      <Can resource="tickets" action="create">
+        <CreateTicketDialog
+          isOpen={showCreateDialog}
+          onClose={() => setShowCreateDialog(false)}
+          onSuccess={(createdTicket) => {
+            setShowCreateDialog(false);
+            setSelectedConnection(null);
+            loadTickets();
+            navigate(`/app/tickets/${createdTicket.id}`);
+          }}
+        />
+      </Can>
     </div>
   );
 }

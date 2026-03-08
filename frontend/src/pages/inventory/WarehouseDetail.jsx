@@ -14,15 +14,19 @@ import {
 } from 'lucide-react';
 import { getWarehouseStock, getMovements } from '@/services/inventory.service';
 import StockTable from '@/components/inventory/StockTable';
+import { useAuth } from '@/context/AuthContext';
+import Can from '@/components/auth/Can';
 
 export default function WarehouseDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [warehouse, setWarehouse] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('stock');
   const [movements, setMovements] = useState([]);
+  const isTechnician = ['tecnico', 'technician'].includes((user?.role || '').toLowerCase());
 
   useEffect(() => {
     loadWarehouseData();
@@ -37,6 +41,14 @@ export default function WarehouseDetail() {
         getWarehouseStock(parseInt(id)),
         getMovements({ warehouse_id: parseInt(id), limit: 20 })
       ]);
+
+      // Aislamiento obligatorio: tecnico solo puede ver su warehouse movil.
+      if (isTechnician && Number(stockData?.user_id) !== Number(user?.id)) {
+        setError('Acceso denegado: este almacén no pertenece al técnico autenticado');
+        setWarehouse(null);
+        setMovements([]);
+        return;
+      }
 
       setWarehouse(stockData);
       setMovements(movementsData);
@@ -262,15 +274,17 @@ export default function WarehouseDetail() {
         </div>
       </div>
 
-      {/* Action Buttons */}
-      <div className="flex space-x-3">
-        <Link
-          to="/app/inventory/transfer"
-          className="flex-1 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center space-x-2 font-medium"
-        >
-          <span>Transferir Stock desde/hacia este almacén</span>
-        </Link>
-      </div>
+      {/* Action Buttons (solo roles con permiso de transferencia) */}
+      <Can resource="inventory" action="transfer">
+        <div className="flex space-x-3">
+          <Link
+            to="/app/inventory/transfer"
+            className="flex-1 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center space-x-2 font-medium"
+          >
+            <span>Transferir Stock desde/hacia este almacén</span>
+          </Link>
+        </div>
+      </Can>
     </div>
   );
 }

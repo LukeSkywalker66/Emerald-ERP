@@ -21,8 +21,11 @@ import {
   deleteWarehouse 
 } from '@/services/inventory.service';
 import { Link } from 'react-router-dom';
+import { useAuth } from '@/context/AuthContext';
+import Can from '@/components/auth/Can';
 
 export default function WarehouseList() {
+  const { user } = useAuth();
   const [warehouses, setWarehouses] = useState([]);
   const [filteredWarehouses, setFilteredWarehouses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -50,10 +53,11 @@ export default function WarehouseList() {
     type: 'CENTRAL',
     user_id: null
   });
+  const isTechnician = ['tecnico', 'technician'].includes((user?.role || '').toLowerCase());
 
   useEffect(() => {
     loadWarehouses();
-  }, []);
+  }, [isTechnician, user?.id]);
 
   useEffect(() => {
     applyFilters();
@@ -64,7 +68,10 @@ export default function WarehouseList() {
     setError(null);
     
     try {
-      const data = await getWarehouses();
+      const filters = isTechnician
+        ? { warehouse_type: 'MOBILE', user_id: user?.id }
+        : {};
+      const data = await getWarehouses(filters);
       setWarehouses(data);
     } catch (err) {
       console.error('Error loading warehouses:', err);
@@ -250,17 +257,21 @@ export default function WarehouseList() {
         <div>
           <h1 className="text-3xl font-bold text-emerald-400">Almacenes</h1>
           <p className="text-zinc-400 mt-1">
-            Gestión de depósitos centrales, camionetas técnicos y ubicaciones virtuales
+            {isTechnician
+              ? 'Vista táctica: solo stock del móvil asignado al técnico autenticado'
+              : 'Gestión de depósitos centrales, camionetas técnicos y ubicaciones virtuales'}
           </p>
         </div>
-        
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center space-x-2"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Nuevo Almacén</span>
-        </button>
+
+        <Can resource="inventory" action="edit">
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center space-x-2"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Nuevo Almacén</span>
+          </button>
+        </Can>
       </div>
 
       {/* Filters */}
@@ -278,22 +289,24 @@ export default function WarehouseList() {
             />
           </div>
           
-          {/* Type Filter */}
-          <div className="flex items-center space-x-2">
-            {['ALL', 'CENTRAL', 'MOBILE', 'VIRTUAL'].map(type => (
-              <button
-                key={type}
-                onClick={() => setTypeFilter(type)}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  typeFilter === type
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
-                }`}
-              >
-                {type === 'ALL' ? 'Todos' : type}
-              </button>
-            ))}
-          </div>
+          {/* Type Filter (oculto para técnico para evitar navegación horizontal por móviles de terceros) */}
+          {!isTechnician && (
+            <div className="flex items-center space-x-2">
+              {['ALL', 'CENTRAL', 'MOBILE', 'VIRTUAL'].map(type => (
+                <button
+                  key={type}
+                  onClick={() => setTypeFilter(type)}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    typeFilter === type
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                  }`}
+                >
+                  {type === 'ALL' ? 'Todos' : type}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -328,12 +341,14 @@ export default function WarehouseList() {
             }
           </p>
           {!searchTerm && typeFilter === 'ALL' && (
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors"
-            >
-              Crear Primer Almacén
-            </button>
+            <Can resource="inventory" action="edit">
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors"
+              >
+                Crear Primer Almacén
+              </button>
+            </Can>
           )}
         </div>
       ) : (
@@ -343,29 +358,31 @@ export default function WarehouseList() {
               key={warehouse.id}
               className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 hover:border-emerald-800 hover:shadow-lg hover:shadow-emerald-900/20 transition-all group relative"
             >
-              {/* Action Buttons (absolute top-right) */}
-              <div className="absolute top-4 right-4 flex items-center space-x-2">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openEditModal(warehouse);
-                  }}
-                  className="p-2 bg-zinc-800 hover:bg-blue-900/30 border border-zinc-700 hover:border-blue-700 text-zinc-400 hover:text-blue-400 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                  title="Editar almacén"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openDeleteConfirm(warehouse);
-                  }}
-                  className="p-2 bg-zinc-800 hover:bg-red-900/30 border border-zinc-700 hover:border-red-700 text-zinc-400 hover:text-red-400 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                  title="Eliminar almacén"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
+              {/* Action Buttons (solo roles con edición) */}
+              <Can resource="inventory" action="edit">
+                <div className="absolute top-4 right-4 flex items-center space-x-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openEditModal(warehouse);
+                    }}
+                    className="p-2 bg-zinc-800 hover:bg-blue-900/30 border border-zinc-700 hover:border-blue-700 text-zinc-400 hover:text-blue-400 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                    title="Editar almacén"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openDeleteConfirm(warehouse);
+                    }}
+                    className="p-2 bg-zinc-800 hover:bg-red-900/30 border border-zinc-700 hover:border-red-700 text-zinc-400 hover:text-red-400 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                    title="Eliminar almacén"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </Can>
 
               {/* Header */}
               <div className="flex items-start justify-between mb-4 pr-20">

@@ -60,12 +60,13 @@ def login(
     """
     ip_address = get_client_ip(request)
     user_agent = request.headers.get("user-agent", "")
+    login_identifier = RateLimitService.normalize_identifier(form_data.username)
     
     # Verificar rate limiting (solo si la tabla existe)
     try:
         is_allowed, message = RateLimitService.check_rate_limit(
             db=db,
-            username_or_email=form_data.username,
+            username_or_email=login_identifier,
             ip_address=ip_address,
         )
         
@@ -95,7 +96,7 @@ def login(
         try:
             AuditService.log_login_attempt(
                 db=db,
-                username_or_email=form_data.username,
+                username_or_email=login_identifier,
                 ip_address=ip_address,
                 success=False,
                 user_agent=user_agent,
@@ -117,7 +118,7 @@ def login(
     
     # Limpiar intentos fallidos y registrar login exitoso (si la tabla existe)
     try:
-        RateLimitService.reset_user_attempts(db=db, username_or_email=form_data.username)
+        RateLimitService.reset_user_attempts(db=db, username_or_email=login_identifier)
         
         AuditService.log_action(
             db=db,
@@ -130,7 +131,7 @@ def login(
         
         AuditService.log_login_attempt(
             db=db,
-            username_or_email=form_data.username,
+            username_or_email=login_identifier,
             ip_address=ip_address,
             success=True,
             user_agent=user_agent,

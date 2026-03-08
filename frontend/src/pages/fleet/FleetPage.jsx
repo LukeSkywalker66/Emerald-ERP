@@ -6,6 +6,10 @@ import { Badge } from '@/components/ui/badge';
 import fleetService from '@/services/fleet.service';
 import CreateVehicleDialog from '@/components/fleet/CreateVehicleDialog';
 import EditVehicleDialog from '@/components/fleet/EditVehicleDialog';
+import { useAuth } from '@/context/AuthContext';
+import Can from '@/components/auth/Can';
+import { getWarehouses } from '@/services/inventory.service';
+import { hasPermission } from '@/utils/permissions';
 
 const getStatusStyle = (status) => {
   switch (status) {
@@ -23,18 +27,30 @@ const getStatusStyle = (status) => {
 };
 
 const FleetPage = () => {
+  const { user } = useAuth();
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const isTechnician = ['tecnico', 'technician'].includes((user?.role || '').toLowerCase());
+  const canManageFleet = hasPermission(user?.role, 'inventory', 'edit');
 
   const loadVehicles = async () => {
     try {
       setLoading(true);
       const data = await fleetService.getVehicles();
-      setVehicles(Array.isArray(data) ? data : []);
+      let nextVehicles = Array.isArray(data) ? data : [];
+
+      // Filtro forzado para técnicos: solo vehículos asociados a su warehouse móvil.
+      if (isTechnician && user?.id) {
+        const myWarehouses = await getWarehouses({ warehouse_type: 'MOBILE', user_id: user.id });
+        const allowedWarehouseIds = new Set((myWarehouses || []).map((w) => w.id));
+        nextVehicles = nextVehicles.filter((vehicle) => allowedWarehouseIds.has(vehicle.warehouse_id));
+      }
+
+      setVehicles(nextVehicles);
     } catch (err) {
       console.error('Error loading fleet:', err);
       alert(`❌ Error al cargar flota: ${err.message}`);
@@ -45,7 +61,7 @@ const FleetPage = () => {
 
   useEffect(() => {
     loadVehicles();
-  }, []);
+  }, [isTechnician, user?.id]);
 
   const handleCreate = async (payload) => {
     try {
@@ -100,7 +116,11 @@ const FleetPage = () => {
             <Car className="h-7 w-7" />
             Módulo de Flota
           </h1>
-          <p className="text-zinc-400 mt-1">Administración de vehículos operativos</p>
+          <p className="text-zinc-400 mt-1">
+            {isTechnician
+              ? 'Vista táctica: solo el móvil operativo asociado al técnico autenticado'
+              : 'Administración de vehículos operativos'}
+          </p>
         </div>
 
         <div className="flex gap-2">
@@ -112,13 +132,15 @@ const FleetPage = () => {
             <RefreshCcw className="h-4 w-4 mr-2" />
             Actualizar
           </Button>
-          <Button
-            onClick={() => setShowCreate(true)}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Nuevo Vehículo
-          </Button>
+          <Can resource="inventory" action="edit">
+            <Button
+              onClick={() => setShowCreate(true)}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Nuevo Vehículo
+            </Button>
+          </Can>
         </div>
       </div>
 
@@ -132,20 +154,20 @@ const FleetPage = () => {
                 <th className="text-left px-4 py-3 font-semibold">Modelo</th>
                 <th className="text-left px-4 py-3 font-semibold">Warehouse</th>
                 <th className="text-left px-4 py-3 font-semibold">Estado</th>
-                <th className="text-right px-4 py-3 font-semibold">Acciones</th>
+                {canManageFleet && <th className="text-right px-4 py-3 font-semibold">Acciones</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-zinc-400">
+                  <td colSpan={canManageFleet ? 6 : 5} className="px-4 py-12 text-center text-zinc-400">
                     <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-emerald-500" />
                     Consultando al Orquestador...
                   </td>
                 </tr>
               ) : vehicles.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-zinc-500">
+                  <td colSpan={canManageFleet ? 6 : 5} className="px-4 py-12 text-center text-zinc-500">
                     No hay vehículos registrados
                   </td>
                 </tr>
@@ -161,29 +183,31 @@ const FleetPage = () => {
                     <td className="px-4 py-3">
                       <Badge className={getStatusStyle(vehicle.status)}>{vehicle.status}</Badge>
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setSelectedVehicle(vehicle);
-                            setShowEdit(true);
-                          }}
-                          className="border-amber-600/40 text-amber-300 hover:bg-amber-950/30"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleDelete(vehicle)}
-                          className="border-ruby-600/40 text-ruby-300 hover:bg-ruby-950/30"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </td>
+                    {canManageFleet && (
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSelectedVehicle(vehicle);
+                              setShowEdit(true);
+                            }}
+                            className="border-amber-600/40 text-amber-300 hover:bg-amber-950/30"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleDelete(vehicle)}
+                            className="border-ruby-600/40 text-ruby-300 hover:bg-ruby-950/30"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}
@@ -192,7 +216,7 @@ const FleetPage = () => {
         </div>
       </Card>
 
-      {showCreate && (
+      {showCreate && canManageFleet && (
         <CreateVehicleDialog
           open={showCreate}
           onOpenChange={setShowCreate}
@@ -201,7 +225,7 @@ const FleetPage = () => {
         />
       )}
 
-      {showEdit && selectedVehicle && (
+      {showEdit && selectedVehicle && canManageFleet && (
         <EditVehicleDialog
           open={showEdit}
           onOpenChange={setShowEdit}

@@ -21,6 +21,7 @@ from src import models
 from src import config
 from src.services.api_key_service import APIKeyService
 from src.routers.v1 import auth  # Removed old tickets router import
+from src.routers.v1 import admin  # Administración y desbloqueo
 from src.routers.v2 import users as users_v2
 from src.routers.v2 import roles as roles_v2
 from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet, installation_types
@@ -64,6 +65,13 @@ app.include_router(
     auth.router,
     prefix="/api/v1",
     tags=["Authentication"]
+)
+
+# Admin endpoints (requires superuser role)
+app.include_router(
+    admin.router,
+    prefix="/api/v1",
+    tags=["Administration"]
 )
 
 # NOTE: v1/tickets router is deprecated. Use /api/v2/tickets instead.
