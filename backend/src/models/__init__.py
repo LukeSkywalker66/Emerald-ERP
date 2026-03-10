@@ -3,7 +3,7 @@ Models package exports
 Unifica todos los modelos: Auth, Tickets, Beholder, API Keys, WorkOrders, Engineering
 """
 from .user import Role, User
-from .audit import AuditLog, LoginAttempt
+from .audit import AuditLog, LoginAttempt, AuditAction
 from .installation import InstallationType
 # DEPRECATED: Old ticket models replaced by new tickets.py version
 # Do NOT import from .ticket to avoid SQLAlchemy registry conflicts

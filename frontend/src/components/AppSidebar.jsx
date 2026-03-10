@@ -32,6 +32,7 @@ import {
   Truck,
   ChevronDown,
   ChevronRight,
+  Shield,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -130,49 +131,49 @@ const MENU_ITEMS = [
         icon: BarChart3,
         href: '/app/inventory',
         description: 'Métricas de stock',
-        resource: 'inventory',
+        resource: 'inventory_admin',
       },
       {
         title: 'Almacenes',
         icon: Building2,
         href: '/app/inventory/warehouses',
         description: 'Gestión de depósitos',
-        resource: 'inventory',
+        resource: 'inventory_warehouses',
       },
       {
         title: 'Flota',
         icon: Truck,
         href: '/app/fleet',
         description: 'Gestión administrativa de vehículos',
-        resource: 'inventory',
+        resource: 'fleet_assigned',
       },
       {
         title: 'Catálogo',
         icon: Package,
         href: '/app/inventory/products',
         description: 'Base de productos',
-        resource: 'inventory',
+        resource: 'inventory_admin',
       },
       {
         title: 'Operaciones',
         icon: ArrowLeftRight,
         href: '/app/inventory/transfer',
         description: 'Transferencias y ajustes',
-        resource: 'inventory',
+        resource: 'inventory_admin',
       },
       {
         title: 'Auditoría',
         icon: ClipboardList,
         href: '/app/inventory/movements',
         description: 'Historial de movimientos',
-        resource: 'inventory',
+        resource: 'inventory_admin',
       },
       {
         title: 'Alertas',
         icon: AlertCircle,
         href: '/app/inventory/alerts',
         description: 'Stock crítico',
-        resource: 'inventory',
+        resource: 'inventory_admin',
         badge: 'hot', // Indicador especial
       },
     ],
@@ -225,6 +226,13 @@ const MENU_ITEMS = [
         href: '/app/users',
         description: 'Gestión de cuentas',
         resource: 'users', // ← RBAC: Oculto para técnicos
+      },
+      {
+        title: 'Auditoría',
+        icon: Shield,
+        href: '/app/audit',
+        description: 'Monitor de cambios',
+        resource: 'audit_logs', // ← RBAC: Solo admin
       },
     ],
   },

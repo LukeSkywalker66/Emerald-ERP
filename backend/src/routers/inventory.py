@@ -3,6 +3,7 @@ Inventory Router - API endpoints para gestión de inventario operativo
 Soporta almacenes móviles (camionetas) y seguimiento de seriales.
 """
 from typing import List, Optional
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import select, and_, or_
@@ -21,8 +22,10 @@ from src.schemas.inventory import (
     StockTransferRequest, StockTransferResponse,
     StockAdjustmentRequest, StockAdjustmentResponse
 )
+from src.utils.audit import log_create, log_update, log_delete, get_entity_dict
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
+logger = logging.getLogger("uvicorn.error")
 
 
 # ============================================
@@ -121,6 +124,22 @@ def create_warehouse(
     db.refresh(warehouse)
     db.refresh(warehouse, attribute_names=["user"])
     
+    # 🔒 AUDIT LOG: Registrar creación de warehouse
+    try:
+        log_create(
+            db=db,
+            user_id=_get_user_id_from_request(),
+            entity_name="warehouses",
+            entity_id=warehouse.id,
+            new_values={
+                "name": warehouse.name,
+                "type": warehouse.type.value,
+                "user_id": warehouse.user_id
+            }
+        )
+    except Exception as audit_error:
+        logger.error(f"❌ [AUDIT] Error al registrar creación de warehouse {warehouse.id}: {audit_error}")
+    
     return WarehouseResponse(
         **warehouse.__dict__,
         user_name=_safe_user_name(warehouse.user)
@@ -151,6 +170,13 @@ def update_warehouse(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Warehouse con id {warehouse_id} no encontrado"
         )
+    
+    # 🔒 AUDIT LOG: Capturar valores antiguos ANTES del update
+    old_values = {
+        "name": warehouse.name,
+        "type": warehouse.type.value,
+        "user_id": warehouse.user_id
+    }
     
     # Obtener datos del payload (solo campos que vienen en el request)
     update_data = payload.model_dump(exclude_unset=True)
@@ -189,6 +215,24 @@ def update_warehouse(
     db.commit()
     db.refresh(warehouse)
     db.refresh(warehouse, attribute_names=["user"])
+    
+    # 🔒 AUDIT LOG: Registrar actualización de warehouse
+    try:
+        new_values = {
+            "name": warehouse.name,
+            "type": warehouse.type.value,
+            "user_id": warehouse.user_id
+        }
+        log_update(
+            db=db,
+            user_id=_get_user_id_from_request(),
+            entity_name="warehouses",
+            entity_id=warehouse.id,
+            old_values=old_values,
+            new_values=new_values
+        )
+    except Exception as audit_error:
+        logger.error(f"❌ [AUDIT] Error al registrar actualización de warehouse {warehouse.id}: {audit_error}")
     
     return WarehouseResponse(
         **warehouse.__dict__,
@@ -269,8 +313,29 @@ def delete_warehouse(
             detail=f"No se puede eliminar: El almacén tiene {len(movements_count)} movimiento(s) registrado(s) en el historial. No se puede eliminar un almacén con historial de auditoría."
         )
     
+    # 🔒 AUDIT LOG: Capturar valores ANTES del delete
+    old_values = {
+        "name": warehouse.name,
+        "type": warehouse.type.value,
+        "user_id": warehouse.user_id
+    }
+    
     # Si pasa todas las validaciones, proceder a eliminar
     db.delete(warehouse)
+    
+    # 🔒 AUDIT LOG: Registrar eliminación de warehouse
+    try:
+        log_delete(
+            db=db,
+            user_id=_get_user_id_from_request(),
+            entity_name="warehouses",
+            entity_id=warehouse_id,
+            old_values=old_values,
+            commit=False  # Ya estamos en una transacción
+        )
+    except Exception as audit_error:
+        logger.error(f"❌ [AUDIT] Error al registrar eliminación de warehouse {warehouse_id}: {audit_error}")
+    
     db.commit()
     
     # No return (204 No Content)
@@ -370,6 +435,7 @@ def get_warehouse_stock(
         warehouse_id=warehouse.id,
         warehouse_name=warehouse.name,
         warehouse_type=warehouse.type,
+        user_id=warehouse.user_id,
         items=items
     )
 
@@ -442,6 +508,18 @@ def create_product(
     db.commit()
     db.refresh(product)
     
+    # 🔒 AUDIT LOG: Registrar creación de producto
+    try:
+        log_create(
+            db=db,
+            user_id=_get_user_id_from_request(),
+            entity_name="products",
+            entity_id=product.id,
+            new_values=get_entity_dict(product)
+        )
+    except Exception as audit_error:
+        logger.error(f"❌ [AUDIT] Error al registrar creación de producto {product.id}: {audit_error}")
+    
     return ProductResponse(**product.__dict__)
 
 
@@ -469,6 +547,9 @@ def update_product(
             detail=f"Producto con id {product_id} no encontrado"
         )
     
+    # Capturar valores anteriores para auditoría
+    old_values = get_entity_dict(product)
+    
     # Obtener datos del payload (solo campos que vienen en el request)
     update_data = payload.model_dump(exclude_unset=True)
     
@@ -494,6 +575,19 @@ def update_product(
     
     db.commit()
     db.refresh(product)
+    
+    # 🔒 AUDIT LOG: Registrar actualización de producto
+    try:
+        log_update(
+            db=db,
+            user_id=_get_user_id_from_request(),
+            entity_name="products",
+            entity_id=product.id,
+            old_values=old_values,
+            new_values=get_entity_dict(product)
+        )
+    except Exception as audit_error:
+        logger.error(f"❌ [AUDIT] Error al registrar actualización de producto {product.id}: {audit_error}")
     
     return ProductResponse(**product.__dict__)
 
@@ -569,9 +663,25 @@ def delete_product(
             detail=f"No se puede eliminar: El producto tiene {len(movements_count)} movimiento(s) registrado(s) en el historial. No se pueden eliminar productos con historial de auditoría."
         )
     
+    # Capturar valores anteriores para auditoría
+    old_values = get_entity_dict(product)
+    product_id_for_audit = product.id
+    
     # Si pasa todas las validaciones, proceder a eliminar
     db.delete(product)
     db.commit()
+    
+    # 🔒 AUDIT LOG: Registrar eliminación de producto
+    try:
+        log_delete(
+            db=db,
+            user_id=_get_user_id_from_request(),
+            entity_name="products",
+            entity_id=product_id_for_audit,
+            old_values=old_values
+        )
+    except Exception as audit_error:
+        logger.error(f"❌ [AUDIT] Error al registrar eliminación de producto {product_id_for_audit}: {audit_error}")
     
     # No return (204 No Content)
 
@@ -840,6 +950,26 @@ def transfer_stock(
             movements_created.append(movement.id)
     
     db.commit()
+    
+    # 🔒 AUDIT LOG: Registrar transferencia de stock
+    try:
+        log_create(
+            db=db,
+            user_id=user_id,
+            entity_name="stock_transfers",
+            entity_id=movements_created[0] if movements_created else None,
+            new_values={
+                "product_id": payload.product_id,
+                "from_warehouse_id": payload.from_warehouse_id,
+                "to_warehouse_id": payload.to_warehouse_id,
+                "quantity": payload.quantity,
+                "serial_item_ids": payload.serial_item_ids,
+                "movements_created": movements_created,
+                "reference": payload.reference
+            }
+        )
+    except Exception as audit_error:
+        logger.error(f"❌ [AUDIT] Error al registrar transferencia de stock: {audit_error}")
     
     return StockTransferResponse(
         success=True,

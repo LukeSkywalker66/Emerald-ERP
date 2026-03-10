@@ -222,6 +222,7 @@ class WarehouseStockResponse(BaseModel):
     warehouse_id: int
     warehouse_name: str
     warehouse_type: WarehouseType
+    user_id: Optional[int] = None
     items: List[StockItemDetail]
     
     model_config = ConfigDict(from_attributes=True)

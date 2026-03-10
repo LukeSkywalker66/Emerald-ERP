@@ -197,14 +197,16 @@ export default function TicketsPage() {
             <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
             Actualizar
           </Button>
-          <Button
-            size="sm"
-            onClick={() => setShowCreateDialog(true)}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/30"
-          >
-            <Plus size={16} />
-            Nuevo Ticket
-          </Button>
+          <Can resource="tickets" action="create">
+            <Button
+              size="sm"
+              onClick={() => setShowCreateDialog(true)}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/30"
+            >
+              <Plus size={16} />
+              Nuevo Ticket
+            </Button>
+          </Can>
         </div>
       </div>
 
@@ -382,8 +384,8 @@ export default function TicketsPage() {
                     </TableCell>
                     <TableCell>
                       {ticket.ticket_type ? (
-                        <Badge variant="outline" className={`text-xs ${typeConfig[ticket.ticket_type]?.tone || 'bg-zinc-800 text-zinc-300 border-zinc-700'}`}>
-                          {typeConfig[ticket.ticket_type]?.label || ticket.ticket_type}
+                        <Badge variant="outline" className="text-xs bg-zinc-800 text-zinc-300 border-zinc-700">
+                          {ticket.ticket_type}
                         </Badge>
                       ) : (
                         <span className="text-sm text-zinc-500">N/D</span>

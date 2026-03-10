@@ -20,6 +20,9 @@ import NotFoundPage from './pages/NotFoundPage';
 import LoadingScreen from './components/ui/LoadingScreen';
 import RoleGuard from './components/auth/RoleGuard';
 
+// Audit Module Pages
+import AuditLogsPage from './pages/audit/AuditLogsPage';
+
 // Inventory Module Pages
 import InventoryDashboard from './pages/inventory/InventoryDashboard';
 import WarehouseList from './pages/inventory/WarehouseList';
@@ -65,7 +68,7 @@ const AppRoutes = () => (
         <Route path="nodes" element={<RoleGuard resource="nodes"><NodesPage /></RoleGuard>} />
         <Route path="customers" element={<RoleGuard resource="clients"><CustomersPage /></RoleGuard>} />
         <Route path="clientes" element={<RoleGuard resource="clients"><ClientesPage /></RoleGuard>} />
-        <Route path="inventario" element={<RoleGuard resource="inventory" action="view_all"><InventarioPage /></RoleGuard>} />
+        <Route path="inventario" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><InventarioPage /></RoleGuard>} />
         
         {/* Engineering Module Routes */}
         <Route path="engineering" element={<RoleGuard resource="engineering"><EngineeringBoardPage /></RoleGuard>} />
@@ -74,20 +77,23 @@ const AppRoutes = () => (
         <Route path="cuadrillas" element={<RoleGuard resource="cuadrillas"><CuadrillasPage /></RoleGuard>} />
 
         {/* Fleet Module Routes */}
-        <Route path="fleet" element={<RoleGuard resource="inventory"><FleetPage /></RoleGuard>} />
+        <Route path="fleet" element={<RoleGuard resource="fleet_assigned" fallbackPath="/app/inventory/warehouses"><FleetPage /></RoleGuard>} />
         
         {/* Inventory Module Routes */}
         <Route path="inventory" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><InventoryDashboard /></RoleGuard>} />
-        <Route path="inventory/warehouses" element={<RoleGuard resource="inventory"><WarehouseList /></RoleGuard>} />
-        <Route path="inventory/warehouses/:id" element={<RoleGuard resource="inventory"><WarehouseDetail /></RoleGuard>} />
-        <Route path="inventory/products" element={<RoleGuard resource="inventory" action="view_all"><ProductCatalog /></RoleGuard>} />
-        <Route path="inventory/transfer" element={<RoleGuard resource="inventory" action="transfer"><StockTransferWizard /></RoleGuard>} />
-        <Route path="inventory/adjustments" element={<RoleGuard resource="inventory" action="adjust"><StockAdjustments /></RoleGuard>} />
-        <Route path="inventory/movements" element={<RoleGuard resource="inventory" action="view_all"><MovementsHistory /></RoleGuard>} />
-        <Route path="inventory/alerts" element={<RoleGuard resource="inventory" action="view_all"><StockAlerts /></RoleGuard>} />
+        <Route path="inventory/warehouses" element={<RoleGuard resource="inventory_warehouses" fallbackPath="/app/work-orders"><WarehouseList /></RoleGuard>} />
+        <Route path="inventory/warehouses/:id" element={<RoleGuard resource="inventory_warehouses" fallbackPath="/app/inventory/warehouses"><WarehouseDetail /></RoleGuard>} />
+        <Route path="inventory/products" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><ProductCatalog /></RoleGuard>} />
+        <Route path="inventory/transfer" element={<RoleGuard resource="inventory" action="transfer" fallbackPath="/app/inventory/warehouses"><StockTransferWizard /></RoleGuard>} />
+        <Route path="inventory/adjustments" element={<RoleGuard resource="inventory" action="adjust" fallbackPath="/app/inventory/warehouses"><StockAdjustments /></RoleGuard>} />
+        <Route path="inventory/movements" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><MovementsHistory /></RoleGuard>} />
+        <Route path="inventory/alerts" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><StockAlerts /></RoleGuard>} />
         
         <Route path="users" element={<RoleGuard resource="users"><UsersPage /></RoleGuard>} />
         <Route path="settings" element={<RoleGuard resource="settings"><SettingsPage /></RoleGuard>} />
+        
+        {/* Audit Module Routes (Admin Only) */}
+        <Route path="audit" element={<RoleGuard resource="audit_logs"><AuditLogsPage /></RoleGuard>} />
       </Route>
 
       {/* Redirección de raíz a /app */}

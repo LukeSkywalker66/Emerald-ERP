@@ -5,6 +5,7 @@
  * Solo visible cuando hay connection_id asociado al ticket.
  */
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FileText, Calendar, AlertCircle } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { getConnectionHistory } from '@/services/tickets.service';
@@ -42,6 +43,7 @@ const PRIORITY_COLORS = {
 };
 
 export default function TicketHistoryCard({ connectionId, currentTicketId }) {
+  const navigate = useNavigate();
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -138,7 +140,7 @@ export default function TicketHistoryCard({ connectionId, currentTicketId }) {
           <div
             key={ticket.id}
             className="p-2 bg-zinc-800/50 rounded border border-zinc-700 hover:border-emerald-700 transition-colors cursor-pointer"
-            onClick={() => window.location.href = `/app/tickets/${ticket.id}`}
+            onClick={() => navigate(`/app/tickets/${ticket.id}`)}
           >
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">

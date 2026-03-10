@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload, attributes
 
 from src.database import get_db
 from src.core.security import get_current_user
+from src.utils.audit import log_create, log_update, get_entity_dict
 from src.models.tickets import (
     WorkOrder,
     WorkOrderItem,
@@ -94,6 +95,23 @@ def create_work_order(
     )
     db.commit()
     db.refresh(wo)
+    
+    # 🔒 AUDIT LOG: Registrar creación de OT
+    try:
+        log_create(
+            db=db,
+            user_id=current_user.id,
+            entity_name="work_orders",
+            entity_id=wo.id,
+            new_values={
+                "ticket_id": wo.ticket_id,
+                "ot_type": wo.ot_type.value,
+                "status": wo.status.value,
+                "priority": payload.priority or "medium"
+            }
+        )
+    except Exception as audit_error:
+        logging.getLogger("uvicorn.error").error(f"❌ [AUDIT] Error al registrar creación de OT {wo.id}: {audit_error}")
     
     return get_work_order_detail(wo.id, db, current_user)
 
@@ -572,6 +590,14 @@ def update_work_order(
     if not wo:
         raise HTTPException(status_code=404, detail="WorkOrder not found")
     
+    # Capturar valores anteriores para auditoría
+    old_values = {
+        "status": wo.status.value,
+        "team_id": wo.team_id,
+        "scheduled_start": wo.scheduled_start.isoformat() if wo.scheduled_start else None,
+        "estimated_duration": wo.estimated_duration
+    }
+    
     # Guardar estado anterior para logging
     old_status = wo.status
     
@@ -690,6 +716,24 @@ def update_work_order(
     
     db.commit()
     db.refresh(wo)
+    
+    # 🔒 AUDIT LOG: Registrar actualización de OT
+    try:
+        log_update(
+            db=db,
+            user_id=current_user.id,
+            entity_name="work_orders",
+            entity_id=wo.id,
+            old_values=old_values,
+            new_values={
+                "status": wo.status.value,
+                "team_id": wo.team_id,
+                "scheduled_start": wo.scheduled_start.isoformat() if wo.scheduled_start else None,
+                "estimated_duration": wo.estimated_duration
+            }
+        )
+    except Exception as audit_error:
+        logging.getLogger("uvicorn.error").error(f"❌ [AUDIT] Error al registrar actualización de OT {wo.id}: {audit_error}")
     
     print(f"[DEBUG] After refresh, WO #{work_order_id} photo_urls: {wo.photo_urls}, resolution_category: {wo.resolution_category}")
     
@@ -1352,6 +1396,24 @@ def assign_work_order_to_team(
     
     db.commit()
     db.refresh(wo)
+    
+    # 🔒 AUDIT LOG: Registrar asignación de OT
+    try:
+        log_update(
+            db=db,
+            user_id=current_user.id,
+            entity_name="work_orders",
+            entity_id=wo.id,
+            old_values={"team_id": None, "status": WorkOrderStatus.pending_planning.value},
+            new_values={
+                "team_id": wo.team_id,
+                "team_name": team.name,
+                "scheduled_start": wo.scheduled_start.isoformat(),
+                "status": wo.status.value
+            }
+        )
+    except Exception as audit_error:
+        logging.getLogger("uvicorn.error").error(f"❌ [AUDIT] Error al registrar asignación de OT {wo.id}: {audit_error}")
     
     return {
         "id": wo.id,

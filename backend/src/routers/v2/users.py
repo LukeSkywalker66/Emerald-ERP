@@ -6,6 +6,7 @@ cambiar rol, activar/desactivar. Requiere superusuario.
 """
 import secrets
 import string
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
@@ -22,10 +23,11 @@ from src.schemas.user_schemas import (
     RoleChangeRequest,
     StatusUpdateRequest,
 )
-from src.services.audit_service import AuditService, get_client_ip
+from src.utils.audit import log_create, log_update, log_delete, get_entity_dict
 
 
 router = APIRouter(tags=["Users V2"])
+logger = logging.getLogger("uvicorn.error")
 
 
 def _generate_temporary_password(length: int = 14) -> str:
@@ -92,20 +94,17 @@ def create_user_admin(
     )
     created = user_repo.create(user)
 
-    # Audit
+    # 🔒 AUDIT LOG: Registrar creación de usuario
     try:
-        AuditService.log_action(
+        log_create(
             db=db,
             user_id=_admin.id,
-            action="user.create",
-            entity_type="User",
+            entity_name="users",
             entity_id=created.id,
-            ip_address=get_client_ip(request),
-            status="success",
-            details={"email": created.email, "username": created.username},
+            new_values={"email": created.email, "username": created.username, "role_id": created.role_id}
         )
-    except Exception:
-        pass
+    except Exception as audit_error:
+        logger.error(f"❌ [AUDIT] Error al registrar creación de usuario {created.id}: {audit_error}")
 
     return created
 
@@ -182,23 +181,24 @@ def change_user_role(
     if not role:
         raise HTTPException(status_code=404, detail="Rol no encontrado")
 
+    # Capturar valor anterior para auditoría
+    old_values = {"role_id": user.role_id}
+    
     user.role_id = role.id
     updated = user_repo.update(user)
 
-    # Audit
+    # 🔒 AUDIT LOG: Registrar cambio de rol
     try:
-        AuditService.log_action(
+        log_update(
             db=db,
             user_id=current_admin.id,
-            action="user.change_role",
-            entity_type="User",
+            entity_name="users",
             entity_id=user.id,
-            ip_address=get_client_ip(request),
-            status="success",
-            details={"new_role_id": role.id, "new_role_name": role.name},
+            old_values=old_values,
+            new_values={"role_id": role.id, "role_name": role.name}
         )
-    except Exception:
-        pass
+    except Exception as audit_error:
+        logger.error(f"❌ [AUDIT] Error al registrar cambio de rol de usuario {user.id}: {audit_error}")
 
     return updated
 
@@ -220,23 +220,24 @@ def update_user_status(
     if user.id == current_admin.id:
         raise HTTPException(status_code=400, detail="No puedes cambiar tu propio estado")
 
+    # Capturar valor anterior para auditoría
+    old_values = {"is_active": user.is_active}
+    
     user.is_active = bool(payload.is_active)
     updated = user_repo.update(user)
 
-    # Audit
+    # 🔒 AUDIT LOG: Registrar cambio de estado
     try:
-        AuditService.log_action(
+        log_update(
             db=db,
             user_id=current_admin.id,
-            action="user.update_status",
-            entity_type="User",
+            entity_name="users",
             entity_id=user.id,
-            ip_address=get_client_ip(request),
-            status="success",
-            details={"is_active": updated.is_active},
+            old_values=old_values,
+            new_values={"is_active": updated.is_active}
         )
-    except Exception:
-        pass
+    except Exception as audit_error:
+        logger.error(f"❌ [AUDIT] Error al registrar cambio de estado de usuario {user.id}: {audit_error}")
 
     return updated
 
@@ -304,28 +305,23 @@ def delete_user_permanently(
         )
 
     # Si no tiene datos, proceder con eliminación
+    old_values = {"username": user.username, "email": user.email, "role_id": user.role_id}
+    user_id_for_audit = user.id
     username = user.username
     email = user.email
     
     user_repo.delete(user_id)
 
-    # Audit
+    # 🔒 AUDIT LOG: Registrar eliminación de usuario
     try:
-        AuditService.log_action(
+        log_delete(
             db=db,
             user_id=current_admin.id,
-            action="user.hard_delete",
-            entity_type="User",
-            entity_id=user_id,
-            ip_address=get_client_ip(request),
-            status="success",
-            details={
-                "deleted_username": username,
-                "deleted_email": email,
-                "reason": "usuario sin historial"
-            },
+            entity_name="users",
+            entity_id=user_id_for_audit,
+            old_values=old_values
         )
-    except Exception:
-        pass
+    except Exception as audit_error:
+        logger.error(f"❌ [AUDIT] Error al registrar eliminación de usuario {user_id_for_audit}: {audit_error}")
 
     return None

@@ -109,6 +109,36 @@ const PERMISSIONS_MATRIX = {
     },
   },
 
+  // Logística - Almacenes (lectura para técnico)
+  'inventory_warehouses': {
+    actions: ['view'],
+    roleWhitelist: {
+      'admin': true,
+      'operator': true,
+      'tecnico': true,
+    },
+  },
+
+  // Logística - Vistas administrativas (sin acceso para técnico)
+  'inventory_admin': {
+    actions: ['view'],
+    roleWhitelist: {
+      'admin': true,
+      'operator': true,
+      // 'tecnico': false,
+    },
+  },
+
+  // Logística - Flota asignada (lectura para técnico)
+  'fleet_assigned': {
+    actions: ['view'],
+    roleWhitelist: {
+      'admin': true,
+      'operator': true,
+      'tecnico': true,
+    },
+  },
+
   // Usuarios (Gestión de cuentas)
   'users': {
     actions: ['view', 'create', 'edit', 'delete', 'reset_password', 'change_role'],
@@ -126,6 +156,17 @@ const PERMISSIONS_MATRIX = {
     roleWhitelist: {
       'admin': true,
       'operator': false,
+      // 'coordinator': false,
+      // 'tecnico': false,
+    },
+  },
+
+  // Auditoría (Solo Admin)
+  'audit_logs': {
+    actions: ['view'],
+    roleWhitelist: {
+      'admin': true,
+      // 'operator': false,
       // 'coordinator': false,
       // 'tecnico': false,
     },
@@ -270,6 +311,9 @@ export const PERMISSIONS = {
   INVENTORY_VIEW: { resource: 'inventory', action: 'view' },
   INVENTORY_VIEW_ALL: { resource: 'inventory', action: 'view_all' },
   INVENTORY_MANAGE: { resource: 'inventory', action: 'edit' },
+  INVENTORY_WAREHOUSES_VIEW: { resource: 'inventory_warehouses', action: 'view' },
+  INVENTORY_ADMIN_VIEW: { resource: 'inventory_admin', action: 'view' },
+  FLEET_ASSIGNED_VIEW: { resource: 'fleet_assigned', action: 'view' },
   USERS_MANAGE: { resource: 'users', action: 'edit' },
   SETTINGS_VIEW: { resource: 'settings', action: 'view' },
   SETTINGS_EDIT: { resource: 'settings', action: 'edit' },

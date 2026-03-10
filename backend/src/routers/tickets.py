@@ -5,6 +5,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 from pathlib import Path
 import uuid
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
 from sqlalchemy import select, text, func
@@ -47,8 +48,10 @@ from src.services.installation_onboarding import (
     InstallationValidationError,
     sync_installation_context,
 )
+from src.utils.audit import log_create, log_update
 
 router = APIRouter()
+logger = logging.getLogger("uvicorn.error")
 
 # ============================
 # Categorías de Ticket
@@ -697,6 +700,26 @@ def create_ticket(
     db.commit()
     db.refresh(ticket)
     db.refresh(ticket, attribute_names=["creator", "assigned_to"])
+    
+    # 🔒 AUDIT LOG: Registrar creación de ticket
+    try:
+        log_create(
+            db=db,
+            user_id=user_id,
+            entity_name="tickets",
+            entity_id=ticket.id,
+            new_values={
+                "subject": ticket.subject,
+                "priority": ticket.priority.value,
+                "status": ticket.status.value,
+                "ticket_type": ticket.ticket_type.value,
+                "connection_id": ticket.connection_id,
+                "assigned_to_id": ticket.assigned_to_id
+            }
+        )
+    except Exception as audit_error:
+        logger.error(f"❌ [AUDIT] Error al registrar creación de ticket {ticket.id}: {audit_error}")
+    
     return _ticket_to_response(ticket)
 
 
@@ -880,6 +903,14 @@ def update_ticket(
     if not ticket:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
 
+    # 🔒 AUDIT LOG: Capturar valores antiguos ANTES del update
+    old_values = {
+        "priority": ticket.priority.value,
+        "status": ticket.status.value,
+        "assigned_to_id": ticket.assigned_to_id,
+        "availability_note": ticket.availability_note
+    }
+
     # Actualizar solo los campos que vienen en el payload
     changes = []
     if payload.priority is not None and payload.priority != ticket.priority:
@@ -922,6 +953,27 @@ def update_ticket(
 
     db.commit()
     db.refresh(ticket, attribute_names=["creator", "assigned_to"])
+    
+    # 🔒 AUDIT LOG: Registrar actualización de ticket (solo si hubo cambios)
+    if changes:
+        try:
+            new_values = {
+                "priority": ticket.priority.value,
+                "status": ticket.status.value,
+                "assigned_to_id": ticket.assigned_to_id,
+                "availability_note": ticket.availability_note
+            }
+            log_update(
+                db=db,
+                user_id=user_id,
+                entity_name="tickets",
+                entity_id=ticket.id,
+                old_values=old_values,
+                new_values=new_values
+            )
+        except Exception as audit_error:
+            logger.error(f"❌ [AUDIT] Error al registrar actualización de ticket {ticket.id}: {audit_error}")
+    
     return _ticket_to_response(ticket)
 
 

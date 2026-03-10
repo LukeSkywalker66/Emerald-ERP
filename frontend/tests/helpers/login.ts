@@ -1,17 +1,35 @@
 // helpers/login.ts
 // helpers/login.ts
-import { Page, expect } from '@playwright/test'; // 👈 Importar expect es clave
+import { Page, expect } from '@playwright/test';
 
-export async function login(page: Page, {
-  email = 'admin@emerald.com',
-  password = 'Admin@123',
-} = {}) {
+type LoginOptions = {
+  email?: string;
+  password?: string;
+};
+
+export async function login(
+  page: Page,
+  {
+    email = process.env.E2E_ADMIN_EMAIL || 'admin@emerald.com',
+    password = process.env.E2E_ADMIN_PASSWORD || 'Admin123',
+  }: LoginOptions = {}
+) {
   await page.goto('/login');
   await page.fill('input#username', email);
   await page.fill('input#password', password);
   await page.click('button[type="submit"]');
 
-  // CORRECCIÓN: Usamos expect con Regex.
-  // Esto detecta "/app" aunque no tenga barra al final.
-  await expect(page).toHaveURL(/\/app/); 
+  await expect(page).toHaveURL(/\/app/);
+}
+
+export async function loginAsTechnician(page: Page, options: LoginOptions = {}) {
+  const email = options.email || process.env.E2E_TECH_EMAIL || 'tecnico2@emerald.com';
+  const password = options.password || process.env.E2E_TECH_PASSWORD || 'Admin123';
+  await login(page, { email, password });
+}
+
+export async function loginAsOperator(page: Page, options: LoginOptions = {}) {
+  const email = options.email || process.env.E2E_OPERATOR_EMAIL || 'operador1@emerald.com';
+  const password = options.password || process.env.E2E_OPERATOR_PASSWORD || 'Admin123';
+  await login(page, { email, password });
 }

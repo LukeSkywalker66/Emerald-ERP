@@ -123,6 +123,14 @@ class User(Base, TimestampMixin):
     def __repr__(self) -> str:
         return f"<User(id={self.id}, username='{self.username}', email='{self.email}')>"
     
+    @property
+    def role_name(self) -> Optional[str]:
+        """
+        Propiedad computada para acceder al nombre del rol.
+        Retorna None si el usuario no tiene rol asignado.
+        """
+        return self.role.name if self.role else None
+    
     def has_permission(self, permission: str) -> bool:
         """Verifica si el usuario tiene un permiso específico."""
         if self.is_superuser:

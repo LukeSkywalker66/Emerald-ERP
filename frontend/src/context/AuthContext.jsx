@@ -30,11 +30,34 @@ export const AuthProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    // Si tenemos access pero no refresh, forzar logout para evitar loops 401
-    if (token && !refreshToken) {
+    // Sincronizar localStorage entre pestañas
+    const handleStorageChange = (e) => {
+      if (e.key === 'emerald_token' && e.newValue !== token) {
+        setToken(e.newValue);
+      }
+      if (e.key === 'emerald_refresh' && e.newValue !== refreshToken) {
+        setRefreshToken(e.newValue);
+      }
+      // Si se borra el token desde otra pestaña, hacer logout
+      if (e.key === 'emerald_token' && !e.newValue) {
+        setToken(null);
+        setUser(null);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [token, refreshToken]);
+
+  useEffect(() => {
+    // Validación suavizada: solo logout si claramente NO hay refresh token en localStorage
+    const storedRefresh = localStorage.getItem('emerald_refresh');
+    if (token && !storedRefresh) {
+      console.warn('[Auth] Token sin refresh detectado, haciendo logout preventivo');
       logout();
       return;
     }
+    
     if (token && !user) {
       // Decodificar token para obtener user info completo con ID
       const decodedUser = decodeToken(token);
@@ -42,7 +65,7 @@ export const AuthProvider = ({ children }) => {
         setUser(decodedUser);
       }
     }
-  }, [token, refreshToken, user]);
+  }, [token, user]);
 
   const login = async ({ email, password }) => {
     setLoading(true);

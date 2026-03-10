@@ -22,7 +22,7 @@ class AuditService:
         db: Session,
         user_id: Optional[int],
         action: str,
-        entity_type: Optional[str] = None,
+        entity_type: Optional[str] = None,  # ← Deprecated, usar entity_name
         entity_id: Optional[int] = None,
         ip_address: str = "0.0.0.0",
         user_agent: Optional[str] = None,
@@ -30,12 +30,17 @@ class AuditService:
         details: Optional[Dict[str, Any]] = None,
         error_message: Optional[str] = None,
     ) -> AuditLog:
-        """Registra una acción en el audit log."""
+        """
+        Registra una acción en el audit log.
+        
+        NOTA: `entity_type` está deprecado, pero se mantiene por compatibilidad.
+        Internamente se mapea a `entity_name`.
+        """
         
         audit_log = AuditLog(
             user_id=user_id,
             action=action,
-            entity_type=entity_type,
+            entity_name=entity_type,  # ← Mapeado: entity_type -> entity_name
             entity_id=entity_id,
             ip_address=ip_address,
             user_agent=user_agent,

@@ -73,15 +73,21 @@ jobs:
         run: |
           timeout 30 bash -c 'until curl -f http://localhost:5173; do sleep 1; done'
 
-      - name: 🧪 Run E2E tests - Work Order Execution
+      - name: 🧪 Run E2E tests - Work Order + Inventory RBAC
         run: |
           cd frontend
-          npx playwright test tests/work-order-execution.e2e.spec.ts
+          npx playwright test tests/work-order-execution.e2e.spec.ts tests/inventory.e2e.spec.ts
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 0
           VITE_API_BASE_URL: http://localhost:5173
           TEST_USER_EMAIL: admin@emerald.local
           TEST_USER_PASSWORD: admin123
+          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL || 'admin@emerald.com' }}
+          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD || 'Admin123' }}
+          E2E_OPERATOR_EMAIL: ${{ secrets.E2E_OPERATOR_EMAIL || 'operator@emerald.com' }}
+          E2E_OPERATOR_PASSWORD: ${{ secrets.E2E_OPERATOR_PASSWORD || 'Operator123' }}
+          E2E_TECH_EMAIL: ${{ secrets.E2E_TECH_EMAIL || 'tecnico2@emerald.com' }}
+          E2E_TECH_PASSWORD: ${{ secrets.E2E_TECH_PASSWORD || 'Tecnico2Reset2026#' }}
           CI: true
 
       - name: 📊 Upload Playwright report

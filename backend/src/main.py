@@ -24,7 +24,7 @@ from src.routers.v1 import auth  # Removed old tickets router import
 from src.routers.v1 import admin  # Administración y desbloqueo
 from src.routers.v2 import users as users_v2
 from src.routers.v2 import roles as roles_v2
-from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet, installation_types
+from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet, installation_types, audit
 
 # 👇 IMPORTAMOS EL NUEVO SERVICIO (Tu lógica adaptada)
 from src.services import diagnosis as diagnosis_service 
@@ -143,6 +143,13 @@ app.include_router(
 app.include_router(
     fleet.router,
     tags=["Fleet"]
+)
+
+# Audit Logs Module (Admin Only)
+app.include_router(
+    audit.router,
+    prefix="/api",
+    tags=["Audit Logs"]
 )
 
 @app.on_event("startup")
