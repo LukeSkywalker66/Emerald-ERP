@@ -28,7 +28,7 @@ from .tickets import (
 from .ticket_attachments import TicketAttachment
 from .contact_attempts import ContactAttempt, ContactAttemptResult
 from .coordination import Team, TeamMember, TeamRole
-from .fleet import Vehicle, VehicleStatus
+from .fleet import Vehicle, VehicleStatus, VehicleInspection
 from .engineering import (
 	# Gestión de Tareas de Ingeniería/NOC
 	EngineeringTask,
@@ -76,6 +76,7 @@ __all__ = [
 	# Fleet models
 	"Vehicle",
 	"VehicleStatus",
+	"VehicleInspection",
 	# Ticket models v2 (nuevos mejorados - ONLY VERSION IN USE)
 	"Ticket",
 	"TicketStatus",

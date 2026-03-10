@@ -19,10 +19,13 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import api from '@/api/client';
 import workOrdersService from '@/services/workOrders.service';
+import coordinationService from '@/services/coordination.service';
+import fleetService from '@/services/fleet.service';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import CloseWorkOrderDialog from '@/components/work-orders/CloseWorkOrderDialog';
+import VehicleInspectionDialog from '@/components/fleet/VehicleInspectionDialog';
 import {
   Table,
   TableBody,
@@ -96,6 +99,9 @@ export default function WorkOrdersPage() {
   const [selectedPendingClosure, setSelectedPendingClosure] = useState(null);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [isOpeningCloseDialog, setIsOpeningCloseDialog] = useState(false);
+  const [needsInspection, setNeedsInspection] = useState(false);
+  const [assignedVehicleId, setAssignedVehicleId] = useState(null);
+  const [inspectionDialogOpen, setInspectionDialogOpen] = useState(false);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -122,6 +128,44 @@ export default function WorkOrdersPage() {
 
         items = Array.isArray(scheduleData) ? scheduleData : [];
         setPendingClosureOrders(Array.isArray(pendingClosureData) ? pendingClosureData : []);
+
+        // ========== HARD BLOCK: Inspección diaria de vehículo ==========
+        // Si el técnico trabaja a pie (sin vehículo), NO se bloquea.
+        try {
+          if (!user?.id) {
+            setAssignedVehicleId(null);
+            setNeedsInspection(false);
+            setWorkOrders(items);
+            return;
+          }
+
+          const teams = await coordinationService.getUserTeams(user?.id);
+          const teamWithVehicle = (teams || []).find((team) => !!team.vehicle_id);
+
+          if (!teamWithVehicle?.vehicle_id) {
+            setAssignedVehicleId(null);
+            setNeedsInspection(false);
+          } else {
+            const vehicleId = teamWithVehicle.vehicle_id;
+            setAssignedVehicleId(vehicleId);
+
+            try {
+              await fleetService.checkTodayInspection(vehicleId);
+              setNeedsInspection(false);
+            } catch (inspectionErr) {
+              if (inspectionErr?.response?.status === 404) {
+                setNeedsInspection(true);
+              } else {
+                // Error de red/servidor: no bloquear duro por disponibilidad.
+                setNeedsInspection(false);
+              }
+            }
+          }
+        } catch (teamsErr) {
+          // Si falla resolver cuadrilla, no bloquear para evitar falso positivo.
+          setAssignedVehicleId(null);
+          setNeedsInspection(false);
+        }
       } else {
         // ========== ADMIN/COORDINADOR: Vista global con filtros ==========
         const data = await workOrdersService.listWorkOrders({
@@ -154,6 +198,8 @@ export default function WorkOrdersPage() {
         }
 
         setPendingClosureOrders([]);
+        setNeedsInspection(false);
+        setAssignedVehicleId(null);
       }
 
       setWorkOrders(items);
@@ -184,7 +230,8 @@ export default function WorkOrdersPage() {
     });
   };
 
-  const isTechnicianBlocked = isTechnician && pendingClosureOrders.length > 0;
+  const hasPendingClosureBlock = isTechnician && pendingClosureOrders.length > 0;
+  const hasInspectionBlock = isTechnician && needsInspection;
 
   const openPendingClosureDialog = async (workOrderId) => {
     try {
@@ -257,7 +304,7 @@ export default function WorkOrdersPage() {
       )}
 
       {/* PRISIÓN DEL TÉCNICO: bloqueo de agenda */}
-      {isTechnicianBlocked && (
+      {hasPendingClosureBlock && (
         <div className="rounded-xl border border-rose-700/60 bg-gradient-to-r from-rose-950/70 to-zinc-950 p-4 space-y-3 shadow-lg shadow-rose-900/20">
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-lg bg-rose-900/60 border border-rose-700/50">
@@ -297,6 +344,39 @@ export default function WorkOrdersPage() {
                 </div>
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* HARD BLOCK: Inspección diaria de vehículo */}
+      {hasInspectionBlock && (
+        <div className="rounded-xl border border-amber-700/60 bg-gradient-to-r from-amber-950/70 to-zinc-950 p-4 space-y-3 shadow-lg shadow-amber-900/20">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-lg bg-amber-900/60 border border-amber-700/50">
+              <ShieldAlert size={18} className="text-amber-300" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <Lock size={14} className="text-amber-300" />
+                <p className="text-sm font-semibold text-amber-100">🚐 Control de Vehículo Pendiente</p>
+                <Badge className="bg-amber-700/30 border border-amber-600 text-amber-200">
+                  Hard Block
+                </Badge>
+              </div>
+              <p className="text-xs text-amber-200/90">
+                Antes de ver y ejecutar tus Órdenes de Trabajo, debés completar la planilla diaria pre-trip del vehículo.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              onClick={() => setInspectionDialogOpen(true)}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+              disabled={!assignedVehicleId}
+            >
+              Completar Inspección
+            </Button>
           </div>
         </div>
       )}
@@ -382,7 +462,7 @@ export default function WorkOrdersPage() {
       </div>
 
       {/* Data Table */}
-      <div className={`rounded-xl border border-zinc-800/80 bg-zinc-900/40 overflow-hidden shadow-2xl shadow-black/30 ${isTechnicianBlocked ? 'opacity-55 pointer-events-none' : ''}`}>
+      <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 overflow-hidden shadow-2xl shadow-black/30">
         {isLoading ? (
           <div className="p-8 flex items-center justify-center gap-3 text-zinc-400">
             <RefreshCw size={18} className="animate-spin text-emerald-400" />
@@ -423,8 +503,15 @@ export default function WorkOrdersPage() {
                   <TableRow
                     key={wo.id}
                     onClick={() => {
-                      if (isTechnicianBlocked) return;
-                      navigate(`/app/work-orders/${wo.id}/execute`);
+                      if (hasPendingClosureBlock) return;
+                      navigate(`/app/work-orders/${wo.id}/execute`, {
+                        state: {
+                          needsInspection: hasInspectionBlock,
+                          inspectionMessage: hasInspectionBlock
+                            ? 'Complete la inspección del vehículo primero'
+                            : null,
+                        },
+                      });
                     }}
                     className="border-b border-zinc-800/40 hover:bg-zinc-800/60 cursor-pointer transition-colors group"
                   >
@@ -511,6 +598,16 @@ export default function WorkOrdersPage() {
           if (!selectedPendingClosure?.id) return;
           const refreshed = await workOrdersService.getWorkOrderDetail(selectedPendingClosure.id);
           setSelectedPendingClosure(refreshed);
+        }}
+      />
+
+      <VehicleInspectionDialog
+        open={inspectionDialogOpen}
+        onOpenChange={setInspectionDialogOpen}
+        vehicleId={assignedVehicleId}
+        onSubmitted={async () => {
+          setIsRefreshing(true);
+          await loadWorkOrders();
         }}
       />
     </div>

@@ -7,6 +7,7 @@
 import api from '@/api/client';
 
 const BASE_URL = '/v2/vehicles';
+const INSPECTIONS_BASE_URL = '/v2/fleet';
 
 /**
  * Obtener todos los vehículos
@@ -83,6 +84,36 @@ export const deleteVehicle = async (vehicleId) => {
   }
 };
 
+/**
+ * Verificar inspección diaria del vehículo.
+ * @param {number} vehicleId
+ * @returns {Promise<Object>} inspección de hoy
+ */
+export const checkTodayInspection = async (vehicleId) => {
+  try {
+    const { data } = await api.get(`${INSPECTIONS_BASE_URL}/vehicles/${vehicleId}/inspections/today`);
+    return data;
+  } catch (error) {
+    console.error(`❌ Error checking today inspection for vehicle ${vehicleId}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Enviar planilla de inspección diaria.
+ * @param {Object} payload
+ * @returns {Promise<Object>}
+ */
+export const submitInspection = async (payload) => {
+  try {
+    const { data } = await api.post(`${INSPECTIONS_BASE_URL}/inspections`, payload);
+    return data;
+  } catch (error) {
+    console.error('❌ Error submitting vehicle inspection:', error);
+    throw error;
+  }
+};
+
 // Export como objeto para mantener compatibilidad con otros servicios
 export default {
   getVehicles,
@@ -90,4 +121,6 @@ export default {
   createVehicle,
   updateVehicle,
   deleteVehicle,
+  checkTodayInspection,
+  submitInspection,
 };

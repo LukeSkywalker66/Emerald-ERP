@@ -645,6 +645,33 @@ Performance: ✅ Good
 
 ---
 
+## 1️⃣1️⃣ Guard Rails Operativos (Campo)
+
+### A. Motor de Auditoría Universal (Backend)
+- `log_create`, `log_update`, `log_delete` inyectados en endpoints críticos.
+- Patrón obligatorio: `try/except` no bloqueante alrededor del audit log.
+- Si la auditoría falla, la operación de negocio continúa y se loguea error.
+
+### B. Prisión del Técnico por OTs vencidas (Hard Block real)
+- Aplicado en `WorkOrdersPage` para técnicos con OTs en `pending_closure`.
+- Bloquea la ejecución operativa hasta cerrar pendientes.
+- Objetivo: forzar cierre documental (notas/evidencia) antes de nuevas acciones.
+
+### C. Prisión por Inspección de Vehículo (Action Block)
+- Requiere inspección pre-trip diaria para vehículo asignado.
+- UX diseñada para productividad:
+    - ✅ Permite ver lista de OTs y abrir detalle (preparar materiales/ruta).
+    - ❌ Bloquea botones de mutación de estado (`Iniciar`, `Completar`) hasta inspección.
+- Mensaje UX: "Complete la inspección del vehículo primero".
+
+### D. Redundancia de Cuadrilla (Desbloqueo compartido)
+- Regla backend: inspección validada por `vehicle_id + inspection_date`.
+- Endpoint: `GET /api/v2/fleet/vehicles/{vehicle_id}/inspections/today`.
+- No depende del `technician_id` que cargó la planilla.
+- Resultado: si ayudante carga inspección, líder también queda desbloqueado.
+
+---
+
 ## 🤖 Integración con Sistemas Externos
 
 ### ISPCube (Clientes + Conexiones)
@@ -699,6 +726,6 @@ UPDATE ppp_secrets WHERE ...
 
 ---
 
-**Versión:** 2026-03-02  
+**Versión:** 2026-03-10  
 **Mantenedor:** LukeSkywalker66  
-**Actualización Última:** Fleet module completo + documentación
+**Actualización Última:** Auditoría universal + inspecciones pre-trip + action block de ejecución

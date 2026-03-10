@@ -145,6 +145,12 @@ app.include_router(
     tags=["Fleet"]
 )
 
+# Fleet Module (Vehicle Inspections)
+app.include_router(
+    fleet.inspection_router,
+    tags=["Fleet Inspections"]
+)
+
 # Audit Logs Module (Admin Only)
 app.include_router(
     audit.router,

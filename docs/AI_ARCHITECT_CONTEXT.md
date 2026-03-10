@@ -196,6 +196,13 @@ class Vehicle(Base):
    - Frontend: Monitor táctico con tabla, filtros, modal JSON diff
    - 13 endpoints auditados: Inventory (6), Users (4), WorkOrders (3)
 
+4. **Guard Rails Operativos en Calle** ⭐ NUEVO 10/03/2026
+   - **Prisión del Técnico (OTs vencidas):** hard block real de agenda hasta cerrar OTs vencidas.
+   - **Inspección de Vehículo (pre-trip):** action block, no blind block.
+   - Permite leer OTs y preparar materiales, pero bloquea mutaciones de estado (`Iniciar`, `Completar`).
+   - **Redundancia de cuadrilla:** la inspección diaria se valida por `vehicle_id + fecha`.
+   - Si cualquier técnico de la cuadrilla la carga, se desbloquea para todos los que usan ese vehículo.
+
 ### Patrones Obligatorios
 
 **Backend - Crear recurso:**
@@ -244,6 +251,7 @@ alembic upgrade head
 | DB migration fail | Sintaxis SQL, ciclo circular en FKs | `alembic downgrade -1`, fix, `alembic upgrade head` |
 | Stock mismatch | Transacción incompleta o sync async race | Recount manual, auditar timeline |
 | Vehicle sin warehouse | Insert manualmente sin FK | (no debería pasar, handler idem) |
+| Técnico no puede iniciar OT | Falta inspección diaria de vehículo | Completar `POST /api/v2/fleet/inspections` |
 
 ---
 
@@ -302,6 +310,6 @@ alembic upgrade head
 
 ---
 
-**Última revisión:** 9 de marzo de 2026  
+**Última revisión:** 10 de marzo de 2026  
 **Mantenedor:** LukeSkywalker66  
 **Retroalimentación:** Ver CONTRIBUTING.md (TBD)

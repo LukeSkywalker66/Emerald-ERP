@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   ChevronLeft,
   Play,
@@ -116,7 +116,12 @@ function MaterialItem({ item, onRemove }) {
 export default function WorkOrderExecutionPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
+
+  const needsInspection = Boolean(location.state?.needsInspection);
+  const inspectionBlockMessage =
+    location.state?.inspectionMessage || 'Complete la inspección del vehículo primero';
 
   // State
   const [workOrder, setWorkOrder] = useState(null);
@@ -481,6 +486,14 @@ export default function WorkOrderExecutionPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950">
+      {needsInspection && user?.role === 'tecnico' && (
+        <div className="sticky top-0 z-[60] border-b border-amber-700/60 bg-amber-950/80 px-4 md:px-6 py-2">
+          <p className="text-xs md:text-sm text-amber-200">
+            🚐 Control de vehículo pendiente: podés revisar la OT y preparar materiales, pero no podés iniciar/completar hasta cargar la inspección.
+          </p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="sticky top-0 z-50 bg-zinc-950/95 backdrop-blur border-b border-zinc-800 px-4 md:px-6 py-3">
         <div className="flex items-center justify-between">
@@ -517,7 +530,8 @@ export default function WorkOrderExecutionPage() {
               <Button
                 size="sm"
                 onClick={handleStartWork}
-                disabled={isSubmitting}
+                disabled={isSubmitting || needsInspection}
+                title={needsInspection ? inspectionBlockMessage : 'Iniciar trabajo'}
                 className="bg-emerald-600 hover:bg-emerald-700 h-9"
               >
                 <Play size={14} className="mr-1" />
@@ -529,6 +543,8 @@ export default function WorkOrderExecutionPage() {
               <Button
                 size="sm"
                 onClick={() => setShowCloseDialog(true)}
+                disabled={needsInspection}
+                title={needsInspection ? inspectionBlockMessage : 'Completar orden'}
                 className="bg-emerald-600 hover:bg-emerald-700 h-9"
               >
                 <CheckCircle2 size={14} className="mr-1" />
