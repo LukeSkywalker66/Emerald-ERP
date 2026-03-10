@@ -1,6 +1,6 @@
 # 📘 Master Context - Emerald ERP
 
-**Versión:** 2026-03-02 (Comprehensive Reference)  
+**Versión:** 2026-03-09 (Comprehensive Reference)  
 **Propósito:** Documentación completa para cualquiera que necesite entender el sistema  
 **Audiencia:** Architects, Developers, DevOps, Product Managers
 
@@ -15,10 +15,11 @@
 - **Flota de Vehículos** operativos con almacenes móviles
 - **Inventario** centralizado + mobile
 - **Ingeniería/NOC** con tablero Kanban
+- **Auditoría Universal** (Ojo de Dios) admin-only con JSONB diff tracking
 - **Integraciones** con ISPCube, Mikrotik, SmartOLT
 
 **Estado:** ✅ Production Ready (all modules)  
-**Última actualización:** 2 de marzo de 2026
+**Última actualización:** 9 de marzo de 2026
 
 ---
 
@@ -315,11 +316,112 @@ class EngineeringTimeline(Base):
     meta_data (JSONB)
 ```
 
+### 4.8 Auditoría Universal (NEW 09/03/2026) 🔍
+```python
+class AuditLog(Base):
+    """Motor de Auditoría - 'Ojo de Dios'"""
+    id: int (PK)
+    
+    # ─── Capa 1: Quién hizo qué ───
+    user_id: int (FK→User, nullable)  # NULL para sistema
+    action: AuditAction (enum)
+    ip_address: VARCHAR (nullable)
+    user_agent: VARCHAR (nullable)
+    
+    # ─── Capa 2: Sobre qué entidad ───
+    entity_name: VARCHAR(100)  # "products", "warehouses", "work_orders"
+    entity_id: int (nullable)   # ID del registro afectado
+    
+    # ─── Capa 3: Qué cambió exactamente ───
+    old_values: JSONB (nullable)  # Estado anterior (UPDATE/DELETE)
+    new_values: JSONB (nullable)  # Estado nuevo (CREATE/UPDATE)
+    
+    # ─── Metadata ───
+    status: VARCHAR  # "success" | "failure"
+    error_message: TEXT (nullable)
+    created_at: datetime (UTC)
+
+class AuditAction(Enum):
+    CREATE = "CREATE"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"
+    LOGIN = "LOGIN"
+    LOGOUT = "LOGOUT"
+    ACCESS_DENIED = "ACCESS_DENIED"
+    EXPORT = "EXPORT"
+    IMPORT = "IMPORT"
+```
+
+**Endpoints auditados (13 totales):**
+- **Inventory (6)**: Products CRUD, Warehouses CRUD, Stock Transfers
+- **Users (4)**: CREATE, Role change, Status toggle, DELETE
+- **WorkOrders (3)**: CREATE, UPDATE, Team assignment
+
+**Helper Functions:**
+```python
+from src.utils.audit import log_create, log_update, log_delete, get_entity_dict
+
+# CREATE
+log_create(db, user_id=5, entity_name="products", entity_id=42, 
+           new_values={"name": "Router TP-Link", "sku": "TL-WR840N"})
+
+# UPDATE
+log_update(db, user_id=5, entity_name="warehouses", entity_id=10,
+           old_values={"name": "Almacén A"}, 
+           new_values={"name": "Almacén Principal"})
+
+# DELETE
+log_delete(db, user_id=5, entity_name="users", entity_id=99,
+           old_values=get_entity_dict(user_to_delete))
+```
+
+**Arquitectura:**
+- Try/Except safety: Fallo de audit NO aborta transacción principal
+- JSON serialization automática: datetime → ISO string, Enum → .value
+- RBAC: Solo admin puede acceder a `/v2/audit-logs`
+- Frontend: Monitor táctico con tabla, filtros (entity/action/user), modal JSON diff
+
+**Datos migrados:** 1378 registros legacy (login, user.create, etc.)
+
 ---
 
 ## 5️⃣ API Endpoints (v2)
 
-### 5.1 Vehículos (NEW 03/02)
+### 5.1 Auditoría (NEW 09/03/2026) 🔐 Admin-only
+```
+GET    /api/v2/audit-logs                    # Lista paginada con filtros
+  ?entity_name=products                      # Filtrar por entidad
+  &action=CREATE                              # Filtrar por acción
+  &user_id=5                                  # Filtrar por usuario
+  &status_filter=success                      # success | failure
+  &limit=100                                  # 1-500, default: 100
+  &offset=0                                   # Paginación
+
+GET    /api/v2/audit-logs/{id}               # Detalle de un registro
+
+Response:
+{
+  "items": [
+    {
+      "id": 1532,
+      "user_id": 5,
+      "user_name": "admin",  # Computado
+      "action": "UPDATE",
+      "entity_name": "warehouses",
+      "entity_id": 42,
+      "old_values": {"name": "Almacén A"},
+      "new_values": {"name": "Almacén Principal"},
+      "created_at": "2026-03-09T22:56:00Z",
+      "status": "success"
+    }
+  ],
+  "total": 1532,
+  "limit": 100,
+  "offset": 0
+}
+```
+
+### 5.2 Vehículos (03/02/2026)
 ```
 POST   /api/v2/vehicles              # Crear vehicle + warehouse
 GET    /api/v2/vehicles              # Listar (filtrable: ?status=ACTIVE)
@@ -378,11 +480,15 @@ WorkOrderType: repair, install, pickup, infrastructure
 TeamRole: leader, technician
 
 # Fleet (NEW)
+# Fleet
 VehicleStatus: ACTIVE, MAINTENANCE, RETIRED, DONATED
 
 # Inventario
 WarehouseType: CENTRAL, MOBILE, VIRTUAL
 ProductType: SERIALIZED, BULK
+# Auditoría (NEW 09/03/2026)
+AuditAction: CREATE, UPDATE, DELETE, LOGIN, LOGOUT, ACCESS_DENIED, EXPORT, IMPORT
+
 
 # General
 Priority: low, medium, high, critical

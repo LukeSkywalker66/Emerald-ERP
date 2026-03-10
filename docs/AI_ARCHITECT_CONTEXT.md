@@ -1,6 +1,6 @@
 # 🤖 AI Architect Context - Emerald ERP
 
-**Versión:** 2026-03-02  
+**Versión:** 2026-03-09  
 **Audiencia:** IAs, LLMs, Agentes de Codificación  
 **Propósito:** Contexto completo para mantener arquitectura, tomar decisiones y contribuir
 
@@ -169,6 +169,7 @@ class Vehicle(Base):
 | **Fleet** | ✅ Ready | 100% | v2 | Admin table | vehicles, (warehouse FK) |
 | **Inventory** | ✅ Ready | 100% | v2 | Dashboard | warehouses, stock, movements |
 | **Engineering** | ✅ Ready | 100% | v2 | Kanban, Timeline | engineering tasks |
+| **Auditoría** | ✅ Ready | 100% | v2 | Monitor admin-only | audit_logs (JSONB) |
 | **Integraciones** | ✅ Ready | 100% | N/A | (sync backend) | clientes, connections |
 
 **Legend:** ✅ = Production, 🚧 = WIP, ❌ = Planned
@@ -187,10 +188,13 @@ class Vehicle(Base):
    - DB constraints (unique, FK, check)
    - Frontend form validation + server-side check
 
-3. **Auditoría Completa**
-   - Quién cambió qué (author, timestamp, old_value → new_value)
-   - Soft-delete, nunca DELETE lógico
-   - Tabla de eventos para timeline
+3. **Auditoría Completa** ⭐ NUEVO 09/03/2026
+   - Motor universal: `log_create()`, `log_update()`, `log_delete()` en `backend/src/utils/audit.py`
+   - 3 capas: Acción+Usuario | Entidad+ID | old_values/new_values (JSONB)
+   - Try/Except safety: Fallo de audit NO rompe operación principal
+   - Admin-only: API `/v2/audit-logs` con filtros (entity, action, user, status)
+   - Frontend: Monitor táctico con tabla, filtros, modal JSON diff
+   - 13 endpoints auditados: Inventory (6), Users (4), WorkOrders (3)
 
 ### Patrones Obligatorios
 
@@ -245,8 +249,12 @@ alembic upgrade head
 
 ## 📈 Roadmap Próximas Fases
 
-**Fase 7 (Próxima):**
-- [ ] Auditoría de asignaciones Vehicle (historial cambios team_id)
+**Fase 7 (Completada 09/03/2026):**
+- [x] ✅ Sistema de Auditoría Universal (Ojo de Dios)
+- [x] ✅ Migración de 1378 registros legacy
+- [x] ✅ Frontend monitor admin-only con JSON diff
+- [x] ✅ Auditoría en Inventory, Users, WorkOrders
+- [ ] Expandir a EngineeringTasks, Fleet, Teams
 - [ ] Mantenimiento programado (status=MAINTENANCE con alertas)
 - [ ] Reportes de utilización de flota
 
@@ -288,11 +296,12 @@ alembic upgrade head
 
 - **DB Schema:** [BASE_DATOS.md](BASE_DATOS.md)
 - **Fleet Específico:** [FLEET_MODULE.md](FLEET_MODULE.md)
+- **Auditoría:** [CHECKPOINT_2026-03-09_AUDIT_UNIVERSAL.md](../CHECKPOINT_2026-03-09_AUDIT_UNIVERSAL.md)
 - **Status Actual:** [CURRENT_STATUS_2026-03-02.md](CURRENT_STATUS_2026-03-02.md)
 - **API Docs:** `http://localhost:8500/docs` (Swagger)
 
 ---
 
-**Última revisión:** 2 de marzo de 2026  
+**Última revisión:** 9 de marzo de 2026  
 **Mantenedor:** LukeSkywalker66  
 **Retroalimentación:** Ver CONTRIBUTING.md (TBD)

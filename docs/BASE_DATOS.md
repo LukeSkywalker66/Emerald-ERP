@@ -1,6 +1,6 @@
 # 🗄️ Arquitectura de Base de Datos - Emerald ERP
 
-**Última actualización:** 2 de marzo de 2026  
+**Última actualización:** 9 de marzo de 2026  
 **Stack:** PostgreSQL 15 Alpine + SQLAlchemy 2.0 + Alembic  
 **Patrón:** Clean Slate (Mapped[], mapped_column(), JSONB flexible)
 
@@ -66,7 +66,48 @@
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
-│ 📡 INTEGRACIONES EXTERNAS (ISPCube, Mikrotik, SmartOLT)        │
+│ � AUDITORÍA UNIVERSAL (NUEVO - 09/03/2026)                   │
+├─────────────────────────────────────────────────────────────────┤
+│ AUDIT_LOGS ("Ojo de Dios")                                     │
+│ ├─ id (INT PK)                                                 │
+│ ├─ user_id (FK→users, nullable) ┐                             │
+│ ├─ action (ENUM)                 │ Capa 1: Quién hizo qué     │
+│ ├─ ip_address (VARCHAR)          │                             │
+│ └─ user_agent (VARCHAR)          ┘                             │
+│                                                                 │
+│ ├─ entity_name (VARCHAR 100)    ┐                             │
+│ ├─ entity_id (INT, nullable)     │ Capa 2: Sobre qué entidad  │
+│                                   ┘                             │
+│                                                                 │
+│ ├─ old_values (JSONB, nullable) ┐                             │
+│ └─ new_values (JSONB, nullable)  │ Capa 3: Qué cambió         │
+│                                   ┘                             │
+│                                                                 │
+│ ├─ status (VARCHAR: success/failure)                          │
+│ ├─ error_message (TEXT, nullable)                             │
+│ └─ created_at (TIMESTAMP UTC)                                 │
+│                                                                 │
+│ **Índices:**                                                   │
+│ - ix_audit_logs_entity_name                                    │
+│ - ix_audit_logs_entity_id                                      │
+│ - ix_audit_logs_user_id                                        │
+│ - ix_audit_logs_action                                         │
+│ - ix_audit_logs_created_at                                     │
+│                                                                 │
+│ **AuditAction ENUM:**                                          │
+│ CREATE, UPDATE, DELETE, LOGIN, LOGOUT,                        │
+│ ACCESS_DENIED, EXPORT, IMPORT                                  │
+│                                                                 │
+│ **Endpoints auditados (13):**                                  │
+│ - Inventory: 6 (warehouses, products, transfers)              │
+│ - Users: 4 (create, role, status, delete)                     │
+│ - WorkOrders: 3 (create, update, assign)                      │
+│                                                                 │
+│ **Datos migrados:** 1378 registros legacy                     │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│ �📡 INTEGRACIONES EXTERNAS (ISPCube, Mikrotik, SmartOLT)        │
 ├─────────────────────────────────────────────────────────────────┤
 │ CLIENTES | CONNECTIONS | SUBSCRIBERS | NODES | PPP_SECRETS    │
 │ (Ver diagrama de integraciones abajo)                          │
@@ -123,6 +164,7 @@ TicketType: technical, installation, withdrawal, relocation, administrative
 TicketPriority: low, medium, high, critical
 WarehouseType: CENTRAL, MOBILE, VIRTUAL
 VehicleStatus: ACTIVE, MAINTENANCE, RETIRED, DONATED
+AuditAction: CREATE, UPDATE, DELETE, LOGIN, LOGOUT, ACCESS_DENIED, EXPORT, IMPORT  # NUEVO 09/03
 ```
 
 ---
@@ -200,6 +242,18 @@ CREATE INDEX ix_work_orders_ticket_status ON work_orders(ticket_id, status);
 CREATE INDEX idx_teams_is_active ON teams(is_active);
 CREATE INDEX idx_team_members_team ON team_members(team_id);
 CREATE UNIQUE INDEX uq_team_members_team_user ON team_members(team_id, user_id);
+```
+
+### Auditoría (NUEVO 09/03/2026)
+```sql
+CREATE INDEX ix_audit_logs_entity_name ON audit_logs(entity_name);
+CREATE INDEX ix_audit_logs_entity_id ON audit_logs(entity_id);
+CREATE INDEX ix_audit_logs_user_id ON audit_logs(user_id);
+CREATE INDEX ix_audit_logs_action ON audit_logs(action);
+CREATE INDEX ix_audit_logs_created_at ON audit_logs(created_at DESC);
+
+-- Índice compuesto para filtros frecuentes
+CREATE INDEX ix_audit_logs_entity_action ON audit_logs(entity_name, action, created_at DESC);
 ```
 
 ---
