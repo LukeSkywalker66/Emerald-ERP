@@ -18,13 +18,21 @@ api.interceptors.request.use((config) => {
 
 let refreshPromise = null;
 
+function clearSession() {
+  localStorage.removeItem('emerald_token');
+  localStorage.removeItem('emerald_refresh');
+  localStorage.removeItem('emerald_email');
+}
+
+function redirectToLogin() {
+  if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+    window.location.href = '/login';
+  }
+}
+
 async function refreshToken() {
   const storedRefresh = localStorage.getItem('emerald_refresh');
   if (!storedRefresh) {
-    localStorage.removeItem('emerald_token');
-    localStorage.removeItem('emerald_email');
-    // Forzar logout suave si no hay refresh disponible
-    // Devolvemos un error para que el interceptor redirija
     throw new Error('No hay refresh token disponible');
   }
   const { data } = await axios.post(
@@ -66,12 +74,16 @@ api.interceptors.response.use(
         }
         return api(config);
       } catch (refreshError) {
-        localStorage.removeItem('emerald_token');
-        localStorage.removeItem('emerald_refresh');
-        localStorage.removeItem('emerald_email');
-        // Redirigir a login si el refresh falla o no existe
-        if (typeof window !== 'undefined') {
-          window.location.href = '/login';
+        const refreshStatus = refreshError?.response?.status;
+        const hasRefresh = Boolean(localStorage.getItem('emerald_refresh'));
+        const shouldForceLogout = refreshStatus === 401 || refreshStatus === 403 || !hasRefresh;
+
+        if (shouldForceLogout) {
+          clearSession();
+          redirectToLogin();
+        } else {
+          // Fallo transitorio (reinicio backend/HMR/red): no destruir sesión local.
+          console.warn('[Auth] Refresh transitorio fallido, manteniendo sesión local');
         }
         return Promise.reject(refreshError);
       }

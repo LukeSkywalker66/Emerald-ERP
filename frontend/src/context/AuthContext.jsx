@@ -10,6 +10,19 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  const isTokenExpired = (accessToken) => {
+    try {
+      const payload = accessToken.split('.')[1];
+      const decoded = JSON.parse(atob(payload));
+      if (!decoded?.exp) {
+        return false;
+      }
+      return Date.now() >= decoded.exp * 1000;
+    } catch (err) {
+      return true;
+    }
+  };
+
   // Decodificar JWT para obtener user info
   const decodeToken = (accessToken) => {
     try {
@@ -50,20 +63,27 @@ export const AuthProvider = ({ children }) => {
   }, [token, refreshToken]);
 
   useEffect(() => {
-    // Validación suavizada: solo logout si claramente NO hay refresh token en localStorage
-    const storedRefresh = localStorage.getItem('emerald_refresh');
-    if (token && !storedRefresh) {
-      console.warn('[Auth] Token sin refresh detectado, haciendo logout preventivo');
+    if (!token) {
+      setUser(null);
+      return;
+    }
+
+    const decodedUser = decodeToken(token);
+    if (!decodedUser) {
+      // Token corrupto/inválido: cerrar sesión por seguridad.
       logout();
       return;
     }
-    
-    if (token && !user) {
-      // Decodificar token para obtener user info completo con ID
-      const decodedUser = decodeToken(token);
-      if (decodedUser) {
-        setUser(decodedUser);
-      }
+
+    if (!user || user.id !== decodedUser.id) {
+      setUser(decodedUser);
+    }
+
+    // Solo cerrar sesión por ausencia de refresh cuando el access token ya expiró.
+    const storedRefresh = localStorage.getItem('emerald_refresh');
+    if (!storedRefresh && isTokenExpired(token)) {
+      console.warn('[Auth] Access token expirado sin refresh token, forzando login');
+      logout();
     }
   }, [token, user]);
 
