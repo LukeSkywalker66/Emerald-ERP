@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Gauge, Loader2, ShieldAlert, Wrench } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Gauge, Loader2, ShieldAlert } from 'lucide-react';
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -66,7 +66,6 @@ export default function VehicleInspectionDialog({
 }) {
   const [form, setForm] = useState({
     km_actual: '',
-    mechanical_conditions: '',
     oil_level: 'medio',
     water_level: 'medio',
     fuel_level: 'medio',
@@ -120,7 +119,6 @@ export default function VehicleInspectionDialog({
   const resetForm = () => {
     setForm({
       km_actual: '',
-      mechanical_conditions: '',
       oil_level: 'medio',
       water_level: 'medio',
       fuel_level: 'medio',
@@ -194,7 +192,7 @@ export default function VehicleInspectionDialog({
         vehicle_id: vehicleId,
         km_actual: km,
 
-        mechanical_conditions: form.mechanical_conditions?.trim() || null,
+        mechanical_conditions: null,
         oil_level: form.oil_level,
         water_level: form.water_level,
         fuel_level: form.fuel_level,
@@ -259,7 +257,7 @@ export default function VehicleInspectionDialog({
         }
       }}
     >
-      <DialogContent className="w-[96vw] max-w-2xl border-zinc-800 bg-zinc-950 p-0 max-h-[92vh] overflow-hidden">
+      <DialogContent className="w-[96vw] max-w-2xl border-zinc-800 bg-zinc-950 p-0 max-h-[92vh] overflow-hidden flex flex-col">
         <div className="p-5 border-b border-zinc-800">
           <DialogHeader className="mb-0">
             <DialogTitle className="flex items-center gap-2 text-zinc-100">
@@ -272,13 +270,14 @@ export default function VehicleInspectionDialog({
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-5 overflow-y-auto max-h-[calc(92vh-92px)]">
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-4 py-3">
+        <form onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col">
+          <div className="p-5 space-y-5 overflow-y-auto min-h-0">
+            <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-4 py-3">
             <p className="text-[11px] text-zinc-500 uppercase tracking-wide">Fecha / hora de carga</p>
             <p className="text-sm text-zinc-200 mt-1">{nowLabel}</p>
-          </div>
+            </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3">
             <div>
               <label className="text-sm text-zinc-300 mb-2 flex items-center gap-2">
                 <Gauge size={15} className="text-emerald-400" />
@@ -295,21 +294,7 @@ export default function VehicleInspectionDialog({
                 required
               />
             </div>
-
-            <div>
-              <label className="text-sm text-zinc-300 mb-2 flex items-center gap-2">
-                <Wrench size={15} className="text-emerald-400" />
-                Condiciones mecánicas
-              </label>
-              <Input
-                type="text"
-                value={form.mechanical_conditions}
-                onChange={(e) => setField('mechanical_conditions', e.target.value)}
-                placeholder="Sin novedades"
-                className="h-11 bg-zinc-900 border-zinc-700 text-zinc-100"
-              />
             </div>
-          </div>
 
           <div className="space-y-3">
             <h4 className="text-xs text-zinc-400 uppercase tracking-wide">Niveles</h4>
@@ -322,7 +307,7 @@ export default function VehicleInspectionDialog({
           </div>
 
           <div className="space-y-3">
-            <h4 className="text-xs text-zinc-400 uppercase tracking-wide">Mecánica general</h4>
+            <h4 className="text-xs text-zinc-400 uppercase tracking-wide">Condiciones mecánicas</h4>
             <YesNoRow label="Existen fugas hidráulicas" value={form.has_hydraulic_leaks} onChange={(v) => setField('has_hydraulic_leaks', v)} anomaly />
             <YesNoRow label="El vehículo tira para un lado" value={form.pulls_to_one_side} onChange={(v) => setField('pulls_to_one_side', v)} anomaly />
             <YesNoRow label="Estado de aceite: tiene pérdidas" value={form.oil_leaks} onChange={(v) => setField('oil_leaks', v)} anomaly />
@@ -402,7 +387,11 @@ export default function VehicleInspectionDialog({
             </div>
           )}
 
-          <div className="flex gap-2 pt-1 sticky bottom-0 bg-zinc-950/95 backdrop-blur py-2">
+            <div className="h-2" />
+          </div>
+
+          <div className="border-t border-zinc-800 px-5 py-4 bg-zinc-950">
+            <div className="flex gap-2">
             <Button
               type="button"
               variant="outline"
@@ -426,6 +415,7 @@ export default function VehicleInspectionDialog({
                 'Confirmar Inspección'
               )}
             </Button>
+            </div>
           </div>
         </form>
       </DialogContent>
