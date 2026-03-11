@@ -13,6 +13,12 @@ const STATUS_STYLES = {
   CRITICAL: 'border-rose-500/50 bg-rose-500/15 text-rose-300',
 };
 
+const STATUS_LABELS = {
+  OK: 'Apto',
+  NEEDS_ATTENTION: 'Requiere atencion',
+  CRITICAL: 'Critico',
+};
+
 export default function VehicleInspectionDialog({
   open,
   onOpenChange,
@@ -109,7 +115,7 @@ export default function VehicleInspectionDialog({
             </DialogTitle>
           </DialogHeader>
           <p className="text-xs text-zinc-400 mt-2">
-            Completá la planilla pre-trip antes de continuar con tus OTs.
+            Completá la planilla de control previo a la salida antes de continuar con tus OTs.
           </p>
         </div>
 
@@ -174,7 +180,7 @@ export default function VehicleInspectionDialog({
                   {status === 'OK' && <CheckCircle2 size={14} className="inline mr-1" />}
                   {status === 'NEEDS_ATTENTION' && <AlertTriangle size={14} className="inline mr-1" />}
                   {status === 'CRITICAL' && <ShieldAlert size={14} className="inline mr-1" />}
-                  {status}
+                  {STATUS_LABELS[status] || status}
                 </button>
               ))}
             </div>

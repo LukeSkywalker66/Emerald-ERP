@@ -27,6 +27,15 @@ router = APIRouter(prefix="/api/v2/vehicles", tags=["Fleet"])
 inspection_router = APIRouter(prefix="/api/v2/fleet", tags=["Fleet Inspections"])
 
 
+def _inspection_status_label(status_value: str) -> str:
+    labels = {
+        "OK": "Apto",
+        "NEEDS_ATTENTION": "Requiere atencion",
+        "CRITICAL": "Critico",
+    }
+    return labels.get(status_value, status_value)
+
+
 def _require_admin_or_operator(current_user: User = Depends(get_current_user)) -> User:
     """Permite acceso solo a roles admin u operador."""
     user_role = (current_user.role_name or "").lower()
@@ -388,6 +397,7 @@ def create_vehicle_inspection(
         cleanliness_ok=inspection.cleanliness_ok,
         damage_notes=inspection.damage_notes,
         status=inspection.status,
+        status_label=_inspection_status_label(inspection.status),
         created_at=inspection.created_at,
     )
 
@@ -442,6 +452,7 @@ def get_today_vehicle_inspection(
         cleanliness_ok=inspection.cleanliness_ok,
         damage_notes=inspection.damage_notes,
         status=inspection.status,
+        status_label=_inspection_status_label(inspection.status),
         created_at=inspection.created_at,
     )
 
@@ -487,6 +498,7 @@ def list_vehicle_inspections(
             cleanliness_ok=item.cleanliness_ok,
             damage_notes=item.damage_notes,
             status=item.status,
+            status_label=_inspection_status_label(item.status),
             created_at=item.created_at,
         )
         for item in inspections

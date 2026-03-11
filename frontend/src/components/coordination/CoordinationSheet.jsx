@@ -688,7 +688,7 @@ export default function CoordinationSheet({
                 variant="outline"
                 className="w-full border-amber-600 text-amber-300 hover:bg-amber-900/20"
               >
-                ↩️ Devolver al Backlog (Coordinator)
+                ↩️ Devolver a pendientes (Coordinación)
               </Button>
             </div>
 

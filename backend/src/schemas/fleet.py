@@ -75,6 +75,7 @@ class VehicleInspectionResponse(BaseModel):
     cleanliness_ok: bool
     damage_notes: Optional[str] = None
     status: str
+    status_label: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
-import { AlertCircle, ClipboardList, Eye, Loader2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Eye, ListChecks, Loader2, XCircle } from 'lucide-react';
 
 import {
   Dialog,
@@ -76,11 +76,11 @@ export default function VehicleInspectionHistoryDialog({ open, onOpenChange, veh
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl bg-zinc-950 border-zinc-800 p-0 overflow-hidden">
+      <DialogContent className="!w-[95vw] !max-w-[1240px] sm:!max-w-[1240px] bg-zinc-950 border-zinc-800 p-0 overflow-hidden">
         <div className="p-5 border-b border-zinc-800">
           <DialogHeader className="mb-0">
             <DialogTitle className="text-zinc-100 flex items-center gap-2">
-              <ClipboardList size={18} className="text-emerald-400" />
+              <ListChecks size={18} className="text-emerald-400" />
               Historial de Inspecciones · {vehicle?.name || 'Vehículo'}
             </DialogTitle>
           </DialogHeader>
@@ -106,54 +106,106 @@ export default function VehicleInspectionHistoryDialog({ open, onOpenChange, veh
             </div>
           ) : (
             <div className="rounded-lg border border-zinc-800 overflow-hidden">
-              <table className="w-full text-sm">
+              <table className="w-full table-fixed text-sm">
+                <colgroup>
+                  <col className="w-[12%]" />
+                  <col className="w-[20%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[18%]" />
+                  <col className="w-[12%]" />
+                </colgroup>
                 <thead className="bg-zinc-900 border-b border-zinc-800">
                   <tr className="text-zinc-400">
-                    <th className="text-left px-3 py-2 font-semibold">Fecha</th>
+                    <th className="text-left px-3 py-2 font-semibold whitespace-nowrap">Fecha</th>
                     <th className="text-left px-3 py-2 font-semibold">Técnico</th>
-                    <th className="text-left px-3 py-2 font-semibold">KM</th>
-                    <th className="text-left px-3 py-2 font-semibold">Estado</th>
-                    <th className="text-left px-3 py-2 font-semibold">Observaciones/Daños</th>
+                    <th className="text-left px-3 py-2 font-semibold whitespace-nowrap">KM</th>
+                    <th className="text-left px-3 py-2 font-semibold whitespace-nowrap">Estado</th>
+                    <th className="text-left px-3 py-2 font-semibold whitespace-nowrap">Chequeo</th>
+                    <th className="text-left px-3 py-2 font-semibold">Observaciones</th>
+                    <th className="text-left px-3 py-2 font-semibold whitespace-nowrap">Detalle</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((item) => {
                     const hasNotes = Boolean(item.damage_notes && item.damage_notes.trim());
                     const isExpanded = expandedRowId === item.id;
-
+                    const checks = [
+                      { key: 'water_level_ok', label: 'Agua', ok: item.water_level_ok },
+                      { key: 'oil_level_ok', label: 'Aceite', ok: item.oil_level_ok },
+                      { key: 'tires_ok', label: 'Neumaticos', ok: item.tires_ok },
+                      { key: 'lights_ok', label: 'Luces', ok: item.lights_ok },
+                      { key: 'cleanliness_ok', label: 'Limpieza', ok: item.cleanliness_ok },
+                    ];
+                    const checksOk = checks.filter((c) => c.ok).length;
+                    const failedChecks = checks.filter((c) => !c.ok).map((c) => c.label).join(', ');
                     return (
                       <Fragment key={item.id}>
                         <tr className="border-b border-zinc-800/70 hover:bg-zinc-900/60">
-                          <td className="px-3 py-2 text-zinc-200">{formatInspectionDate(item.inspection_date)}</td>
-                          <td className="px-3 py-2 text-zinc-300">{item.technician_name || `Usuario #${item.technician_id}`}</td>
-                          <td className="px-3 py-2 text-zinc-200 font-mono">{item.km_actual ?? '-'}</td>
+                          <td className="px-3 py-2 text-zinc-200 whitespace-nowrap">{formatInspectionDate(item.inspection_date)}</td>
+                          <td className="px-3 py-2 text-zinc-300 break-words">{item.technician_name || `Usuario #${item.technician_id}`}</td>
+                          <td className="px-3 py-2 text-zinc-200 font-mono whitespace-nowrap">{item.km_actual ?? '-'}</td>
                           <td className="px-3 py-2">
-                            <Badge className={statusBadgeClass(item.status)}>{item.status}</Badge>
+                            <Badge className={statusBadgeClass(item.status)}>{item.status_label || item.status}</Badge>
+                          </td>
+                          <td className="px-3 py-2 text-xs">
+                            <span className={`${checksOk === checks.length ? 'text-emerald-300' : 'text-amber-300'} font-semibold`}>
+                              {checksOk}/5
+                            </span>
+                            {checksOk < checks.length && (
+                              <p className="text-[11px] text-rose-300 mt-0.5 truncate" title={failedChecks}>
+                                {failedChecks}
+                              </p>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-zinc-300">
+                            <p className="truncate" title={hasNotes ? item.damage_notes : 'Sin observaciones'}>
+                              {hasNotes ? item.damage_notes : 'Sin observaciones'}
+                            </p>
                           </td>
                           <td className="px-3 py-2">
-                            {hasNotes ? (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setExpandedRowId(isExpanded ? null : item.id)}
-                                className="border-amber-600/40 text-amber-300 hover:bg-amber-950/30"
-                              >
-                                <Eye className="h-4 w-4 mr-2" />
-                                {isExpanded ? 'Ocultar' : 'Ver'}
-                              </Button>
-                            ) : (
-                              <span className="text-zinc-500">Sin novedades</span>
-                            )}
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setExpandedRowId(isExpanded ? null : item.id)}
+                              className="border-cyan-600/40 text-cyan-300 hover:bg-cyan-950/30 whitespace-nowrap"
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              {isExpanded ? 'Ocultar' : 'Detalle'}
+                            </Button>
                           </td>
                         </tr>
                         {isExpanded && (
                           <tr className="border-b border-zinc-800/70 bg-zinc-900/40">
-                            <td colSpan={5} className="px-3 py-3 text-zinc-300">
-                              <span className="text-zinc-400 text-xs uppercase tracking-wide mr-2">
-                                Observaciones
-                              </span>
-                              {item.damage_notes}
+                            <td colSpan={7} className="px-3 py-3 text-zinc-300">
+                              <div className="space-y-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+                                  {checks.map((check) => (
+                                    <div
+                                      key={check.key}
+                                      className={`rounded border px-2 py-1.5 text-xs flex items-center gap-1.5 ${
+                                        check.ok
+                                          ? 'border-emerald-700/50 bg-emerald-950/20 text-emerald-300'
+                                          : 'border-rose-700/50 bg-rose-950/20 text-rose-300'
+                                      }`}
+                                    >
+                                      {check.ok ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
+                                      <span>{check.label}</span>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                <div className="rounded border border-zinc-700/60 bg-zinc-900/50 p-2 text-sm">
+                                  <span className="text-zinc-400 text-xs uppercase tracking-wide mr-2">
+                                    Observaciones / Daños
+                                  </span>
+                                  <span className="text-zinc-200">
+                                    {hasNotes ? item.damage_notes : 'Sin observaciones registradas.'}
+                                  </span>
+                                </div>
+                              </div>
                             </td>
                           </tr>
                         )}

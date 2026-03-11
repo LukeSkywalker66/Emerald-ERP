@@ -360,11 +360,11 @@ export default function WorkOrdersPage() {
                 <Lock size={14} className="text-amber-300" />
                 <p className="text-sm font-semibold text-amber-100">🚐 Control de Vehículo Pendiente</p>
                 <Badge className="bg-amber-700/30 border border-amber-600 text-amber-200">
-                  Hard Block
+                  Bloqueo operativo
                 </Badge>
               </div>
               <p className="text-xs text-amber-200/90">
-                Antes de ver y ejecutar tus Órdenes de Trabajo, debés completar la planilla diaria pre-trip del vehículo.
+                Antes de ver y ejecutar tus Órdenes de Trabajo, debés completar la planilla diaria de control previo a la salida del vehículo.
               </p>
             </div>
           </div>

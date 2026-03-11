@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Car, ClipboardList, Loader2, Pencil, Plus, RefreshCcw, Trash2 } from 'lucide-react';
+import { Car, ListChecks, Loader2, Pencil, Plus, RefreshCcw, Trash2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -199,7 +199,7 @@ const FleetPage = () => {
                               }}
                               className="border-cyan-600/40 text-cyan-300 hover:bg-cyan-950/30"
                             >
-                              <ClipboardList className="h-4 w-4" />
+                              <ListChecks className="h-4 w-4" />
                             </Button>
                           </Can>
                           <Button
