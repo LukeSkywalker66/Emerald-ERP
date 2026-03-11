@@ -187,6 +187,215 @@ class VehicleInspection(Base):
         comment="Kilometraje actual informado"
     )
 
+    mechanical_conditions: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Condiciones mecanicas generales reportadas por el tecnico"
+    )
+
+    oil_level: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        default="medio",
+        comment="Nivel de aceite: bajo|minimo|medio|alto"
+    )
+
+    water_level: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        default="medio",
+        comment="Nivel de agua: bajo|minimo|medio|alto"
+    )
+
+    fuel_level: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        default="medio",
+        comment="Nivel de combustible: bajo|minimo|medio|alto"
+    )
+
+    brake_fluid_level: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        default="medio",
+        comment="Nivel de liquido de freno: bajo|minimo|medio|alto"
+    )
+
+    has_hydraulic_leaks: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Existen fugas hidraulicas"
+    )
+
+    pulls_to_one_side: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Sistema de alineamiento: el vehiculo tira para un lado"
+    )
+
+    oil_leaks: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Estado de aceite: tiene perdidas"
+    )
+
+    hose_leaks: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Estado de mangueras: tienen perdidas"
+    )
+
+    radiator_leaks: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Estado del radiador: tiene perdidas"
+    )
+
+    low_beam_lights_ok: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Luces bajas: funcionan todas"
+    )
+
+    high_beam_lights_ok: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Luces altas: funcionan todas"
+    )
+
+    hazard_lights_ok: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Balizas: funcionan todas"
+    )
+
+    brake_lights_ok: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Luces de freno operativas"
+    )
+
+    position_lights_ok: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Luces de posicion operativas"
+    )
+
+    reverse_lights_ok: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Luces de retroceso operativas"
+    )
+
+    fog_lights_ok: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Luz auxiliar/rompenieblas operativa"
+    )
+
+    dashboard_indicators_on: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Indicadores de tablero: alguno encendido"
+    )
+
+    reverse_alarm_ok: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Alarma de retroceso audible"
+    )
+
+    tires_cuts_or_bulges: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Existen cortaduras o abultamientos en cubiertas"
+    )
+
+    has_spare_tire: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Tiene rueda de auxilio"
+    )
+
+    has_lug_wrench: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Tiene llave cruz"
+    )
+
+    has_jack: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Tiene gato"
+    )
+
+    tires_pressure_ok_30psi: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Todos los neumaticos tienen 30 libras"
+    )
+
+    seatbelts_all_ok: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Cinturon en todos los asientos"
+    )
+
+    horn_ok: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Bocina audible"
+    )
+
+    mirrors_ok: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Espejos retrovisores en condiciones"
+    )
+
+    has_two_safety_cones: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Conos de seguridad (2 unidades)"
+    )
+
+    fire_extinguisher_ok: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Matafuego disponible"
+    )
+
+    wipers_ok: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Limpiaparabrisas operativo"
+    )
+
     water_level_ok: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -258,6 +467,22 @@ class VehicleInspection(Base):
     __table_args__ = (
         UniqueConstraint("vehicle_id", "inspection_date", name="uq_vehicle_inspections_vehicle_date"),
         CheckConstraint("km_actual >= 0", name="ck_vehicle_inspections_km_non_negative"),
+        CheckConstraint(
+            "oil_level IN ('bajo', 'minimo', 'medio', 'alto')",
+            name="ck_vehicle_inspections_oil_level_values",
+        ),
+        CheckConstraint(
+            "water_level IN ('bajo', 'minimo', 'medio', 'alto')",
+            name="ck_vehicle_inspections_water_level_values",
+        ),
+        CheckConstraint(
+            "fuel_level IN ('bajo', 'minimo', 'medio', 'alto')",
+            name="ck_vehicle_inspections_fuel_level_values",
+        ),
+        CheckConstraint(
+            "brake_fluid_level IN ('bajo', 'minimo', 'medio', 'alto')",
+            name="ck_vehicle_inspections_brake_fluid_level_values",
+        ),
         CheckConstraint(
             "status IN ('OK', 'NEEDS_ATTENTION', 'CRITICAL')",
             name="ck_vehicle_inspections_status_values",

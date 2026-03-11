@@ -131,15 +131,36 @@ export default function VehicleInspectionHistoryDialog({ open, onOpenChange, veh
                   {rows.map((item) => {
                     const hasNotes = Boolean(item.damage_notes && item.damage_notes.trim());
                     const isExpanded = expandedRowId === item.id;
-                    const checks = [
-                      { key: 'water_level_ok', label: 'Agua', ok: item.water_level_ok },
-                      { key: 'oil_level_ok', label: 'Aceite', ok: item.oil_level_ok },
-                      { key: 'tires_ok', label: 'Neumaticos', ok: item.tires_ok },
-                      { key: 'lights_ok', label: 'Luces', ok: item.lights_ok },
-                      { key: 'cleanliness_ok', label: 'Limpieza', ok: item.cleanliness_ok },
+                    const issueChecks = [
+                      { label: 'Fugas hidráulicas', issue: item.has_hydraulic_leaks },
+                      { label: 'Tira para un lado', issue: item.pulls_to_one_side },
+                      { label: 'Pérdidas de aceite', issue: item.oil_leaks },
+                      { label: 'Pérdidas en mangueras', issue: item.hose_leaks },
+                      { label: 'Pérdidas en radiador', issue: item.radiator_leaks },
+                      { label: 'Indicadores encendidos', issue: item.dashboard_indicators_on },
+                      { label: 'Cortaduras/abultamientos', issue: item.tires_cuts_or_bulges },
+                      { label: 'Luces bajas', issue: !item.low_beam_lights_ok },
+                      { label: 'Luces altas', issue: !item.high_beam_lights_ok },
+                      { label: 'Balizas', issue: !item.hazard_lights_ok },
+                      { label: 'Luces de freno', issue: !item.brake_lights_ok },
+                      { label: 'Luces de posición', issue: !item.position_lights_ok },
+                      { label: 'Luces de retroceso', issue: !item.reverse_lights_ok },
+                      { label: 'Rompenieblas', issue: !item.fog_lights_ok },
+                      { label: 'Alarma retroceso', issue: !item.reverse_alarm_ok },
+                      { label: 'Sin auxilio', issue: !item.has_spare_tire },
+                      { label: 'Sin llave cruz', issue: !item.has_lug_wrench },
+                      { label: 'Sin gato', issue: !item.has_jack },
+                      { label: 'Presión incorrecta', issue: !item.tires_pressure_ok_30psi },
+                      { label: 'Cinturones', issue: !item.seatbelts_all_ok },
+                      { label: 'Bocina', issue: !item.horn_ok },
+                      { label: 'Espejos', issue: !item.mirrors_ok },
+                      { label: 'Conos', issue: !item.has_two_safety_cones },
+                      { label: 'Matafuego', issue: !item.fire_extinguisher_ok },
+                      { label: 'Limpiaparabrisas', issue: !item.wipers_ok },
                     ];
-                    const checksOk = checks.filter((c) => c.ok).length;
-                    const failedChecks = checks.filter((c) => !c.ok).map((c) => c.label).join(', ');
+
+                    const issues = issueChecks.filter((c) => c.issue).map((c) => c.label);
+                    const levelsSummary = `Aceite ${item.oil_level} · Agua ${item.water_level} · Combustible ${item.fuel_level} · Freno ${item.brake_fluid_level}`;
                     return (
                       <Fragment key={item.id}>
                         <tr className="border-b border-zinc-800/70 hover:bg-zinc-900/60">
@@ -150,14 +171,13 @@ export default function VehicleInspectionHistoryDialog({ open, onOpenChange, veh
                             <Badge className={statusBadgeClass(item.status)}>{item.status_label || item.status}</Badge>
                           </td>
                           <td className="px-3 py-2 text-xs">
-                            <span className={`${checksOk === checks.length ? 'text-emerald-300' : 'text-amber-300'} font-semibold`}>
-                              {checksOk}/5
-                            </span>
-                            {checksOk < checks.length && (
-                              <p className="text-[11px] text-rose-300 mt-0.5 truncate" title={failedChecks}>
-                                {failedChecks}
+                            <p className="text-zinc-300 truncate" title={levelsSummary}>{levelsSummary}</p>
+                            {issues.length > 0 && (
+                              <p className="text-[11px] text-rose-300 mt-0.5 truncate" title={issues.join(', ')}>
+                                {issues.length} observación(es): {issues.join(', ')}
                               </p>
                             )}
+                            {issues.length === 0 && <p className="text-[11px] text-emerald-300 mt-0.5">Sin anomalías</p>}
                           </td>
                           <td className="px-3 py-2 text-xs text-zinc-300">
                             <p className="truncate" title={hasNotes ? item.damage_notes : 'Sin observaciones'}>
@@ -181,10 +201,48 @@ export default function VehicleInspectionHistoryDialog({ open, onOpenChange, veh
                           <tr className="border-b border-zinc-800/70 bg-zinc-900/40">
                             <td colSpan={7} className="px-3 py-3 text-zinc-300">
                               <div className="space-y-3">
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
-                                  {checks.map((check) => (
+                                <div className="rounded border border-zinc-700/60 bg-zinc-900/50 p-2.5 text-xs text-zinc-300">
+                                  <span className="text-zinc-400 uppercase tracking-wide mr-2">Niveles</span>
+                                  Aceite: <strong>{item.oil_level}</strong> · Agua: <strong>{item.water_level}</strong> · Combustible: <strong>{item.fuel_level}</strong> · Líquido de freno: <strong>{item.brake_fluid_level}</strong>
+                                </div>
+
+                                {item.mechanical_conditions && (
+                                  <div className="rounded border border-zinc-700/60 bg-zinc-900/50 p-2.5 text-sm text-zinc-200">
+                                    <span className="text-zinc-400 text-xs uppercase tracking-wide mr-2">Condiciones mecánicas</span>
+                                    {item.mechanical_conditions}
+                                  </div>
+                                )}
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                  {[
+                                    { label: 'Fugas hidráulicas', ok: !item.has_hydraulic_leaks },
+                                    { label: 'Alineación correcta', ok: !item.pulls_to_one_side },
+                                    { label: 'Sin pérdidas de aceite', ok: !item.oil_leaks },
+                                    { label: 'Mangueras sin pérdidas', ok: !item.hose_leaks },
+                                    { label: 'Radiador sin pérdidas', ok: !item.radiator_leaks },
+                                    { label: 'Luces bajas', ok: item.low_beam_lights_ok },
+                                    { label: 'Luces altas', ok: item.high_beam_lights_ok },
+                                    { label: 'Balizas', ok: item.hazard_lights_ok },
+                                    { label: 'Luces de freno', ok: item.brake_lights_ok },
+                                    { label: 'Luces de posición', ok: item.position_lights_ok },
+                                    { label: 'Luces de retroceso', ok: item.reverse_lights_ok },
+                                    { label: 'Rompenieblas', ok: item.fog_lights_ok },
+                                    { label: 'Tablero sin alertas', ok: !item.dashboard_indicators_on },
+                                    { label: 'Alarma retroceso', ok: item.reverse_alarm_ok },
+                                    { label: 'Sin cortes/abultamientos', ok: !item.tires_cuts_or_bulges },
+                                    { label: 'Auxilio', ok: item.has_spare_tire },
+                                    { label: 'Llave cruz', ok: item.has_lug_wrench },
+                                    { label: 'Gato', ok: item.has_jack },
+                                    { label: 'Presión 30 lbs', ok: item.tires_pressure_ok_30psi },
+                                    { label: 'Cinturones', ok: item.seatbelts_all_ok },
+                                    { label: 'Bocina', ok: item.horn_ok },
+                                    { label: 'Espejos', ok: item.mirrors_ok },
+                                    { label: '2 Conos', ok: item.has_two_safety_cones },
+                                    { label: 'Matafuego', ok: item.fire_extinguisher_ok },
+                                    { label: 'Limpiaparabrisas', ok: item.wipers_ok },
+                                  ].map((check, idx) => (
                                     <div
-                                      key={check.key}
+                                      key={`${check.label}-${idx}`}
                                       className={`rounded border px-2 py-1.5 text-xs flex items-center gap-1.5 ${
                                         check.ok
                                           ? 'border-emerald-700/50 bg-emerald-950/20 text-emerald-300'
