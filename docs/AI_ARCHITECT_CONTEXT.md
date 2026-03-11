@@ -200,8 +200,11 @@ class Vehicle(Base):
    - **Prisión del Técnico (OTs vencidas):** hard block real de agenda hasta cerrar OTs vencidas.
    - **Inspección de Vehículo (pre-trip):** action block, no blind block.
    - Permite leer OTs y preparar materiales, pero bloquea mutaciones de estado (`Iniciar`, `Completar`).
+   - **Backend hardening:** `PATCH /v2/work-orders/{id}` valida inspección diaria antes de `in_progress`.
+   - Respuesta esperada sin inspección: `403` con detalle: "Debe completar la inspección diaria del vehículo antes de operar.".
    - **Redundancia de cuadrilla:** la inspección diaria se valida por `vehicle_id + fecha`.
    - Si cualquier técnico de la cuadrilla la carga, se desbloquea para todos los que usan ese vehículo.
+   - **Ficha clínica de móviles:** Flota expone historial por vehículo (fecha, técnico, km, estado semáforo, observaciones).
 
 ### Patrones Obligatorios
 

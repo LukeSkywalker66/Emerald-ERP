@@ -654,8 +654,10 @@ Performance: ✅ Good
 
 ### B. Prisión del Técnico por OTs vencidas (Hard Block real)
 - Aplicado en `WorkOrdersPage` para técnicos con OTs en `pending_closure`.
-- Bloquea la ejecución operativa hasta cerrar pendientes.
-- Objetivo: forzar cierre documental (notas/evidencia) antes de nuevas acciones.
+- Bloquea la ejecución operativa del técnico hasta cerrar pendientes.
+- En Coordinación (`CoordinationGrid`): NO bloquea asignar/programar equipos con vencidas.
+- Para Coordinador y Gerencia se mantiene alerta visual roja (badge/mensaje), pero la acción está permitida.
+- Objetivo: forzar cierre documental (notas/evidencia) sin paralizar la oficina de coordinación.
 
 ### C. Prisión por Inspección de Vehículo (Action Block)
 - Requiere inspección pre-trip diaria para vehículo asignado.
@@ -663,12 +665,19 @@ Performance: ✅ Good
     - ✅ Permite ver lista de OTs y abrir detalle (preparar materiales/ruta).
     - ❌ Bloquea botones de mutación de estado (`Iniciar`, `Completar`) hasta inspección.
 - Mensaje UX: "Complete la inspección del vehículo primero".
+- Backend guard: `PATCH /v2/work-orders/{id}` rechaza activación sin inspección con `403`.
 
 ### D. Redundancia de Cuadrilla (Desbloqueo compartido)
 - Regla backend: inspección validada por `vehicle_id + inspection_date`.
 - Endpoint: `GET /api/v2/fleet/vehicles/{vehicle_id}/inspections/today`.
 - No depende del `technician_id` que cargó la planilla.
 - Resultado: si ayudante carga inspección, líder también queda desbloqueado.
+
+### E. Ficha Clínica de Vehículo (Gestión)
+- En módulo Flota se habilita "Ver Historial" por vehículo (RBAC con `<Can resource="inventory" action="edit">`).
+- Fuente de datos: `GET /api/v2/fleet/inspections?vehicle_id={id}`.
+- Orden: `inspection_date DESC` (más reciente primero).
+- Columnas: fecha, técnico, km, estado (`OK/NEEDS_ATTENTION/CRITICAL`) y observaciones.
 
 ---
 

@@ -424,17 +424,15 @@ export default function ImprovedCoordinationGrid({
 
     const wo = JSON.parse(data);
     
-    // ========== PRISIÓN DEL TÉCNICO: SOFT BLOCK (Coordinador) ==========
+    // ========== PRISIÓN DEL TÉCNICO: SOLO ADVERTENCIA EN COORDINACIÓN ==========
     const targetTeam = teams.find(t => t.id === teamId);
     if (targetTeam && targetTeam.pending_closure_count > 0) {
       const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QOwgcZ7Xt559NEAxPp+LvtFwaByJ71/DLdykGI3fJ8NuNOAoblrXs5qBRDQtOouHusVsZCCCH0O+++y8FKX3P8N6SPAkcabjs5KFTDQxQo9zqr1oaBR9+z/DAfi4GKXzO8N2ROwoblbnv5qBSEBBQouHtr1oaBx9+0O6/gTQIDWS76eajUA0MUKTj7LBaGAYefM/vwH0uBSZ+z+/dkToHGo+87OajUQ0MUKPi661ZGAg ...');
       audio.volume = 0.3;
       audio.play().catch(() => {});
       
-      setError(`⚠️ ${targetTeam.name} en infracción: Tiene ${targetTeam.pending_closure_count} OT${targetTeam.pending_closure_count > 1 ? 's' : ''} atrasada${targetTeam.pending_closure_count > 1 ? 's' : ''} sin cerrar. El técnico NO verá esta tarea en su app hasta que cierre las vencidas. Contáctalo primero.`);
+      setError(`⚠️ ${targetTeam.name} en infracción: Tiene ${targetTeam.pending_closure_count} OT${targetTeam.pending_closure_count > 1 ? 's' : ''} atrasada${targetTeam.pending_closure_count > 1 ? 's' : ''} sin cerrar. Asignación permitida para Coordinación, pero el técnico NO verá esta tarea en su app hasta que cierre las vencidas.`);
       setTimeout(() => setError(null), 7000);
-      setIsAssigning(false);
-      return;
     }
     
     try {
@@ -654,7 +652,7 @@ export default function ImprovedCoordinationGrid({
                       <Badge 
                         variant="outline" 
                         className="border-rose-500/70 bg-rose-900/40 text-rose-200 px-1.5 py-0 text-[10px] leading-tight flex items-center gap-0.5"
-                        title={`⚠️ Equipo bloqueado: ${team.pending_closure_count} OT${team.pending_closure_count > 1 ? 's' : ''} vencida${team.pending_closure_count > 1 ? 's' : ''} sin cerrar`}
+                        title={`⚠️ Equipo en alerta: ${team.pending_closure_count} OT${team.pending_closure_count > 1 ? 's' : ''} vencida${team.pending_closure_count > 1 ? 's' : ''} sin cerrar`}
                       >
                         <ShieldAlert size={10} />
                         {team.pending_closure_count}

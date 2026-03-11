@@ -78,6 +78,7 @@ export default function CoordinationSheet({
   /**
    * Determina si una OT está bloqueada por fecha pasada
    * Bloquea si scheduled_start < now - 5 minutos (grace period)
+   * EXCEPCIÓN: Se permite cerrar OTs atrasadas (no bloquea para cierre)
    */
   const isWorkOrderPastDate = (wo) => {
     if (!wo?.scheduled_start) return false;
@@ -87,12 +88,11 @@ export default function CoordinationSheet({
     return scheduledTime < new Date(now.getTime() - gracePeriod);
   };
 
-  // Calcular si está bloqueada (por status completada O por fecha pasada)
-  const isLocked = workOrder?.status === 'completed' || isWorkOrderPastDate(workOrder);
+  // Calcular si está bloqueada para ediciones normales
+  // NOTA: Las OTs completadas quedan inmutables, pero OTs atrasadas SÍ se pueden cerrar
+  const isLocked = workOrder?.status === 'completed';
   const lockedReason = workOrder?.status === 'completed' 
     ? 'completada' 
-    : isWorkOrderPastDate(workOrder) 
-    ? 'fecha pasada' 
     : null;
 
   // ========== EFFECTS ==========
@@ -208,7 +208,12 @@ export default function CoordinationSheet({
       console.error('❌ [DEBUG] Error detail:', err.response?.data?.detail);
       
       if (err.response?.status === 423) {
-        alert('❌ OT completada o tiene fecha pasada. No se puede editar.');
+        const lockedReason = err.response?.headers?.['x-locked-reason'];
+        if (lockedReason === 'LOCKED_COMPLETED') {
+          alert('❌ OT completada. No se puede editar (inmutable).');
+        } else {
+          alert('❌ Operación bloqueada. Contacte con administración.');
+        }
       } else {
         const errorMsg = err.response?.data?.detail || err.message || 'Error desconocido';
         alert(`Error al guardar la prioridad: ${errorMsg}`);

@@ -21,6 +21,7 @@ from src.models.tickets import (
 )
 from src.models.user import User
 from src.models.coordination import Team, TeamMember
+from src.models.fleet import VehicleInspection
 from src.schemas.tickets import (
     WorkOrderCreate,
     WorkOrderDetailResponse,
@@ -616,8 +617,10 @@ def update_work_order(
     
     # ===== VALIDACIÓN: BLOQUEAR EDICIONES DE OTs CON FECHA PASADA =====
     # Si la OT fue programada para el pasado (+ grace de 5 min), no se puede editar
-    # EXCEPCIÓN: Si está en 'coordinated' (no iniciada), permitir cambios de prioridad/duración
+    # EXCEPCIÓN 1: Si está en 'coordinated' (no iniciada), permitir cambios de prioridad/duración
     # porque el técnico aún no comenzó y el coordinador puede necesitar ajustar
+    # EXCEPCIÓN 2: CRÍTICA - Permitir SIEMPRE el cierre/completion de OTs atrasadas
+    # (el técnico debe poder reportar el cierre aunque el trabajo sea de ayer)
     now = datetime.now(timezone.utc)
     grace_period = timedelta(minutes=5)
     
@@ -626,17 +629,68 @@ def update_work_order(
     if wo.scheduled_start and wo.scheduled_start.tzinfo is None:
         scheduled_start_aware = wo.scheduled_start.replace(tzinfo=timezone.utc)
     
+    # Estados finales que SIEMPRE deben permitirse aunque haya fecha pasada
+    final_states = {WorkOrderStatus.completed, WorkOrderStatus.failed}
+    target_final_state = payload.status in final_states if payload.status else False
+    
     if scheduled_start_aware and scheduled_start_aware < now - grace_period:
-        # Si está en progreso o completada y tiene fecha pasada, bloquear
+        # Si está en progreso y tiene fecha pasada, bloquear SOLO si NO intenta cerrar/completar
         if wo.status not in [WorkOrderStatus.pending_planning, WorkOrderStatus.coordinated]:
-            raise HTTPException(
-                status_code=status.HTTP_423_LOCKED,
-                detail=f"Orden programada para {scheduled_start_aware.strftime('%d/%m %H:%M')}. No se puede editar OTs con fecha pasada.",
-                headers={
-                    "X-Locked-Reason": "LOCKED_PAST_DATE",
-                    "X-Scheduled-Start": scheduled_start_aware.isoformat(),
-                }
+            if not target_final_state:  # Solo bloquear si NO es un cierre
+                raise HTTPException(
+                    status_code=status.HTTP_423_LOCKED,
+                    detail=f"Orden programada para {scheduled_start_aware.strftime('%d/%m %H:%M')}. No se puede editar OTs con fecha pasada.",
+                    headers={
+                        "X-Locked-Reason": "LOCKED_PAST_DATE",
+                        "X-Scheduled-Start": scheduled_start_aware.isoformat(),
+                    }
+                )
+
+    # ===== HARDENING: INSPECCIÓN DIARIA OBLIGATORIA PARA OPERAR =====
+    # Solo aplica a técnicos cuando intentan pasar a estado activo (in_progress)
+    role_name = (current_user.role.name.lower() if current_user.role and current_user.role.name else "")
+    target_status = payload.status.value if payload.status else None
+    is_activation_attempt = target_status in {"in_progress", "en_camino", "on_the_way"}
+
+    if role_name in {"tecnico", "technician"} and is_activation_attempt:
+        # 1) Determinar vehículo operativo asociado a la OT del técnico
+        team_id_for_check = payload.team_id if payload.team_id is not None else wo.team_id
+        vehicle_id = None
+
+        if team_id_for_check:
+            team = db.query(Team).filter(Team.id == team_id_for_check).first()
+            vehicle_id = team.vehicle_id if team else None
+        else:
+            # Fallback: primera cuadrilla del técnico con vehículo asignado
+            member_with_vehicle = (
+                db.query(TeamMember)
+                .join(Team, TeamMember.team_id == Team.id)
+                .filter(
+                    TeamMember.user_id == current_user.id,
+                    Team.vehicle_id.is_not(None),
+                )
+                .first()
             )
+            if member_with_vehicle:
+                team = db.query(Team).filter(Team.id == member_with_vehicle.team_id).first()
+                vehicle_id = team.vehicle_id if team else None
+
+        # Si trabaja a pie (sin vehículo), no bloquear
+        if vehicle_id is not None:
+            inspection_exists = (
+                db.query(VehicleInspection.id)
+                .filter(
+                    VehicleInspection.vehicle_id == vehicle_id,
+                    VehicleInspection.inspection_date == date.today(),
+                )
+                .first()
+            )
+
+            if not inspection_exists:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Operación denegada: Debe completar la inspección diaria del vehículo antes de iniciar una tarea.",
+                )
     
     # Actualizar campos
     update_data = payload.model_dump(exclude_unset=True)

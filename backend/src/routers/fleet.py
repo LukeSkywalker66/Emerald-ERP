@@ -457,7 +457,10 @@ def list_vehicle_inspections(
     db: Session = Depends(get_db),
 ):
     """Histórico de planillas de inspección (solo admin/operador)."""
-    stmt = select(VehicleInspection).order_by(VehicleInspection.created_at.desc())
+    stmt = select(VehicleInspection).order_by(
+        VehicleInspection.inspection_date.desc(),
+        VehicleInspection.created_at.desc(),
+    )
 
     if vehicle_id is not None:
         stmt = stmt.where(VehicleInspection.vehicle_id == vehicle_id)

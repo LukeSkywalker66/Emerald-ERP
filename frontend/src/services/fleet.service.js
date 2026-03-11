@@ -114,6 +114,21 @@ export const submitInspection = async (payload) => {
   }
 };
 
+/**
+ * Obtener historial de inspecciones.
+ * @param {Object} params - { vehicle_id?: number, inspection_date?: string }
+ * @returns {Promise<Array>}
+ */
+export const getInspectionsHistory = async (params = {}) => {
+  try {
+    const { data } = await api.get(`${INSPECTIONS_BASE_URL}/inspections`, { params });
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error('❌ Error fetching inspections history:', error);
+    throw error;
+  }
+};
+
 // Export como objeto para mantener compatibilidad con otros servicios
 export default {
   getVehicles,
@@ -123,4 +138,5 @@ export default {
   deleteVehicle,
   checkTodayInspection,
   submitInspection,
+  getInspectionsHistory,
 };

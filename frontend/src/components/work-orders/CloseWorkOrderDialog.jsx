@@ -157,9 +157,30 @@ export default function CloseWorkOrderDialog({
     };
   }, [isOpen, user?.id]);
 
+  // Reset completo del estado cuando se abre/cierra el dialog o cambia la OT
   useEffect(() => {
-    setMaterials(workOrder?.items || []);
-  }, [workOrder, isOpen]);
+    if (isOpen && workOrder?.id) {
+      // Se abre para una OT específica: cargar materiales de esa OT
+      setMaterials(workOrder?.items || []);
+    } else if (!isOpen) {
+      // Se cierra el dialog: limpiar TODO
+      setStep(1);
+      setSelectedCategory(null);
+      setResolutionNotes('');
+      setUploadedPhotos([]);
+      setUploadError(null);
+      setMaterials([]);
+      setAdditionalMaterial({
+        product_id: '',
+        quantity: 1,
+        serial_number: '',
+        notes: '',
+      });
+      setSelectedProduct(null);
+      setAvailableSerials([]);
+      setMaterialError(null);
+    }
+  }, [isOpen, workOrder?.id]);
 
   // Handler para cambio de producto
   const handleProductChange = (productId) => {

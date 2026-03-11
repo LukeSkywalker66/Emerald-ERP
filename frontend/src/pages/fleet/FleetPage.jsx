@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Car, Loader2, Pencil, Plus, RefreshCcw, Trash2 } from 'lucide-react';
+import { Car, ClipboardList, Loader2, Pencil, Plus, RefreshCcw, Trash2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import fleetService from '@/services/fleet.service';
 import CreateVehicleDialog from '@/components/fleet/CreateVehicleDialog';
 import EditVehicleDialog from '@/components/fleet/EditVehicleDialog';
+import VehicleInspectionHistoryDialog from '@/components/fleet/VehicleInspectionHistoryDialog';
 import { useAuth } from '@/context/AuthContext';
 import Can from '@/components/auth/Can';
 import { getWarehouses } from '@/services/inventory.service';
@@ -33,6 +34,7 @@ const FleetPage = () => {
   const [saving, setSaving] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState(null);
   const isTechnician = ['tecnico', 'technician'].includes((user?.role || '').toLowerCase());
   const canManageFleet = hasPermission(user?.role, 'inventory', 'edit');
@@ -186,6 +188,20 @@ const FleetPage = () => {
                     {canManageFleet && (
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-2">
+                          <Can resource="inventory" action="edit">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              title="Ver historial de inspecciones"
+                              onClick={() => {
+                                setSelectedVehicle(vehicle);
+                                setShowHistory(true);
+                              }}
+                              className="border-cyan-600/40 text-cyan-300 hover:bg-cyan-950/30"
+                            >
+                              <ClipboardList className="h-4 w-4" />
+                            </Button>
+                          </Can>
                           <Button
                             size="sm"
                             variant="outline"
@@ -233,6 +249,16 @@ const FleetPage = () => {
           onSubmit={handleEdit}
           loading={saving}
         />
+      )}
+
+      {showHistory && selectedVehicle && (
+        <Can resource="inventory" action="edit">
+          <VehicleInspectionHistoryDialog
+            open={showHistory}
+            onOpenChange={setShowHistory}
+            vehicle={selectedVehicle}
+          />
+        </Can>
       )}
     </div>
   );
