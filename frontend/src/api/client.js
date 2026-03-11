@@ -33,61 +33,94 @@ function redirectToLogin() {
 async function refreshToken() {
   const storedRefresh = localStorage.getItem('emerald_refresh');
   if (!storedRefresh) {
+    console.warn('[Auth] No refresh token disponible');
     throw new Error('No hay refresh token disponible');
   }
-  const { data } = await axios.post(
-    `${baseURL}/v1/auth/refresh`,
-    { refresh_token: storedRefresh },
-    { headers: { 'Content-Type': 'application/json' } }
-  );
-  const newAccess = data?.access_token;
-  const newRefresh = data?.refresh_token;
-  if (newAccess) {
-    localStorage.setItem('emerald_token', newAccess);
-    api.defaults.headers.common.Authorization = `Bearer ${newAccess}`;
+  
+  try {
+    const { data } = await axios.post(
+      `${baseURL}/v1/auth/refresh`,
+      { refresh_token: storedRefresh },
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+    const newAccess = data?.access_token;
+    const newRefresh = data?.refresh_token;
+    
+    if (newAccess) {
+      localStorage.setItem('emerald_token', newAccess);
+      api.defaults.headers.common.Authorization = `Bearer ${newAccess}`;
+    }
+    if (newRefresh) {
+      localStorage.setItem('emerald_refresh', newRefresh);
+    }
+    return data;
+  } catch (err) {
+    console.error('[Auth] Refresh token failed:', err?.response?.status || err?.message);
+    throw err;
   }
-  if (newRefresh) {
-    localStorage.setItem('emerald_refresh', newRefresh);
-  }
-  return data;
 }
 
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const { response, config } = error || {};
+    const { response, config, code, message } = error || {};
+    
+    // Solo intentar refresh si el error es 401 y no es un retry
     if (response?.status === 401 && !config?._retry) {
       config._retry = true;
+      
       try {
+        // Verificar si tenemos un refresh token disponible
+        const storedRefresh = localStorage.getItem('emerald_refresh');
+        if (!storedRefresh) {
+          console.warn('[Auth] 401 pero no hay refresh token, forzando logout');
+          clearSession();
+          redirectToLogin();
+          return Promise.reject(error);
+        }
+        
+        // Intentar refresh de token
         if (!refreshPromise) {
           refreshPromise = refreshToken().finally(() => {
             refreshPromise = null;
           });
         }
+        
         const data = await refreshPromise;
         const newToken = data?.access_token;
+        
         if (newToken) {
           config.headers = {
             ...config.headers,
             Authorization: `Bearer ${newToken}`,
           };
+          console.info('[Auth] Token refreshed, retrying original request');
+          return api(config);
         }
-        return api(config);
+        
+        // Si el refresh no devolvió un token válido
+        clearSession();
+        redirectToLogin();
+        return Promise.reject(error);
+        
       } catch (refreshError) {
         const refreshStatus = refreshError?.response?.status;
-        const hasRefresh = Boolean(localStorage.getItem('emerald_refresh'));
-        const shouldForceLogout = refreshStatus === 401 || refreshStatus === 403 || !hasRefresh;
-
-        if (shouldForceLogout) {
+        
+        // Solo hacer logout en casos definitivos (401, 403 del refresh)
+        // No en errores de red transitorios
+        if (refreshStatus === 401 || refreshStatus === 403) {
+          console.error('[Auth] Refresh token inválido, forzando logout');
           clearSession();
           redirectToLogin();
         } else {
-          // Fallo transitorio (reinicio backend/HMR/red): no destruir sesión local.
-          console.warn('[Auth] Refresh transitorio fallido, manteniendo sesión local');
+          // Error transitorio de red/servidor
+          console.warn('[Auth] Refresh falló por error transitorio, manteniendo sesión local', refreshStatus || code);
         }
+        
         return Promise.reject(refreshError);
       }
     }
+    
     return Promise.reject(error);
   }
 );
