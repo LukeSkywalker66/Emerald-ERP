@@ -986,10 +986,14 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
     """
     ticket_title = wo.ticket.subject if wo.ticket else "Sin ticket"
     client_name = None
-    if wo.ticket and wo.ticket.creator:
-        client_name = wo.ticket.creator.full_name or wo.ticket.creator.email
-
     address = getattr(wo.ticket, "availability_note", None)
+
+    # Fuente de verdad del cliente: datos de conexión/contacto del ticket.
+    # Nunca usar el creador del ticket como nombre de cliente.
+    if wo.ticket and isinstance(wo.ticket.connection_details, dict):
+        contact = wo.ticket.connection_details
+        client_name = contact.get("client_name") or contact.get("name")
+        address = contact.get("address") or contact.get("direccion") or address
 
     # Construir ticket_response si existe - como diccionario para evitar forward references
     ticket_dict = None
@@ -1017,8 +1021,8 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
             "tags": [],  # Por performance, no cargamos tags en listado
         }
 
-    # Enriquecer con datos de conexión si existe (fallback si no hay connection_details)
-    if wo.ticket and wo.ticket.connection_id and not wo.ticket.connection_details:
+    # Enriquecer con datos de conexión si existe (fallback cuando faltan datos clave)
+    if wo.ticket and wo.ticket.connection_id and (not client_name or not address):
         try:
             conn_row = db.execute(
                 text(

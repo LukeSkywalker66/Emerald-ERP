@@ -16,6 +16,18 @@ import './ImprovedCoordinationGrid.css';
 const MORNING_SLOTS = ['08:00', '09:00', '10:00', '11:00', '12:00'];
 const AFTERNOON_SLOTS = ['13:00', '14:00', '15:00', '16:00', '17:00'];
 
+const TASK_STATUS_STYLES = {
+  pending: 'bg-amber-600/85 border-amber-400/70 hover:bg-amber-600',
+  inProgress: 'bg-emerald-600/85 border-emerald-400/70 hover:bg-emerald-600',
+  completed: 'bg-orange-600/85 border-orange-400/70 hover:bg-orange-600',
+};
+
+function getTaskStatusStyle(status) {
+  if (status === 'in_progress') return TASK_STATUS_STYLES.inProgress;
+  if (status === 'completed' || status === 'pending_closure') return TASK_STATUS_STYLES.completed;
+  return TASK_STATUS_STYLES.pending;
+}
+
 // Convertir slot HH:MM a minutos desde las 00:00
 function timeToMinutes(timeStr) {
   const [hours, minutes] = timeStr.split(':').map(Number);
@@ -745,6 +757,8 @@ export default function ImprovedCoordinationGrid({
                       const endTime = new Date(woStart.getTime() + (displayDuration || wo.estimated_duration || 60) * 60000);
                       const timeDisplay = `${String(woStart.getHours()).padStart(2, '0')}:${String(woStart.getMinutes()).padStart(2, '0')} - ${String(endTime.getHours()).padStart(2, '0')}:${String(endTime.getMinutes()).padStart(2, '0')}`;
                       
+                      const statusStyle = getTaskStatusStyle(wo.status);
+
                       return (
                         <div
                           key={wo.id}
@@ -758,11 +772,11 @@ export default function ImprovedCoordinationGrid({
                             }
                           }}
                           className={`absolute top-2 h-16 rounded border cursor-move transition-all pointer-events-auto group/task overflow-hidden ${
-                            draggedItem?.id === wo.id 
-                              ? 'bg-amber-500 border-amber-400 shadow-2xl opacity-80 scale-105' 
-                              : isResizing?.workOrderId === wo.id 
-                                ? 'bg-amber-500 border-amber-400 shadow-lg' 
-                                : 'bg-amber-600/80 border-amber-500/50 hover:bg-amber-700'
+                            draggedItem?.id === wo.id
+                              ? `${statusStyle} shadow-2xl opacity-80 scale-105`
+                              : isResizing?.workOrderId === wo.id
+                                ? `${statusStyle} shadow-lg`
+                                : statusStyle
                           } ${isAtMaxDuration ? 'border-l-2 border-l-red-500' : ''}`}
                           style={{
                             left: `calc(${pos.left}% + 0.5rem)`,
@@ -818,7 +832,7 @@ export default function ImprovedCoordinationGrid({
                       {/* Preview de la OT en la posición de drop */}
                       {draggedItem && (
                         <div
-                          className="absolute top-2 h-16 rounded border bg-amber-500/60 border-emerald-400 pointer-events-none z-40 shadow-xl"
+                          className={`absolute top-2 h-16 rounded border pointer-events-none z-40 shadow-xl ${getTaskStatusStyle(draggedItem.status)} border-emerald-400`}
                           style={{
                             left: `calc(${dropPreview.leftPercent}% + 0.5rem)`,
                             width: `${((draggedItem.estimated_duration || 60) / totalMinutes) * 100}%`,
