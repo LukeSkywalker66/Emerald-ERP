@@ -44,22 +44,10 @@ const PrivateRoute = ({ children }) => {
   const { isAuthenticated } = useAuth();
   return isAuthenticated ? children : <Navigate to="/login" replace />;
 };
-  const PrivateRoute = ({ children }) => {
-    const { isAuthenticated, token } = useAuth();
-  
-    // Si hay token en localStorage pero aún no se ha decodificado (token state vacío pero localStorage tiene algo),
-    // esperar un poco antes de redirigir
-    if (!isAuthenticated && typeof window !== 'undefined') {
-      const storedToken = localStorage.getItem('emerald_token');
-      if (storedToken && !token) {
-        // Token en storage pero no ha sido procesado aún por AuthContext
-        console.log('[Router] Token en localStorage pero AuthContext aún no listo, esperando...');
-        return <LoadingScreen />;
-      }
-    }
-  
-    return isAuthenticated ? children : <Navigate to="/login" replace />;
-  };
+
+const AppRoutes = () => (
+  <Suspense fallback={<LoadingScreen />}>
+    <Routes>
       <Route path="/login" element={<LoginPage />} />
       
       <Route

@@ -27,27 +27,24 @@ export const AuthProvider = ({ children }) => {
   const decodeToken = (accessToken) => {
     try {
       const payload = accessToken.split('.')[1];
-    // Decodificar JWT para obtener user info
-    const decodeToken = (accessToken) => {
-      try {
-        console.log('[Auth] Decodificando token...');
-        const payload = accessToken.split('.')[1];
-        const decoded = JSON.parse(atob(payload));
-        const exp = new Date(decoded.exp * 1000).toLocaleString();
-        console.log(`[Auth] Token decodificado: sub=${decoded.sub}, email=${decoded.email}, exp=${exp}`);
-        return {
-          id: parseInt(decoded.sub, 10),
-          email: decoded.email,
-          username: decoded.username,
-          is_superuser: decoded.is_superuser,
-          role: decoded.role,
-          full_name: localStorage.getItem('emerald_full_name') || decoded.email,
-        };
-      } catch (err) {
-        console.error('[Auth] Error decodificando token:', err);
-        return null;
-      }
-    };
+      const decoded = JSON.parse(atob(payload));
+      return {
+        id: parseInt(decoded.sub, 10),
+        email: decoded.email,
+        username: decoded.username,
+        is_superuser: decoded.is_superuser,
+        role: decoded.role,
+        full_name: localStorage.getItem('emerald_full_name') || decoded.email,
+      };
+    } catch (err) {
+      console.error('Error decodificando token:', err);
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    // Sincronizar localStorage entre pestañas
+    const handleStorageChange = (e) => {
       if (e.key === 'emerald_token' && e.newValue !== token) {
         setToken(e.newValue);
       }
@@ -87,65 +84,59 @@ export const AuthProvider = ({ children }) => {
     // Y no hay refresh token para obtener uno nuevo.
     // Esperar un tick para permitir que el refresh token se guarde en localStorage.
     const checkRefreshToken = () => {
-          // CRÍTICO: Solo cerrar sesión si:
-          // 1. El access token está REALMENTE expirado Y
-          // 2. No hay refresh token disponible para obtener uno nuevo
-          // Hacerlo SÍNCRONO (sin setTimeout) para evitar race conditions
-          const storedRefresh = localStorage.getItem('emerald_refresh');
-          const tokenExpired = isTokenExpired(token);
-    
-          if (tokenExpired && !storedRefresh) {
-            console.warn('[Auth] Access token expirado SIN refresh token, forzando logout');
-            logout();
-            return;
-          }
+      const storedRefresh = localStorage.getItem('emerald_refresh');
+      
+      if (!storedRefresh && isTokenExpired(token)) {
+        console.warn('[Auth] Access token expirado sin refresh token, forzando login');
+        logout();
+        return;
+      }
 
-          if (tokenExpired && storedRefresh) {
-      useEffect(() => {
-        console.log('[Auth] useEffect [token, user] triggered. token present?', !!token);
-    
-        if (!token) {
-          console.log('[Auth] No token present, clearing user');
-          setUser(null);
-          return;
-        }
+      if (isTokenExpired(token) && storedRefresh) {
+        console.info('[Auth] Token expirado pero hay refresh_token disponible. refresh pending.');
+      }
+    };
 
-        const decodedUser = decodeToken(token);
-        if (!decodedUser) {
-          // Token corrupto/inválido: cerrar sesión por seguridad.
-          console.warn('[Auth] Token inválido/corrupto, forzando logout');
-          logout();
-          return;
-        }
+    // Esperar un ciclo para que localStorage esté consistente
+    const timer = setTimeout(checkRefreshToken, 0);
+    return () => clearTimeout(timer);
+  }, [token, user]);
 
-        console.log('[Auth] Token válido. User:', decodedUser.email);
-    
-        if (!user || user.id !== decodedUser.id) {
-          console.log('[Auth] Actualizando user state');
-          setUser(decodedUser);
-        }
+  const login = async ({ email, password }) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const form = new URLSearchParams();
+      form.append('username', email);
+      form.append('password', password);
 
-        // CRÍTICO: Solo cerrar sesión si:
-        // 1. El access token está REALMENTE expirado Y
-        // 2. No hay refresh token disponible para obtener uno nuevo
-        // Hacerlo SÍNCRONO (sin setTimeout) para evitar race conditions
-        const storedRefresh = localStorage.getItem('emerald_refresh');
-        const tokenExpired = isTokenExpired(token);
-    
-        console.log('[Auth] Expiry check: tokenExpired?', tokenExpired, 'hasRefresh?', !!storedRefresh);
-    
-        if (tokenExpired && !storedRefresh) {
-          console.warn('[Auth] ⚠️ Access token EXPIRADO SIN refresh token, forzando logout');
-          logout();
-          return;
-        }
+      const { data } = await api.post('/v1/auth/login', form, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      });
+      const accessToken = data?.access_token;
+      const nextRefresh = data?.refresh_token;
+      
+      if (!accessToken) {
+        throw new Error('No access token in response');
+      }
 
-        if (tokenExpired && storedRefresh) {
-          console.info('[Auth] ℹ️ Token expirado pero hay refresh_token, mantener sesión para refresh automático');
-        }
-    
-        console.log('[Auth] ✅ Token validation complete, sesión OK');
-      }, [token, user]);
+      // CRÍTICO: Guardar AMBOS tokens en localStorage ANTES de actualizar estado React
+      // Esto evita race conditions en el useEffect
+      localStorage.setItem('emerald_token', accessToken);
+      localStorage.setItem('emerald_email', email);
+      
+      if (nextRefresh) {
+        localStorage.setItem('emerald_refresh', nextRefresh);
+      }
+
+      // Ahora sí actualizar estado React (que dispara useEffect)
+      setToken(accessToken);
+      if (nextRefresh) {
+        setRefreshToken(nextRefresh);
+      }
+      
+      // Decodificar inmediatamente después del login
+      const decodedUser = decodeToken(accessToken);
       if (decodedUser) {
         setUser(decodedUser);
       }
