@@ -152,7 +152,7 @@ export default function CoordinationSidebar({
   // ========== RENDER ==========
 
   return (
-    <div className="h-full flex flex-col bg-zinc-900/50 border-r border-zinc-800">
+    <div className="h-full min-h-0 flex flex-col bg-zinc-900/50 border-r border-zinc-800">
       {/* ========== PANEL DE FILTROS MULTICRITERIO ========== */}
       <CoordinationFilters
         filters={filters}
@@ -164,29 +164,29 @@ export default function CoordinationSidebar({
         onClearAll={clearFilters}
       />
 
-      {/* ========== ALERTA GLOBAL: EQUIPOS BLOQUEADOS ========== */}
-      <div className="px-3 pt-3">
-        <PendingClosureAlert
-          stats={pendingClosureStats}
-          isLoading={isLoadingPendingStats}
-          error={pendingStatsError}
-          onRefresh={loadPendingClosureStats}
-          onSelectWorkOrder={onSelectWorkOrder}
-        />
-      </div>
+      <ScrollArea className="flex-1 min-h-0">
+        {/* ========== ALERTA GLOBAL: EQUIPOS BLOQUEADOS ========== */}
+        <div className="px-3 pt-3">
+          <PendingClosureAlert
+            stats={pendingClosureStats}
+            isLoading={isLoadingPendingStats}
+            error={pendingStatsError}
+            onRefresh={loadPendingClosureStats}
+            onSelectWorkOrder={onSelectWorkOrder}
+          />
+        </div>
 
-      {/* ========== CONTADOR ========== */}
-      <div className="px-3 py-1.5 bg-zinc-900/80 border-b border-zinc-700/50 flex items-center justify-between">
-        <span className="text-[10px] text-zinc-400">
-          Mostrando: <span className="font-bold text-emerald-400">{totalWOs}</span>
-          <span className="text-zinc-600">
-            / {workOrders.length}
+        {/* ========== CONTADOR ========== */}
+        <div className="px-3 py-1.5 bg-zinc-900/80 border-b border-zinc-700/50 flex items-center justify-between">
+          <span className="text-[10px] text-zinc-400">
+            Mostrando: <span className="font-bold text-emerald-400">{totalWOs}</span>
+            <span className="text-zinc-600">
+              / {workOrders.length}
+            </span>
           </span>
-        </span>
-      </div>
+        </div>
 
-      {/* ========== LISTA AGRUPADA POR BARRIO ========== */}
-      <ScrollArea className="flex-1">
+        {/* ========== LISTA AGRUPADA POR BARRIO ========== */}
         {Object.keys(grouped).length === 0 ? (
           <div className="p-4 text-center">
             <p className="text-xs text-zinc-500">
@@ -233,7 +233,6 @@ export default function CoordinationSidebar({
                         </span>
                       </div>
 
-                      {/* Contadores */}
                       <div className="flex items-center gap-1.5">
                         {priorityCounts.critical > 0 && (
                           <Badge variant="destructive" className="text-[10px] px-1.5 py-0">

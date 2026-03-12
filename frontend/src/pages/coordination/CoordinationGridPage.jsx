@@ -235,7 +235,7 @@ export default function CoordinationGridPage() {
   const isToday = format(currentDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
 
   return (
-    <div className="flex h-screen bg-zinc-950 text-zinc-100 overflow-hidden">
+    <div className="flex h-screen min-h-0 bg-zinc-950 text-zinc-100 overflow-hidden">
       {/* SIDEBAR TÁCTICO */}
       {gridData && (
         <CoordinationSidebar
@@ -246,7 +246,7 @@ export default function CoordinationGridPage() {
       )}
 
       {/* CONTENIDO PRINCIPAL */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* HEADER CON NAVEGACIÓN DE FECHA */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-900/50">
           <div className="flex items-center gap-4">
@@ -296,7 +296,7 @@ export default function CoordinationGridPage() {
         </div>
 
         {/* ÁREA DE CALENDARIO */}
-        <div className="flex-1 overflow-hidden flex flex-col">
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           {/* Tabs mañana/tarde */}
           <div className="flex gap-2 p-3 border-b border-zinc-800 bg-zinc-900/30 flex-shrink-0 select-none">
             <button
@@ -322,7 +322,7 @@ export default function CoordinationGridPage() {
           </div>
 
           {/* Grid */}
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 min-h-0 overflow-hidden">
             {isLoading && !gridData ? (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center">
