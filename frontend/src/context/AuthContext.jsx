@@ -7,6 +7,7 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(() => localStorage.getItem('emerald_token'));
   const [refreshToken, setRefreshToken] = useState(() => localStorage.getItem('emerald_refresh'));
   const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -65,6 +66,7 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     if (!token) {
       setUser(null);
+      setAuthReady(true);
       return;
     }
 
@@ -99,6 +101,7 @@ export const AuthProvider = ({ children }) => {
 
     // Esperar un ciclo para que localStorage esté consistente
     const timer = setTimeout(checkRefreshToken, 0);
+    setAuthReady(true);
     return () => clearTimeout(timer);
   }, [token, user]);
 
@@ -130,6 +133,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       // Ahora sí actualizar estado React (que dispara useEffect)
+      setAuthReady(false);
       setToken(accessToken);
       if (nextRefresh) {
         setRefreshToken(nextRefresh);
@@ -140,6 +144,8 @@ export const AuthProvider = ({ children }) => {
       if (decodedUser) {
         setUser(decodedUser);
       }
+
+      setAuthReady(true);
 
       return data;
     } catch (err) {
@@ -158,6 +164,7 @@ export const AuthProvider = ({ children }) => {
     setToken(null);
     setRefreshToken(null);
     setUser(null);
+    setAuthReady(true);
   };
 
   const value = useMemo(
@@ -165,13 +172,14 @@ export const AuthProvider = ({ children }) => {
       token,
       refreshToken,
       user,
+      authReady,
       loading,
       error,
       isAuthenticated: Boolean(token),
       login,
       logout,
     }),
-    [token, refreshToken, user, loading, error]
+    [token, refreshToken, user, authReady, loading, error]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
