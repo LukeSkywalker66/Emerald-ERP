@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { format, addMinutes, parse } from 'date-fns';
+import { format, addMinutes, parse, startOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { AlertTriangle, Clock, MapPin, ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -19,12 +19,18 @@ const AFTERNOON_SLOTS = ['13:00', '14:00', '15:00', '16:00', '17:00'];
 const TASK_STATUS_STYLES = {
   pending: 'bg-amber-600/85 border-amber-400/70 hover:bg-amber-600',
   inProgress: 'bg-emerald-600/85 border-emerald-400/70 hover:bg-emerald-600',
-  completed: 'bg-orange-600/85 border-orange-400/70 hover:bg-orange-600',
+  pendingClosure: 'bg-orange-700/85 border-orange-300/70 hover:bg-orange-700',
+  completed: 'bg-emerald-700/85 border-emerald-300/70 hover:bg-emerald-700',
+  failed: 'bg-rose-700/85 border-rose-300/70 hover:bg-rose-700',
+  cancelled: 'bg-zinc-700/90 border-zinc-400/70 hover:bg-zinc-700',
 };
 
 function getTaskStatusStyle(status) {
   if (status === 'in_progress') return TASK_STATUS_STYLES.inProgress;
-  if (status === 'completed' || status === 'pending_closure') return TASK_STATUS_STYLES.completed;
+  if (status === 'pending_closure') return TASK_STATUS_STYLES.pendingClosure;
+  if (status === 'completed') return TASK_STATUS_STYLES.completed;
+  if (status === 'failed') return TASK_STATUS_STYLES.failed;
+  if (status === 'cancelled') return TASK_STATUS_STYLES.cancelled;
   return TASK_STATUS_STYLES.pending;
 }
 
@@ -146,6 +152,7 @@ export default function ImprovedCoordinationGrid({
   const startSlot = timeToMinutes(slots[0]);
   const endSlot = timeToMinutes(slots[slots.length - 1]) + 60; // +60 para la última hora completa
   const totalMinutes = endSlot - startSlot;
+  const isPastDate = startOfDay(currentDate) < startOfDay(new Date());
 
   // Usar workOrders directamente (BD es fuente de verdad, sin localStorage)
   useEffect(() => {
@@ -252,6 +259,12 @@ export default function ImprovedCoordinationGrid({
 
   // Manejar inicio de resize
   function handleResizeStart(e, wo) {
+    if (isPastDate) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
     e.preventDefault();
     e.stopPropagation();
     
@@ -391,6 +404,12 @@ export default function ImprovedCoordinationGrid({
 
   // Manejar drag start - Bloquear si se está resizing (usando ref para detección inmediata)
   function handleDragStart(e, wo) {
+    if (isPastDate) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
     // Check la ref, NO el estado (React state es asíncrono)
     if (isResizingRef.current) {
       e.preventDefault();
@@ -425,6 +444,11 @@ export default function ImprovedCoordinationGrid({
     e.preventDefault();
     setDropPreview(null);
     setDragOverTeamId(null);
+
+    if (isPastDate) {
+      setDraggedItem(null);
+      return;
+    }
     
     if (isResizingRef.current) {
       setDraggedItem(null);
@@ -625,7 +649,14 @@ export default function ImprovedCoordinationGrid({
         <div className="flex">
           {/* Espaciador para nombres de equipos */}
           <div className="w-40 flex-shrink-0 px-3 py-3 border-r border-zinc-700">
-            <p className="text-xs font-bold text-zinc-400">EQUIPOS</p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-bold text-zinc-400">EQUIPOS</p>
+              {isPastDate && (
+                <Badge variant="outline" className="border-zinc-500/70 bg-zinc-800/80 text-zinc-200 px-2 py-0 text-[10px] leading-tight">
+                  Historico - Solo Lectura
+                </Badge>
+              )}
+            </div>
           </div>
 
           {/* Timeline de horas */}
@@ -680,6 +711,8 @@ export default function ImprovedCoordinationGrid({
                     dragOverTeamId === team.id ? 'ring-2 ring-emerald-500/50' : ''
                   } transition-all duration-100`}
                   onDragOver={(e) => {
+                    if (isPastDate) return;
+
                     e.preventDefault();
                     e.dataTransfer.dropEffect = 'move';
                     
@@ -715,6 +748,8 @@ export default function ImprovedCoordinationGrid({
                     }
                   }}
                   onDragLeave={(e) => {
+                    if (isPastDate) return;
+
                     if (e.target === e.currentTarget) {
                       setDropPreview(null);
                       setDragOverTeamId(null);
@@ -762,7 +797,7 @@ export default function ImprovedCoordinationGrid({
                       return (
                         <div
                           key={wo.id}
-                          draggable
+                          draggable={!isPastDate}
                           onDragStart={(e) => handleDragStart(e, wo)}
                           onDragEnd={handleDragEnd}
                           onClick={() => {
@@ -771,13 +806,13 @@ export default function ImprovedCoordinationGrid({
                               onEventClick?.(wo);
                             }
                           }}
-                          className={`absolute top-2 h-16 rounded border cursor-move transition-all pointer-events-auto group/task overflow-hidden ${
+                          className={`absolute top-2 h-16 rounded border transition-all pointer-events-auto group/task overflow-hidden ${
                             draggedItem?.id === wo.id
                               ? `${statusStyle} shadow-2xl opacity-80 scale-105`
                               : isResizing?.workOrderId === wo.id
                                 ? `${statusStyle} shadow-lg`
                                 : statusStyle
-                          } ${isAtMaxDuration ? 'border-l-2 border-l-red-500' : ''}`}
+                          } ${isAtMaxDuration ? 'border-l-2 border-l-red-500' : ''} ${isPastDate ? 'cursor-default' : 'cursor-move'}`}
                           style={{
                             left: `calc(${pos.left}% + 0.5rem)`,
                             width: `calc(${pos.width}% - 1rem)`,
@@ -799,13 +834,15 @@ export default function ImprovedCoordinationGrid({
                           </div>
 
                           {/* Asa de redimensionamiento - DERECHA */}
-                          <div
-                            onMouseDown={(e) => handleResizeStart(e, wo)}
-                            className={`absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize opacity-0 group-hover/task:opacity-100 transition-opacity ${
-                              isAtMaxDuration ? 'bg-red-500' : 'bg-emerald-500 hover:bg-emerald-400'
-                            }`}
-                            title={isAtMaxDuration ? "Limite: próxima tarea" : "Arrastrar para cambiar duración"}
-                          />
+                          {!isPastDate && (
+                            <div
+                              onMouseDown={(e) => handleResizeStart(e, wo)}
+                              className={`absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize opacity-0 group-hover/task:opacity-100 transition-opacity ${
+                                isAtMaxDuration ? 'bg-red-500' : 'bg-emerald-500 hover:bg-emerald-400'
+                              }`}
+                              title={isAtMaxDuration ? "Limite: próxima tarea" : "Arrastrar para cambiar duración"}
+                            />
+                          )}
                         </div>
                       );
                     })}

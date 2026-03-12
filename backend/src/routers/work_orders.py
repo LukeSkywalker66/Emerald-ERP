@@ -1289,11 +1289,12 @@ def get_coordination_grid(
                 ]
             })
         
-        # Allocations (scheduled/in_progress en rango)
+        # Allocations históricas del rango.
+        # La grilla funciona como "Máquina del Tiempo": si la OT estuvo asignada a un equipo
+        # en esa fecha, debe viajar al frontend sin filtrar estados finales.
         allocations = db.query(WorkOrder)\
             .filter(
                 WorkOrder.team_id.isnot(None),
-                WorkOrder.status.in_([WorkOrderStatus.scheduled, WorkOrderStatus.in_progress]),
                 WorkOrder.scheduled_start.isnot(None),
                 WorkOrder.scheduled_start >= start,
                 WorkOrder.scheduled_start <= end,
