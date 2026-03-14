@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   ChevronLeft,
   Loader,
@@ -635,6 +635,7 @@ function AvailabilityEditor({ value, onSave, disabled }) {
 export default function TicketDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const fileInputRef = useRef(null);
   const [ticket, setTicket] = useState(null);
@@ -654,13 +655,27 @@ export default function TicketDetailPage() {
   const [closeNote, setCloseNote] = useState('');
   const [infraNote, setInfraNote] = useState('');
   const [showCreateWODialog, setShowCreateWODialog] = useState(false);
-  const [woForm, setWoForm] = useState({ ot_type: 'repair', priority: 'medium', description: '' });
+  const [woForm, setWoForm] = useState({ ot_type: 'repair', priority: 'medium', operational_instruction: '' });
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [connectionHistory, setConnectionHistory] = useState([]);
   const [engineeringTasks, setEngineeringTasks] = useState([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(false);
   const [showEngineeringDialog, setShowEngineeringDialog] = useState(false);
+  const cameFromCoordination = location.state?.from === 'coordination';
+
+  const handleBackNavigation = () => {
+    if (cameFromCoordination) {
+      navigate('/app/coordination', {
+        state: {
+          date: location.state?.date || null,
+        },
+      });
+      return;
+    }
+
+    navigate('/app/tickets');
+  };
 
   const loadTicket = async () => {
     try {
@@ -892,8 +907,8 @@ export default function TicketDetailPage() {
   };
 
   const handleCreateWorkOrder = async () => {
-    if (!woForm.description.trim()) {
-      setError('La descripción es obligatoria');
+    if (!woForm.operational_instruction.trim()) {
+      setError('La instrucción operativa es obligatoria');
       return;
     }
 
@@ -904,10 +919,11 @@ export default function TicketDetailPage() {
         ticket_id: ticket.id,
         ot_type: woForm.ot_type,
         priority: woForm.priority,
-        description: woForm.description,
+        operational_instruction: woForm.operational_instruction,
+        description: woForm.operational_instruction,
       });
       setShowCreateWODialog(false);
-      setWoForm({ ot_type: 'repair', priority: 'medium', description: '' });
+      setWoForm({ ot_type: 'repair', priority: 'medium', operational_instruction: '' });
       await loadTicket();
     } catch (err) {
       setError(err.message || 'Error al crear OT');
@@ -924,6 +940,7 @@ export default function TicketDetailPage() {
         ticket_id: ticket.id,
         ot_type: 'infrastructure',
         priority: 'medium',
+        operational_instruction: infraNote || 'OT Infra generada desde soporte',
         description: infraNote || 'OT Infra generada desde soporte',
       });
       setInfraNote('');
@@ -967,11 +984,11 @@ export default function TicketDetailPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => navigate('/app/tickets')}
+          onClick={handleBackNavigation}
           className="mb-6 border-zinc-700 text-zinc-300 hover:bg-zinc-800"
         >
           <ChevronLeft size={16} />
-          Volver a tickets
+          {cameFromCoordination ? 'Volver a coordinación' : 'Volver a tickets'}
         </Button>
         <div className="p-6 rounded-xl border border-ruby-900/50 bg-ruby-950/30">
           <div className="flex items-start gap-3">
@@ -992,11 +1009,11 @@ export default function TicketDetailPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => navigate('/app/tickets')}
+          onClick={handleBackNavigation}
           className="mb-6 border-zinc-700 text-zinc-300 hover:bg-zinc-800"
         >
           <ChevronLeft size={16} />
-          Volver a tickets
+          {cameFromCoordination ? 'Volver a coordinación' : 'Volver a tickets'}
         </Button>
         <div className="p-6 rounded-xl border border-zinc-800/80 bg-zinc-900/40 text-center">
           <p className="text-zinc-400">Ticket no encontrado</p>
@@ -1017,11 +1034,11 @@ export default function TicketDetailPage() {
       <Button
         variant="outline"
         size="sm"
-        onClick={() => navigate('/app/tickets')}
+        onClick={handleBackNavigation}
         className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
       >
         <ChevronLeft size={16} />
-        Volver a tickets
+        {cameFromCoordination ? 'Volver a coordinación' : 'Volver a tickets'}
       </Button>
 
       {error && (
@@ -1236,7 +1253,7 @@ export default function TicketDetailPage() {
               <Button 
                 className="w-full bg-emerald-600 hover:bg-emerald-500"
                 onClick={() => {
-                  setWoForm({ ...woForm, description: ticket?.subject || '' });
+                  setWoForm({ ...woForm, operational_instruction: ticket?.subject || '' });
                   setShowCreateWODialog(true);
                 }} 
                 disabled={isSaving || isSubmittingWO || !canCreateWorkOrder}
@@ -1469,15 +1486,18 @@ export default function TicketDetailPage() {
               </select>
             </div>
             <div>
-              <label className="text-sm text-zinc-300 block mb-2">Descripción</label>
+              <label className="text-sm text-zinc-300 block mb-2">Instrucción operativa</label>
               <textarea
                 required
-                value={woForm.description}
-                onChange={(e) => setWoForm({ ...woForm, description: e.target.value })}
+                value={woForm.operational_instruction}
+                onChange={(e) => setWoForm({ ...woForm, operational_instruction: e.target.value })}
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 rows={3}
-                placeholder="Describe la orden de trabajo..."
+                placeholder="Indica qué debe ejecutar la cuadrilla en campo..."
               />
+              <p className="text-xs text-zinc-500 mt-2">
+                Esta instrucción se guarda en la OT y es independiente de la descripción histórica del ticket.
+              </p>
             </div>
           </div>
           <DialogFooter className="gap-2">
@@ -1491,7 +1511,7 @@ export default function TicketDetailPage() {
             </Button>
             <Button
               onClick={handleCreateWorkOrder}
-              disabled={isSubmittingWO || !woForm.description.trim()}
+              disabled={isSubmittingWO || !woForm.operational_instruction.trim()}
               className="bg-emerald-600 hover:bg-emerald-500"
             >
               {isSubmittingWO ? 'Creando...' : 'Crear Orden de Trabajo'}

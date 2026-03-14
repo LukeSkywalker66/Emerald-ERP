@@ -6,16 +6,68 @@ Valida que los wizards y el backend funcionen correctamente
 
 import requests
 import sys
+import os
 from datetime import datetime
+from pathlib import Path
 
 BASE_URL = "http://localhost:8500/api/v2/tickets"
 
-def test_search_connections():
+
+def _load_dotenv_fallback():
+    env_path = Path(__file__).resolve().parents[1] / ".env"
+    data = {}
+    if not env_path.exists():
+        return data
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        data[key.strip()] = value.strip().strip('"').strip("'")
+    return data
+
+
+def _cfg(key, fallback, default=None):
+    return os.getenv(key) or fallback.get(key) or default
+
+
+def get_auth_headers():
+    fallback = _load_dotenv_fallback()
+    base_url = _cfg("E2E_BASE_URL", fallback, "http://localhost:8500")
+    candidates = [
+        (_cfg("E2E_ADMIN_EMAIL", fallback), _cfg("E2E_ADMIN_PASSWORD", fallback)),
+        (_cfg("ADMIN_EMAIL", fallback), _cfg("ADMIN_PASSWORD", fallback)),
+        ("qa.phaseb2@emerald.com", "QAPhaseB123"),
+    ]
+
+    for email, password in candidates:
+        if not email or not password:
+            continue
+
+        login_resp = requests.post(
+            f"{base_url}/api/v1/auth/login",
+            data={"username": email, "password": password},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        if login_resp.status_code == 200:
+            token = login_resp.json().get("access_token")
+            print(f"✅ Login E2E OK con usuario: {email}")
+            return {"Authorization": f"Bearer {token}"}
+
+    print("❌ Login E2E falló con todas las credenciales candidatas")
+    sys.exit(1)
+
+def test_search_connections(headers):
     """Test 1: Búsqueda de conexiones"""
     print("\n🔍 TEST 1: Búsqueda de Conexiones")
     print("=" * 60)
     
-    response = requests.get(f"{BASE_URL}/search-connections", params={"query": "test", "limit": 5})
+    response = requests.get(
+        f"{BASE_URL}/search-connections",
+        params={"query": "test", "limit": 5},
+        headers=headers,
+    )
     
     if response.status_code != 200:
         print(f"❌ FAIL: Status {response.status_code}")
@@ -33,7 +85,7 @@ def test_search_connections():
     return None
 
 
-def test_create_technical_ticket(connection_id):
+def test_create_technical_ticket(connection_id, headers):
     """Test 2: Crear ticket TECHNICAL via wizard"""
     print("\n🔧 TEST 2: Wizard Técnico")
     print("=" * 60)
@@ -46,7 +98,7 @@ def test_create_technical_ticket(connection_id):
         "connection_id": connection_id
     }
     
-    response = requests.post(BASE_URL, json=payload)
+    response = requests.post(BASE_URL, json=payload, headers=headers)
     
     if response.status_code == 201:
         ticket = response.json()
@@ -60,13 +112,17 @@ def test_create_technical_ticket(connection_id):
         return None
 
 
-def test_create_installation_ticket():
+def test_create_installation_ticket(headers):
     """Test 3: Crear ticket INSTALLATION"""
     print("\n➕ TEST 3: Wizard Instalación")
     print("=" * 60)
     
     # Primero buscar una conexión para destino
-    search_resp = requests.get(f"{BASE_URL}/search-connections", params={"query": "test", "limit": 1})
+    search_resp = requests.get(
+        f"{BASE_URL}/search-connections",
+        params={"query": "test", "limit": 1},
+        headers=headers,
+    )
     connections = search_resp.json()
     
     if len(connections) == 0:
@@ -84,7 +140,7 @@ def test_create_installation_ticket():
         "installation_tech": "fiber"
     }
     
-    response = requests.post(BASE_URL, json=payload)
+    response = requests.post(BASE_URL, json=payload, headers=headers)
     
     if response.status_code == 201:
         ticket = response.json()
@@ -93,7 +149,7 @@ def test_create_installation_ticket():
         print(f"   Tech: {ticket['installation_tech']}")
         
         # Verificar auto-OT
-        detail_resp = requests.get(f"{BASE_URL}/{ticket['id']}")
+        detail_resp = requests.get(f"{BASE_URL}/{ticket['id']}", headers=headers)
         detail = detail_resp.json()
         wo_count = len(detail.get('work_orders', []))
         print(f"   Work Orders auto-creadas: {wo_count}")
@@ -107,13 +163,17 @@ def test_create_installation_ticket():
         return None
 
 
-def test_create_relocation_ticket():
+def test_create_relocation_ticket(headers):
     """Test 4: Crear ticket RELOCATION"""
     print("\n🚚 TEST 4: Wizard Relocation (Mudanza)")
     print("=" * 60)
     
     # Buscar 2 conexiones diferentes
-    search_resp = requests.get(f"{BASE_URL}/search-connections", params={"query": "", "limit": 10})
+    search_resp = requests.get(
+        f"{BASE_URL}/search-connections",
+        params={"query": "", "limit": 10},
+        headers=headers,
+    )
     connections = search_resp.json()
     
     if len(connections) < 2:
@@ -132,7 +192,7 @@ def test_create_relocation_ticket():
         "destination_connection_id": dest_id
     }
     
-    response = requests.post(BASE_URL, json=payload)
+    response = requests.post(BASE_URL, json=payload, headers=headers)
     
     if response.status_code == 201:
         ticket = response.json()
@@ -145,7 +205,7 @@ def test_create_relocation_ticket():
         return None
 
 
-def test_create_administrative_ticket(connection_id):
+def test_create_administrative_ticket(connection_id, headers):
     """Test 5: Crear ticket ADMINISTRATIVE"""
     print("\n📋 TEST 5: Wizard Administrativo")
     print("=" * 60)
@@ -159,7 +219,7 @@ def test_create_administrative_ticket(connection_id):
         "administrative_subtype": "plan_change"
     }
     
-    response = requests.post(BASE_URL, json=payload)
+    response = requests.post(BASE_URL, json=payload, headers=headers)
     
     if response.status_code == 201:
         ticket = response.json()
@@ -177,8 +237,10 @@ def main():
     print(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
     
+    headers = get_auth_headers()
+
     # Test 1: Search
-    connection_id = test_search_connections()
+    connection_id = test_search_connections(headers)
     
     if not connection_id:
         print("\n❌ No se puede continuar sin conexiones disponibles")
@@ -186,10 +248,10 @@ def main():
     
     # Test 2-5: Crear tickets de cada tipo
     results = {
-        "technical": test_create_technical_ticket(connection_id),
-        "installation": test_create_installation_ticket(),
-        "relocation": test_create_relocation_ticket(),
-        "administrative": test_create_administrative_ticket(connection_id)
+        "technical": test_create_technical_ticket(connection_id, headers),
+        "installation": test_create_installation_ticket(headers),
+        "relocation": test_create_relocation_ticket(headers),
+        "administrative": test_create_administrative_ticket(connection_id, headers)
     }
     
     # Resumen

@@ -11,7 +11,9 @@ Uso:
 import sys
 import requests
 import json
+import os
 from datetime import datetime
+from pathlib import Path
 
 BASE_URL = "http://localhost:8500/api/v2"  # Backend corre en puerto 8500 con debugpy
 
@@ -35,9 +37,46 @@ def log_info(msg):
     print(f"{YELLOW}ℹ {msg}{END}")
 
 def get_token():
-    """No se necesita token para testing - endpoints públicos"""
-    log_success("Usando acceso público (sin token)")
-    return "public"  # Dummy token
+    """Obtiene token Bearer para pruebas E2E autenticadas."""
+    env_path = Path(__file__).resolve().parents[1] / ".env"
+    fallback = {}
+    if env_path.exists():
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            fallback[key.strip()] = value.strip().strip('"').strip("'")
+
+    candidates = [
+        (
+            os.getenv("E2E_ADMIN_EMAIL") or fallback.get("E2E_ADMIN_EMAIL"),
+            os.getenv("E2E_ADMIN_PASSWORD") or fallback.get("E2E_ADMIN_PASSWORD"),
+        ),
+        (
+            os.getenv("ADMIN_EMAIL") or fallback.get("ADMIN_EMAIL"),
+            os.getenv("ADMIN_PASSWORD") or fallback.get("ADMIN_PASSWORD"),
+        ),
+        ("qa.phaseb2@emerald.com", "QAPhaseB123"),
+    ]
+    base_url = os.getenv("E2E_BASE_URL") or fallback.get("E2E_BASE_URL") or "http://localhost:8500"
+
+    for email, password in candidates:
+        if not email or not password:
+            continue
+        response = requests.post(
+            f"{base_url}/api/v1/auth/login",
+            data={"username": email, "password": password},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        if response.status_code == 200:
+            token = response.json().get("access_token")
+            if token:
+                log_success(f"Autenticación E2E OK ({email})")
+            return token
+
+    log_error("Login falló con todas las credenciales candidatas")
+    return None
 
 def test_ticket_timeline(token):
     """Test principal: verificar timeline con estados dinámicos"""
@@ -46,7 +85,7 @@ def test_ticket_timeline(token):
         log_error("No hay token disponible")
         return False
     
-    headers = {}  # Sin headers, es público
+    headers = {"Authorization": f"Bearer {token}"}
     
     
     print(f"\n{YELLOW}═══════════════════════════════════════════════════════════════{END}")

@@ -94,6 +94,11 @@ class WorkOrderCreate(BaseModel):
     ot_type: WorkOrderType = Field(..., description="Tipo de orden de trabajo")
     priority: Optional[str] = Field(None, description="Prioridad declarada")
     description: str = Field(..., min_length=3, description="Descripción obligatoria")
+    operational_instruction: Optional[str] = Field(
+        None,
+        min_length=3,
+        description="Instrucción operativa puntual para cuadrilla (fuente de verdad OT)",
+    )
     notes: Optional[str] = Field(None, description="Notas opcionales del operador")
 
 
@@ -251,6 +256,7 @@ class TicketCreate(BaseModel):
 class TicketResponse(BaseModel):
     id: int
     subject: str
+    description: Optional[str] = None
     status: TicketStatus
     priority: TicketPriority
     ticket_type: TicketType  # NUEVO

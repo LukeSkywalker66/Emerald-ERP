@@ -7,7 +7,7 @@ const BASE_URL = '/v2/work-orders';
 
 /**
  * Crear una nueva OT
- * @param {Object} payload - { ticket_id, ot_type, priority?, description }
+ * @param {Object} payload - { ticket_id, ot_type, priority?, operational_instruction?, description? }
  * @returns {Promise<Object>} WorkOrder creada
  */
 export const createWorkOrder = async (payload) => {

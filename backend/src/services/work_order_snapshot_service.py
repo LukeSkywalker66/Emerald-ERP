@@ -1,20 +1,21 @@
-"""Helper para construir snapshots de conexión."""
+"""Snapshot service para conexión vinculada a OT."""
 from datetime import datetime
 from typing import Optional
+
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 
 def build_connection_snapshot(db: Session, connection_id: Optional[int]) -> Optional[dict]:
-    """Construye un snapshot completo de conexión-cliente-nodo-plan desde DB."""
+    """Construye un snapshot completo conexión-cliente-nodo-plan."""
     if not connection_id:
         return None
-    
+
     try:
         row = db.execute(
             text(
                 """
-                SELECT 
+                SELECT
                     c.connection_id,
                     c.pppoe_username,
                     COALESCE(c.direccion, cl.address) AS address,
@@ -37,10 +38,10 @@ def build_connection_snapshot(db: Session, connection_id: Optional[int]) -> Opti
             ),
             {"conn_id": connection_id},
         ).first()
-        
+
         if not row:
             return None
-        
+
         return {
             "connection_id": row[0],
             "pppoe_username": row[1],

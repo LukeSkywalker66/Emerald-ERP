@@ -36,11 +36,11 @@ from src.schemas.contact_attempts import (
     ContactAttemptsStatsResponse,
 )
 from src.models.contact_attempts import ContactAttempt, ContactAttemptResult
+from src.services.work_order_service import create_work_order_for_ticket
 
 logger = logging.getLogger(__name__)
 
 
-from .work_orders_snapshot_helper import build_connection_snapshot
 from .work_orders_guards import validate_coordination_not_locked, get_coordination_options_for_incomplete_work_order
 router = APIRouter(prefix="/v2/work-orders", tags=["work-orders"])
 
@@ -55,45 +55,21 @@ def create_work_order(
     ticket = db.query(Ticket).filter(Ticket.id == payload.ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-
-    # Crear snapshot de conexión (persistente para evitar re-queries)
-    ticket_custom_data = getattr(ticket, "custom_data", {}) or {}
-    connection_snapshot = build_connection_snapshot(db, ticket.connection_id)
-
-    wo = WorkOrder(
-        ticket_id=ticket.id,
-        ot_type=payload.ot_type,
-        status=WorkOrderStatus.pending_planning,
-        technician_id=None,  # Sin asignar inicialmente
-        notes=payload.description or payload.notes,
-        custom_data={
-            **ticket_custom_data,
-            "priority": payload.priority or "medium",
-            "client_id": getattr(ticket, "client_id", None),
-            "connection_id": ticket.connection_id,
-            "address": getattr(ticket, "address", None) or getattr(ticket, "availability_note", None),
-            "connection": connection_snapshot,  # 🔥 Snapshot persistente
-        },
-    )
-    db.add(wo)
-    db.flush()
-
-    # Registrar evento en timeline del ticket
-    db.add(
-        TicketTimeline(
-            ticket_id=ticket.id,
+    try:
+        wo = create_work_order_for_ticket(
+            db,
+            ticket=ticket,
             author_id=current_user.id,
-            event_type=TicketTimelineEventType.ot_event,
-            content=f"Orden de trabajo generada ({payload.ot_type.value})",
-            meta_data={
-                "work_order_id": wo.id,
-                "ot_type": payload.ot_type.value,
-                "description": payload.description,
-                "priority": payload.priority or "medium",
-                "status": wo.status.value,
-            },
+            ot_type=payload.ot_type,
+            priority=payload.priority,
+            operational_instruction=payload.operational_instruction,
+            description=payload.description,
+            notes=payload.notes,
+            timeline_meta_extra={"source": "work_orders_router"},
         )
-    )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     db.commit()
     db.refresh(wo)
     
@@ -443,8 +419,11 @@ def get_work_order_detail(
         ticket_info = {
             "id": wo.ticket.id,
             "subject": wo.ticket.subject,
+            "description": wo.ticket.description,
             "connection_id": wo.ticket.connection_id,
             "priority": wo.ticket.priority.value if wo.ticket.priority else None,
+            "category_name": wo.ticket.category.name if wo.ticket.category else None,
+            "reason_name": wo.ticket.reason.name if wo.ticket.reason else None,
             "client_name": None,  # Se llenará desde conexión o fallback
             "address": getattr(wo.ticket, "availability_note", None),
         }

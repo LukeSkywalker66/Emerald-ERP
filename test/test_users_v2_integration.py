@@ -3,18 +3,45 @@ Tests de integración para endpoints de administración de usuarios (V2)
 """
 import pytest
 import requests
+import os
+import time
+from pathlib import Path
 
 BASE_URL = "http://localhost:8500"
+RUN_ID = int(time.time())
+
+
+def _load_dotenv_fallback():
+    env_path = Path(__file__).resolve().parents[1] / ".env"
+    data = {}
+    if not env_path.exists():
+        return data
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        data[key.strip()] = value.strip().strip('"').strip("'")
+    return data
+
+
+def _cfg(key, fallback, default=None):
+    return os.getenv(key) or fallback.get(key) or default
 
 
 @pytest.fixture(scope="module")
 def superadmin_token():
     """Obtiene token de superadmin para los tests."""
+    fallback = _load_dotenv_fallback()
+    email = _cfg("E2E_ADMIN_EMAIL", fallback, "superadmin@emerald.com")
+    password = _cfg("E2E_ADMIN_PASSWORD", fallback, "SuperAdmin123!")
+
     response = requests.post(
         f"{BASE_URL}/api/v1/auth/login",
         data={
-            "username": "superadmin@emerald.com",
-            "password": "SuperAdmin123!"
+            "username": email,
+            "password": password
         },
         headers={"Content-Type": "application/x-www-form-urlencoded"}
     )
@@ -31,8 +58,8 @@ def auth_headers(superadmin_token):
 def test_create_user_success(auth_headers):
     """Test: Crear usuario exitosamente."""
     payload = {
-        "email": f"test.{__name__}@emerald.com",
-        "username": f"testuser_{__name__}",
+        "email": f"test.create.{RUN_ID}@emerald.com",
+        "username": f"testuser_create_{RUN_ID}",
         "password": "TestPassword123!",
         "full_name": "Test User Integration"
     }
@@ -56,9 +83,12 @@ def test_create_user_success(auth_headers):
 
 def test_create_user_duplicate_email(auth_headers):
     """Test: Crear usuario con email duplicado debe fallar."""
+    fallback = _load_dotenv_fallback()
+    existing_admin_email = _cfg("E2E_ADMIN_EMAIL", fallback, "superadmin@emerald.com")
+
     payload = {
-        "email": "superadmin@emerald.com",  # Ya existe
-        "username": "nuevo_username",
+        "email": existing_admin_email,
+        "username": f"nuevo_username_{RUN_ID}",
         "password": "TestPassword123!",
     }
     
@@ -76,8 +106,8 @@ def test_reset_password_success(auth_headers):
     """Test: Reset de contraseña exitoso."""
     # Crear usuario de prueba
     create_payload = {
-        "email": "reset.test@emerald.com",
-        "username": "reset_test",
+        "email": f"reset.test.{RUN_ID}@emerald.com",
+        "username": f"reset_test_{RUN_ID}",
         "password": "InitialPass123!",
     }
     create_resp = requests.post(
@@ -126,8 +156,8 @@ def test_update_status_deactivate_and_reactivate(auth_headers):
     """Test: Desactivar y reactivar usuario."""
     # Crear usuario de prueba
     create_payload = {
-        "email": "status.test@emerald.com",
-        "username": "status_test",
+        "email": f"status.test.{RUN_ID}@emerald.com",
+        "username": f"status_test_{RUN_ID}",
         "password": "StatusPass123!",
     }
     create_resp = requests.post(
@@ -196,8 +226,8 @@ def test_forbidden_access_non_superuser():
     """Test: Usuario no-superuser debe ser rechazado."""
     # Crear usuario regular
     regular_payload = {
-        "email": "regular.user@emerald.com",
-        "username": "regularuser",
+        "email": f"regular.user.{RUN_ID}@emerald.com",
+        "username": f"regularuser_{RUN_ID}",
         "password": "RegularPass123!",
     }
     
@@ -224,8 +254,8 @@ def test_forbidden_access_non_superuser():
     create_resp = requests.post(
         f"{BASE_URL}/api/v2/users/",
         json={
-            "email": "should.fail@emerald.com",
-            "username": "shouldfail",
+            "email": f"should.fail.{RUN_ID}@emerald.com",
+            "username": f"shouldfail_{RUN_ID}",
             "password": "Fail123!"
         },
         headers={"Authorization": f"Bearer {regular_token}"}

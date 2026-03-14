@@ -75,6 +75,7 @@ const TYPE_LABELS = {
 
 export default function DraggableWorkOrderCard({
   workOrder,
+  currentDate,
   onQuickAction,
   isDragging = false,
 }) {
@@ -307,6 +308,7 @@ export default function DraggableWorkOrderCard({
       {/* ========== COORDINATION SHEET ========== */}
       <CoordinationSheet
         workOrder={workOrder}
+        currentDate={currentDate}
         isOpen={showCoordinationSheet}
         onClose={() => setShowCoordinationSheet(false)}
         onDurationChange={handleDurationChange}

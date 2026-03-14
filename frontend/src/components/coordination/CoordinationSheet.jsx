@@ -8,6 +8,7 @@
 import React, { useState, useEffect } from 'react';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { useNavigate } from 'react-router-dom';
 import {
   Sheet,
   SheetContent,
@@ -33,9 +34,19 @@ import {
   Lock,
   X,
   Send,
+  ExternalLink,
+  ClipboardList,
+  Layers3,
+  FileSearch,
 } from 'lucide-react';
 import api from '@/api/client';
 import CloseWorkOrderDialog from '@/components/work-orders/CloseWorkOrderDialog';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 
 const OT_TYPE_LABELS = {
   repair: 'Reparación',
@@ -53,11 +64,13 @@ const OT_TYPE_COLORS = {
 
 export default function CoordinationSheet({
   workOrder,
+  currentDate,
   isOpen,
   onClose,
   onDurationChange,
   onWorkOrderUpdated,
 }) {
+  const navigate = useNavigate();
   const [duration, setDuration] = useState(workOrder?.estimated_duration || 60);
   const [isSavingDuration, setIsSavingDuration] = useState(false);
   const [contactAttempts, setContactAttempts] = useState([]);
@@ -72,6 +85,8 @@ export default function CoordinationSheet({
   const [priorityChanged, setPriorityChanged] = useState(false);
   const [isSavingPriority, setIsSavingPriority] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
+  const [workOrderDetail, setWorkOrderDetail] = useState(null);
+  const [isLoadingWorkOrder, setIsLoadingWorkOrder] = useState(false);
 
   // ========== HELPER FUNCTIONS ==========
 
@@ -90,12 +105,33 @@ export default function CoordinationSheet({
 
   // Calcular si está bloqueada para ediciones normales
   // NOTA: Las OTs completadas quedan inmutables, pero OTs atrasadas SÍ se pueden cerrar
-  const isLocked = workOrder?.status === 'completed';
-  const lockedReason = workOrder?.status === 'completed' 
+  const activeWorkOrder = workOrderDetail || workOrder;
+  const isLocked = activeWorkOrder?.status === 'completed';
+  const viewDate = currentDate ? new Date(currentDate) : null;
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const viewStart = viewDate ? new Date(viewDate) : null;
+  if (viewStart) {
+    viewStart.setHours(0, 0, 0, 0);
+  }
+  const isHistoricalView = Boolean(viewStart && viewStart < todayStart);
+  const isInteractionLocked = isLocked || isHistoricalView;
+  const lockedReason = activeWorkOrder?.status === 'completed' 
     ? 'completada' 
     : null;
 
   // ========== EFFECTS ==========
+
+  useEffect(() => {
+    setWorkOrderDetail(null);
+    setTicket(null);
+  }, [workOrder?.id]);
+
+  useEffect(() => {
+    if (isOpen && workOrder?.id) {
+      loadWorkOrderDetail();
+    }
+  }, [isOpen, workOrder?.id]);
 
   useEffect(() => {
     if (isOpen && workOrder?.ticket_id) {
@@ -110,13 +146,25 @@ export default function CoordinationSheet({
   }, [isOpen, workOrder?.id]);
 
   useEffect(() => {
-    setDuration(workOrder?.estimated_duration || 60);
+    setDuration((activeWorkOrder?.estimated_duration ?? workOrder?.estimated_duration) || 60);
     setDurationChanged(false);
-    setWoPriority(workOrder?.priority || 'medium');
+    setWoPriority((activeWorkOrder?.priority ?? workOrder?.priority) || 'medium');
     setPriorityChanged(false);
-  }, [workOrder?.id]);
+  }, [workOrder?.id, activeWorkOrder?.estimated_duration, activeWorkOrder?.priority]);
 
   // ========== FUNCIONES ==========
+
+  const loadWorkOrderDetail = async () => {
+    try {
+      setIsLoadingWorkOrder(true);
+      const { data } = await api.get(`/v2/work-orders/${workOrder.id}`);
+      setWorkOrderDetail(data);
+    } catch (err) {
+      console.error('Error loading work order detail:', err);
+    } finally {
+      setIsLoadingWorkOrder(false);
+    }
+  };
 
   const loadTicketDetails = async () => {
     try {
@@ -300,8 +348,8 @@ export default function CoordinationSheet({
 
   if (!workOrder) return null;
 
-  const typeLabel = OT_TYPE_LABELS[workOrder.ot_type] || 'Tarea';
-  const typeColor = OT_TYPE_COLORS[workOrder.ot_type] || 'bg-zinc-600';
+  const typeLabel = OT_TYPE_LABELS[activeWorkOrder.ot_type] || 'Tarea';
+  const typeColor = OT_TYPE_COLORS[activeWorkOrder.ot_type] || 'bg-zinc-600';
   const hasAvailability = ticket?.availability_note;
   const clientPhone = [
     ticket?.contact_info?.phone,
@@ -314,13 +362,26 @@ export default function CoordinationSheet({
     workOrder?.ticket?.contact_info?.telefono,
     workOrder?.ticket?.contact_info?.cellphone,
     workOrder?.ticket?.connection_details?.phone,
-    workOrder?.ticket_info?.contact_phone,
+    activeWorkOrder?.ticket_info?.contact_phone,
   ].find((value) => typeof value === 'string' && value.trim().length > 0);
-  const clientName = ticket?.contact_info?.client_name || workOrder.client_name;
+  const clientName = ticket?.contact_info?.client_name || activeWorkOrder.client_name;
+  const taskInstructions = activeWorkOrder.notes || activeWorkOrder.coordination_notes || 'Sin instrucciones específicas de tarea.';
+  const ticketContext = activeWorkOrder.ticket_info || {};
+
+  const openRelatedTicket = () => {
+    if (!activeWorkOrder.ticket_id) return;
+    onClose?.();
+    navigate(`/app/tickets/${activeWorkOrder.ticket_id}`, {
+      state: {
+        from: 'coordination',
+        date: currentDate ? new Date(currentDate).toISOString() : null,
+      },
+    });
+  };
 
   // DEBUG: Ver qué datos tenemos
   console.log('🔍 CoordinationSheet Debug:', {
-    workOrder_id: workOrder.id,
+    workOrder_id: activeWorkOrder.id,
     ticket_id: ticket?.id,
     has_ticket: !!ticket,
     contact_info: ticket?.contact_info,
@@ -346,19 +407,28 @@ export default function CoordinationSheet({
                     Bloqueada
                   </Badge>
                 )}
-                <span className="text-xs text-zinc-500">OT #{workOrder.id}</span>
+                <span className="text-xs text-zinc-500">OT #{activeWorkOrder.id}</span>
               </div>
               <SheetTitle className="text-lg text-white">
                 Coordinación
               </SheetTitle>
               <SheetDescription className="text-xs text-zinc-400 mt-1">
-                {workOrder.address || 'Sin dirección'}
+                {activeWorkOrder.address || 'Sin dirección'}
               </SheetDescription>
             </div>
           </div>
         </SheetHeader>
 
         {/* ========== ALERTA SI COMPLETADA/BLOQUEADA ========== */}
+        {isHistoricalView && (
+          <Alert className="bg-amber-900/20 border-amber-700/50 mt-4">
+            <FileSearch size={16} className="text-amber-400" />
+            <AlertDescription className="text-amber-300">
+              Vista historica: esta OT se muestra en modo solo lectura desde Coordinacion.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {isLocked && (
           <Alert className="bg-red-900/20 border-red-700/50 mt-4">
             <Lock size={16} className="text-red-400" />
@@ -373,6 +443,106 @@ export default function CoordinationSheet({
 
         {/* ========== CONTENIDO ========== */}
         <div className="space-y-5 py-4">
+          <div className="space-y-3 rounded-xl border border-emerald-800/60 bg-emerald-950/20 p-4">
+            <div className="flex items-center gap-2">
+              <ClipboardList size={16} className="text-emerald-400" />
+              <h3 className="text-sm font-bold text-white uppercase tracking-wide">
+                Instrucciones de la Tarea
+              </h3>
+              <Badge className={`${typeColor} border-0 text-white ml-auto`}>
+                {typeLabel}
+              </Badge>
+            </div>
+
+            {isLoadingWorkOrder && (
+              <p className="text-xs text-zinc-400">Actualizando detalle operativo...</p>
+            )}
+
+            <div className="rounded-lg bg-zinc-900/60 border border-zinc-800/80 p-3">
+              <p className="text-xs text-zinc-500 mb-1">Instrucción operativa</p>
+              <p className="text-sm text-zinc-100 whitespace-pre-line">
+                {taskInstructions}
+              </p>
+            </div>
+
+            {activeWorkOrder.coordination_notes && activeWorkOrder.coordination_notes !== activeWorkOrder.notes && (
+              <div className="rounded-lg bg-zinc-900/40 border border-zinc-800/60 p-3">
+                <p className="text-xs text-zinc-500 mb-1">Notas de coordinación</p>
+                <p className="text-sm text-zinc-200 whitespace-pre-line">
+                  {activeWorkOrder.coordination_notes}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <Accordion type="single" collapsible className="rounded-xl border border-zinc-800 bg-zinc-900/30 px-4">
+            <AccordionItem value="ticket-context" className="border-none">
+              <AccordionTrigger className="py-4 hover:no-underline">
+                <div className="flex items-center gap-2 text-left">
+                  <Layers3 size={16} className="text-zinc-400" />
+                  <div>
+                    <p className="text-sm font-bold text-white uppercase tracking-wide">
+                      Contexto del Ticket
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      Referencia secundaria para validar antecedentes y diagnóstico
+                    </p>
+                  </div>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="space-y-3 pb-4">
+                <div className="flex items-center justify-between rounded-lg bg-zinc-800/30 border border-zinc-700/50 p-3 gap-3">
+                  <div>
+                    <p className="text-xs text-zinc-500 mb-1">Ticket relacionado</p>
+                    <p className="text-sm font-medium text-emerald-400">#{activeWorkOrder.ticket_id}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={openRelatedTicket}
+                    className="border-zinc-700 text-zinc-200 hover:bg-zinc-800"
+                  >
+                    <ExternalLink size={14} className="mr-2" />
+                    Abrir ticket
+                  </Button>
+                </div>
+
+                <div className="rounded-lg bg-zinc-800/30 border border-zinc-700/50 p-3">
+                  <p className="text-xs text-zinc-500 mb-1">Asunto</p>
+                  <p className="text-sm text-white">{ticket?.subject || ticketContext.subject || 'Sin asunto'}</p>
+                </div>
+
+                {(ticket?.category_name || ticketContext.category_name || ticket?.reason_name || ticketContext.reason_name) && (
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded bg-zinc-800/30 p-2">
+                      <p className="text-zinc-500 mb-1">Categoría</p>
+                      <p className="font-medium text-white">{ticket?.category_name || ticketContext.category_name || '—'}</p>
+                    </div>
+                    <div className="rounded bg-zinc-800/30 p-2">
+                      <p className="text-zinc-500 mb-1">Motivo</p>
+                      <p className="font-medium text-white">{ticket?.reason_name || ticketContext.reason_name || '—'}</p>
+                    </div>
+                  </div>
+                )}
+
+                {(ticket?.description || ticketContext.description) && (
+                  <div className="rounded-lg bg-zinc-800/30 border border-zinc-700/50 p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <FileSearch size={14} className="text-zinc-400" />
+                      <p className="text-xs text-zinc-500">Descripción original del ticket</p>
+                    </div>
+                    <div className="max-h-32 overflow-y-auto">
+                      <p className="text-sm text-zinc-300 whitespace-pre-line">
+                        {ticket?.description || ticketContext.description}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+
           {/* ========== TELÉFONO DESTACADO ========== */}
           {clientPhone && (
             <a
@@ -380,7 +550,7 @@ export default function CoordinationSheet({
               className="block group"
             >
               <button
-                disabled={isLocked}
+                disabled={isInteractionLocked}
                 className="w-full rounded-lg bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white font-bold py-4 px-4 flex items-center justify-center gap-3 transition-all shadow-lg hover:shadow-emerald-600/50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Phone size={20} className="flex-shrink-0" />
@@ -411,7 +581,7 @@ export default function CoordinationSheet({
             {/* Intento fallido */}
             <Button
               onClick={registerFailedAttempt}
-              disabled={isLocked}
+              disabled={isInteractionLocked}
               variant="outline"
               className="w-full border-amber-700/50 text-amber-300 hover:bg-amber-950/30 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -491,7 +661,7 @@ export default function CoordinationSheet({
                 setWoPriority(e.target.value);
                 setPriorityChanged(e.target.value !== workOrder?.priority);
               }}
-              disabled={isLocked}
+              disabled={isInteractionLocked}
               className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="critical">🔴 Crítica (urgencia extrema)</option>
@@ -504,7 +674,7 @@ export default function CoordinationSheet({
               Modifica la prioridad de esta orden. Puede ser diferente a la del ticket.
             </p>
 
-            {priorityChanged && !isLocked && (
+            {priorityChanged && !isInteractionLocked && (
               <Button
                 onClick={savePriority}
                 disabled={isSavingPriority}
@@ -562,7 +732,7 @@ export default function CoordinationSheet({
                 <input
                   type="text"
                   inputMode="numeric"
-                  disabled={isLocked}
+                  disabled={isInteractionLocked}
                   value={duration}
                   onChange={(e) => {
                     const val = e.target.value.replace(/\D/g, '');
@@ -600,7 +770,7 @@ export default function CoordinationSheet({
             )}
 
             {/* Botón guardar (si cambió y no está bloqueada) */}
-            {durationChanged && !isLocked && (
+            {durationChanged && !isInteractionLocked && (
               <Button
                 onClick={saveDuration}
                 disabled={isSavingDuration}
@@ -621,9 +791,11 @@ export default function CoordinationSheet({
             )}
 
             {/* Aviso si OT completada y hay cambio */}
-            {durationChanged && isLocked && (
+            {durationChanged && isInteractionLocked && (
               <div className="rounded-lg bg-red-900/20 border border-red-700/50 p-3 text-center">
-                <p className="text-xs text-red-300 font-medium">🔒 OT {lockedReason}. No se puede guardar.</p>
+                <p className="text-xs text-red-300 font-medium">
+                  🔒 {isHistoricalView ? 'Vista historica en solo lectura.' : `OT ${lockedReason}. No se puede guardar.`}
+                </p>
               </div>
             )}
           </div>
@@ -638,20 +810,26 @@ export default function CoordinationSheet({
               <div className="rounded bg-zinc-800/30 p-2">
                 <p className="text-zinc-500 mb-1">Estado</p>
                 <p className="font-medium text-white capitalize">
-                  {workOrder.status?.replace('_', ' ')}
+                  {activeWorkOrder.status?.replace('_', ' ')}
                 </p>
               </div>
 
               <div className="rounded bg-zinc-800/30 p-2">
                 <p className="text-zinc-500 mb-1">ID de Ticket</p>
-                <p className="font-medium text-emerald-400">#{workOrder.ticket_id}</p>
+                <button
+                  type="button"
+                  onClick={openRelatedTicket}
+                  className="font-medium text-emerald-400 hover:text-emerald-300"
+                >
+                  #{activeWorkOrder.ticket_id}
+                </button>
               </div>
 
-              {workOrder.scheduled_start && workOrder.team_id && (
+              {activeWorkOrder.scheduled_start && activeWorkOrder.team_id && (
                 <div className="col-span-2 rounded bg-zinc-800/30 p-2">
                   <p className="text-zinc-500 mb-1">Programado</p>
                   <p className="font-medium text-white">
-                    {format(parseISO(workOrder.scheduled_start), 'dd MMM HH:mm', {
+                    {format(parseISO(activeWorkOrder.scheduled_start), 'dd MMM HH:mm', {
                       locale: es,
                     })}
                   </p>
@@ -664,7 +842,7 @@ export default function CoordinationSheet({
         {/* ========== BOTONES DE ACCIÓN SEGÚN STATUS ========== */}
 
         {/* RESTRICCIÓN: OTs VENCIDAS (pending_closure) - Solo Completar o Devolver al Backlog */}
-        {workOrder.status === 'pending_closure' && (
+        {!isHistoricalView && workOrder.status === 'pending_closure' && (
           <div className="border-t border-zinc-800 py-4 mt-6 space-y-3">
             <Alert className="bg-rose-900/20 border-rose-700/50">
               <AlertCircle size={16} className="text-rose-400" />
@@ -699,17 +877,17 @@ export default function CoordinationSheet({
         )}
 
         {/* BOTÓN DEVOLVER AL BACKLOG - Para OTs coordinadas (status: scheduled) */}
-        {workOrder.status === 'scheduled' && workOrder.team_id && (
+        {!isHistoricalView && workOrder.status === 'scheduled' && workOrder.team_id && (
           <div className="border-t border-zinc-800 py-4 mt-6 space-y-3">
             <p className="text-xs text-zinc-400 font-medium">¿Recoordinar esta OT?</p>
             <Button
               onClick={unassignWorkOrder}
-              disabled={isLocked}
+              disabled={isInteractionLocked}
               className="w-full bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
             >
               ↩️ Devolver al Backlog
             </Button>
-            {isLocked && (
+            {isInteractionLocked && !isHistoricalView && (
               <p className="text-xs text-red-400">
                 🔒 OT {lockedReason}. No se puede devolver al backlog.
               </p>
@@ -718,7 +896,7 @@ export default function CoordinationSheet({
         )}
 
         {/* BOTÓN MARCAR INCOMPLETA - Para OTs en progreso */}
-        {workOrder.status === 'in_progress' && (
+        {!isHistoricalView && workOrder.status === 'in_progress' && (
           <div className="border-t border-zinc-800 py-4 mt-6 space-y-3">
             <p className="text-xs text-zinc-400 font-medium">¿Trabajo no completado?</p>
             <Button

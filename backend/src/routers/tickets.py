@@ -48,6 +48,7 @@ from src.services.installation_onboarding import (
     InstallationValidationError,
     sync_installation_context,
 )
+from src.services.work_order_service import create_work_order_for_ticket
 from src.utils.audit import log_create, log_update
 
 router = APIRouter()
@@ -166,6 +167,7 @@ def _ticket_to_response(
     return TicketResponse(
         id=ticket.id,
         subject=ticket.subject,
+        description=ticket.description,
         status=ticket.status,
         priority=ticket.priority,
         ticket_type=ticket.ticket_type,
@@ -671,31 +673,25 @@ def create_ticket(
         if payload.availability_note:
             wo_note = f"{wo_note} | Disponibilidad: {payload.availability_note}"
 
-        work_order = WorkOrder(
-            ticket_id=ticket.id,
+        create_work_order_for_ticket(
+            db,
+            ticket=ticket,
+            author_id=user_id,
             ot_type=ot_type_map[payload.ticket_type],
-            status=WorkOrderStatus.pending_planning,
-            priority=ticket_priority,  # Heredar priority del ticket (modificable después)
-            notes=wo_note,
-            custom_data={
+            priority=ticket_priority,
+            operational_instruction=wo_note,
+            extra_custom_data={
                 "ticket_type": payload.ticket_type.value,
                 "installation_tech": payload.installation_tech,
                 "origin_connection_id": payload.origin_connection_id,
                 "destination_connection_id": payload.destination_connection_id,
-            }
+            },
+            timeline_content=wo_note,
+            timeline_meta_extra={
+                "source": "ticket_auto_create",
+                "ticket_type": payload.ticket_type.value,
+            },
         )
-        db.add(work_order)
-        db.flush()
-        
-        # Timeline de OT creada
-        ot_timeline = TicketTimeline(
-            ticket_id=ticket.id,
-            author_id=user_id,
-            event_type=TicketTimelineEventType.ot_event,
-            content=wo_note,
-            meta_data={"work_order_id": work_order.id},
-        )
-        db.add(ot_timeline)
     
     db.commit()
     db.refresh(ticket)
@@ -863,26 +859,20 @@ def create_work_order(
     if not ticket:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
 
-    work_order = WorkOrder(
-        ticket_id=ticket.id,
-        ot_type=payload.ot_type,
-        status=WorkOrderStatus.pending_planning,
-        notes=payload.notes,
-    )
-    db.add(work_order)
-    db.flush()
-
-    timeline_event = TicketTimeline(
-        ticket_id=ticket.id,
-        author_id=user_id,
-        event_type=TicketTimelineEventType.ot_event,
-        content=f"Orden de trabajo generada ({payload.ot_type.value})",
-        meta_data={
-            "work_order_id": work_order.id,
-            "ot_type": payload.ot_type.value,
-        },
-    )
-    db.add(timeline_event)
+    try:
+        work_order = create_work_order_for_ticket(
+            db,
+            ticket=ticket,
+            author_id=user_id,
+            ot_type=payload.ot_type,
+            priority=payload.priority,
+            operational_instruction=payload.operational_instruction,
+            description=payload.description,
+            notes=payload.notes,
+            timeline_meta_extra={"source": "tickets_router"},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     db.commit()
     db.refresh(work_order)

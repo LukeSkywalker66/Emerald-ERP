@@ -17,7 +17,7 @@ import {
 
 import { Button } from '@/components/ui/button';
 import api from '@/api/client';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import CoordinationSidebar from '@/components/coordination/CoordinationSidebar';
 import CoordinationSheet from '@/components/coordination/CoordinationSheet';
 import ImprovedCoordinationGrid from '@/components/coordination/ImprovedCoordinationGrid';
@@ -28,8 +28,15 @@ import { useCoordinationSync, useOptimisticUpdates } from '@/components/coordina
 
 export default function CoordinationGridPage() {
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState(() => {
+    const stateDate = location.state?.date;
+    if (!stateDate) return new Date();
+
+    const parsedDate = new Date(stateDate);
+    return Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+  });
   const [selectedWorkOrder, setSelectedWorkOrder] = useState(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
@@ -240,6 +247,7 @@ export default function CoordinationGridPage() {
       {gridData && (
         <CoordinationSidebar
           workOrders={gridData?.backlog || []}
+          currentDate={currentDate}
           onQuickAction={() => handleManualRefresh()}
           onSelectWorkOrder={handleEventClick}
         />
@@ -368,6 +376,7 @@ export default function CoordinationGridPage() {
       {/* DETALLE SHEET (con edición de duración) */}
       <CoordinationSheet
         workOrder={selectedWorkOrder}
+        currentDate={currentDate}
         isOpen={isDetailOpen}
         onClose={() => {
           setIsDetailOpen(false);

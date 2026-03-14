@@ -30,6 +30,7 @@ import workOrdersService from '@/services/workOrders.service';
 export default function CoordinationSidebar({
   workOrders = [],
   cities = [],
+  currentDate = null,
   onQuickAction,
   onSelectWorkOrder,
   defaultCity = null,
@@ -256,6 +257,7 @@ export default function CoordinationSidebar({
                       <DraggableWorkOrderCard
                         key={wo.id}
                         workOrder={wo}
+                        currentDate={currentDate}
                         onQuickAction={onQuickAction}
                       />
                     ))}
