@@ -11,6 +11,23 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import fleetService from '@/services/fleet.service';
 
+const LEVEL_DISPLAY_MAP = {
+  bajo: 'Bajo',
+  low: 'Bajo',
+  minimo: 'Minimo',
+  'mínimo': 'Minimo',
+  minimum: 'Minimo',
+  medio: 'Medio',
+  medium: 'Medio',
+  alto: 'Alto',
+  high: 'Alto',
+};
+
+const formatLevel = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return LEVEL_DISPLAY_MAP[normalized] || 'Medio';
+};
+
 const statusBadgeClass = (status) => {
   switch (status) {
     case 'OK':
@@ -160,7 +177,7 @@ export default function VehicleInspectionHistoryDialog({ open, onOpenChange, veh
                     ];
 
                     const issues = issueChecks.filter((c) => c.issue).map((c) => c.label);
-                    const levelsSummary = `Aceite ${item.oil_level} · Agua ${item.water_level} · Combustible ${item.fuel_level} · Freno ${item.brake_fluid_level}`;
+                    const levelsSummary = `Aceite ${formatLevel(item.oil_level)} · Agua ${formatLevel(item.water_level)} · Combustible ${formatLevel(item.fuel_level)} · Freno ${formatLevel(item.brake_fluid_level)}`;
                     return (
                       <Fragment key={item.id}>
                         <tr className="border-b border-zinc-800/70 hover:bg-zinc-900/60">
@@ -203,7 +220,7 @@ export default function VehicleInspectionHistoryDialog({ open, onOpenChange, veh
                               <div className="space-y-3">
                                 <div className="rounded border border-zinc-700/60 bg-zinc-900/50 p-2.5 text-xs text-zinc-300">
                                   <span className="text-zinc-400 uppercase tracking-wide mr-2">Niveles</span>
-                                  Aceite: <strong>{item.oil_level}</strong> · Agua: <strong>{item.water_level}</strong> · Combustible: <strong>{item.fuel_level}</strong> · Líquido de freno: <strong>{item.brake_fluid_level}</strong>
+                                  Aceite: <strong>{formatLevel(item.oil_level)}</strong> · Agua: <strong>{formatLevel(item.water_level)}</strong> · Combustible: <strong>{formatLevel(item.fuel_level)}</strong> · Líquido de freno: <strong>{formatLevel(item.brake_fluid_level)}</strong>
                                 </div>
 
                                 {item.mechanical_conditions && (

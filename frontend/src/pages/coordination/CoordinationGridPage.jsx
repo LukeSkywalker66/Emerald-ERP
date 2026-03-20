@@ -16,18 +16,16 @@ import {
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import api from '@/api/client';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import CoordinationSidebar from '@/components/coordination/CoordinationSidebar';
 import CoordinationSheet from '@/components/coordination/CoordinationSheet';
 import ImprovedCoordinationGrid from '@/components/coordination/ImprovedCoordinationGrid';
-import { useCoordinationSync, useOptimisticUpdates } from '@/components/coordination/hooks';
+import { useCoordinationSync } from '@/components/coordination/hooks';
 
 
 // ========== PÁGINA PRINCIPAL ==========
 
 export default function CoordinationGridPage() {
-  const navigate = useNavigate();
   const location = useLocation();
 
   const [currentDate, setCurrentDate] = useState(() => {
@@ -214,32 +212,8 @@ export default function CoordinationGridPage() {
     // No hacemos nada aquí porque la BD es la fuente de verdad
   }, []);
 
-  async function handleUnassignWorkOrder(woId) {
-    try {
-      // Optimistic update
-      const updateId = optimisticResult.applyOptimisticUpdate('unassign', {
-        workOrderId: woId,
-      });
-
-      // API call
-      await api.patch(`/v2/work-orders/${woId}/unassign`);
-
-      // Confirmar optimistic update
-      optimisticResult.confirmUpdate(updateId);
-
-      // Trigger refetch para sincronizar con BD
-      syncResult.refetch();
-    } catch (err) {
-      console.error('Error al desasignar OT:', err);
-      alert('No se pudo devolver al backlog: ' + (err.response?.data?.detail || err.message));
-      // Revertir optimistic update en caso de error
-      if (updateId) {
-        optimisticResult.revertOptimisticUpdate(updateId);
-      }
-    }
-  }
-
   const isToday = format(currentDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+  const isDateSwitchLoading = isLoading && Boolean(gridData);
 
   return (
     <div className="flex h-screen min-h-0 bg-zinc-950 text-zinc-100 overflow-hidden">
@@ -305,6 +279,13 @@ export default function CoordinationGridPage() {
 
         {/* ÁREA DE CALENDARIO */}
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+          {isDateSwitchLoading && (
+            <div className="px-4 py-2 border-b border-emerald-800/40 bg-emerald-950/30 text-xs text-emerald-300 flex items-center gap-2">
+              <Loader size={14} className="animate-spin" />
+              Cargando agenda de {format(currentDate, 'dd MMM yyyy', { locale: es })}...
+            </div>
+          )}
+
           {/* Tabs mañana/tarde */}
           <div className="flex gap-2 p-3 border-b border-zinc-800 bg-zinc-900/30 flex-shrink-0 select-none">
             <button

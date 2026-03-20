@@ -1,7 +1,21 @@
 """Schemas para gestión de flota (vehículos e inspecciones diarias)."""
 from datetime import datetime, date
 from typing import Optional, Literal
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
+
+
+LEVEL_ALIASES = {
+    "bajo": "bajo",
+    "low": "bajo",
+    "minimo": "minimo",
+    "minimo.": "minimo",
+    "mínimo": "minimo",
+    "minimum": "minimo",
+    "medio": "medio",
+    "medium": "medio",
+    "alto": "alto",
+    "high": "alto",
+}
 
 
 class VehicleBase(BaseModel):
@@ -92,6 +106,32 @@ class VehicleInspectionCreate(BaseModel):
     cleanliness_ok: bool = True
     damage_notes: Optional[str] = Field(None, max_length=2000)
     status: Literal["OK", "NEEDS_ATTENTION", "CRITICAL"] = "OK"
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_level_keys(cls, data):
+        """Compatibilidad con clientes legacy que usan claves alternativas."""
+        if not isinstance(data, dict):
+            return data
+
+        if "water_level" not in data and "coolant_level" in data:
+            data["water_level"] = data["coolant_level"]
+
+        return data
+
+    @field_validator("oil_level", "water_level", "fuel_level", "brake_fluid_level", mode="before")
+    @classmethod
+    def normalize_levels(cls, value):
+        """Normaliza niveles a enums canónicos en español para persistencia consistente."""
+        if value is None:
+            return value
+
+        normalized = str(value).strip().lower()
+        mapped = LEVEL_ALIASES.get(normalized)
+        if mapped:
+            return mapped
+
+        raise ValueError("Nivel inválido. Use: bajo|minimo|medio|alto")
 
 
 class VehicleInspectionResponse(BaseModel):

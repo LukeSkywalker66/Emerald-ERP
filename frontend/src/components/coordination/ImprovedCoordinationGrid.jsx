@@ -5,8 +5,8 @@
  * 4 de febrero de 2026
  */
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { format, addMinutes, parse } from 'date-fns';
+import React, { useState, useMemo, useRef } from 'react';
+import { format, addMinutes, parse, startOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { AlertTriangle, Clock, MapPin, ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -134,25 +134,7 @@ export default function ImprovedCoordinationGrid({
   const startSlot = timeToMinutes(slots[0]);
   const endSlot = timeToMinutes(slots[slots.length - 1]) + 60; // +60 para la última hora completa
   const totalMinutes = endSlot - startSlot;
-
-  // Usar workOrders directamente (BD es fuente de verdad, sin localStorage)
-  useEffect(() => {
-    // workOrders ya viene filtrado por currentDate del backend
-    console.log('📡 Recibido desde BD:', workOrders.length, 'OTs asignadas para', format(currentDate, 'yyyy-MM-dd'));
-    
-    // DEBUG: Mostrar estructura de las OTs
-    if (workOrders.length > 0) {
-      console.log('🔍 Estructura de OTs (primer elemento):', {
-        id: workOrders[0].id,
-        team_id: workOrders[0].team_id,
-        scheduled_start: workOrders[0].scheduled_start,
-        estimated_duration: workOrders[0].estimated_duration,
-        client_name: workOrders[0].client_name,
-        ot_type: workOrders[0].ot_type,
-      });
-      console.log('📋 Array completo de allocations:', workOrders);
-    }
-  }, [workOrders, currentDate]);
+  const isPastDate = startOfDay(currentDate) < startOfDay(new Date());
 
   // Aplicar filtros multicriterio
   const filteredWorkOrders = useMemo(() => {
@@ -305,19 +287,11 @@ export default function ImprovedCoordinationGrid({
         
         // ========== OPTIMISTIC UPDATE ==========
         onOptimisticResize?.(wo.id, finalDuration);
-        console.log('💡 Optimistic resize applied:', wo.id, 'new duration:', finalDuration);
         
         // Convertir scheduled_start a ISO string si es necesario
         const scheduledStartISO = wo.scheduled_start instanceof Date 
           ? wo.scheduled_start.toISOString()
           : wo.scheduled_start;
-        
-        console.log('💾 Guardando resize:', {
-          woId: wo.id,
-          originalDuration,
-          finalDuration,
-          scheduledStart: scheduledStartISO,
-        });
         
         const accessToken = localStorage.getItem('emerald_token');
         if (!accessToken) {
@@ -338,8 +312,6 @@ export default function ImprovedCoordinationGrid({
           }
         );
         
-        console.log('✅ Resize guardado exitosamente');
-        
         // ========== REFETCH DESPUÉS DE ÉXITO ==========
         // Delay pequeño para dar margen a la replicación de BD
         setTimeout(() => {
@@ -352,7 +324,6 @@ export default function ImprovedCoordinationGrid({
         
         // ========== ROLLBACK ==========
         onRollbackResize?.(wo.id);
-        console.log('🔄 Rollback applied for resize:', wo.id);
         
         // Mostrar error específico al usuario
         if (err.response?.status === 401) {
@@ -512,19 +483,9 @@ export default function ImprovedCoordinationGrid({
         return;
       }
       
-      console.log('✅ Dropeo validado (sin colisión):', {
-        teamId,
-        minutesFromTurnoStart,
-        newHours,
-        newMinutes,
-        duration: wo.estimated_duration,
-        newScheduledStart: newScheduledStart.toISOString(),
-      });
-
       // ========== 2. OPTIMISTIC UPDATE (UI INMEDIATA) ==========
       const scheduledStartISO = newScheduledStart.toISOString();
       onOptimisticAssign?.(wo, teamId, scheduledStartISO);
-      console.log('💡 Optimistic assign applied:', wo.id, 'to team', teamId);
 
       // ========== 3. BACKEND UPDATE (ASYNC, SIN BLOQUEAR VISUAL) ==========
       const accessToken = localStorage.getItem('emerald_token');
@@ -556,12 +517,6 @@ export default function ImprovedCoordinationGrid({
       }
 
       const updated = response?.data || {};
-      
-      console.log('💾 OT actualizada en el backend', {
-        woId,
-        teamId,
-        scheduledStart: updated.scheduled_start ?? scheduledStartISO,
-      });
 
       // ========== 4. ÉXITO: Refetch para sincronizar con BD ==========
       // Delay pequeño para dar margen a la replicación de BD
@@ -577,7 +532,6 @@ export default function ImprovedCoordinationGrid({
       const woId = getWorkOrderId(wo);
       if (woId != null) {
         onRollbackAssign?.(woId);
-        console.log('🔄 Rollback applied for work order:', woId);
       }
       
       // Mostrar error específico al usuario
@@ -748,7 +702,7 @@ export default function ImprovedCoordinationGrid({
                       return (
                         <div
                           key={wo.id}
-                          draggable
+                          draggable={!isPastDate}
                           onDragStart={(e) => handleDragStart(e, wo)}
                           onDragEnd={handleDragEnd}
                           onClick={() => {
@@ -757,12 +711,14 @@ export default function ImprovedCoordinationGrid({
                               onEventClick?.(wo);
                             }
                           }}
-                          className={`absolute top-2 h-16 rounded border cursor-move transition-all pointer-events-auto group/task overflow-hidden ${
+                          className={`absolute top-2 h-16 rounded border transition-all pointer-events-auto group/task overflow-hidden ${isPastDate ? 'cursor-default' : 'cursor-move'} ${
                             draggedItem?.id === wo.id 
                               ? 'bg-amber-500 border-amber-400 shadow-2xl opacity-80 scale-105' 
                               : isResizing?.workOrderId === wo.id 
                                 ? 'bg-amber-500 border-amber-400 shadow-lg' 
-                                : 'bg-amber-600/80 border-amber-500/50 hover:bg-amber-700'
+                                : isPastDate
+                                  ? 'bg-zinc-700/80 border-zinc-600/50 hover:bg-zinc-700'
+                                  : 'bg-amber-600/80 border-amber-500/50 hover:bg-amber-700'
                           } ${isAtMaxDuration ? 'border-l-2 border-l-red-500' : ''}`}
                           style={{
                             left: `calc(${pos.left}% + 0.5rem)`,
@@ -784,14 +740,16 @@ export default function ImprovedCoordinationGrid({
                             )}
                           </div>
 
-                          {/* Asa de redimensionamiento - DERECHA */}
-                          <div
-                            onMouseDown={(e) => handleResizeStart(e, wo)}
-                            className={`absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize opacity-0 group-hover/task:opacity-100 transition-opacity ${
-                              isAtMaxDuration ? 'bg-red-500' : 'bg-emerald-500 hover:bg-emerald-400'
-                            }`}
-                            title={isAtMaxDuration ? "Limite: próxima tarea" : "Arrastrar para cambiar duración"}
-                          />
+                          {/* Asa de redimensionamiento - DERECHA (solo en fechas no pasadas) */}
+                          {!isPastDate && (
+                            <div
+                              onMouseDown={(e) => handleResizeStart(e, wo)}
+                              className={`absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize opacity-0 group-hover/task:opacity-100 transition-opacity ${
+                                isAtMaxDuration ? 'bg-red-500' : 'bg-emerald-500 hover:bg-emerald-400'
+                              }`}
+                              title={isAtMaxDuration ? "Limite: próxima tarea" : "Arrastrar para cambiar duración"}
+                            />
+                          )}
                         </div>
                       );
                     })}

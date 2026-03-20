@@ -31,6 +31,7 @@ import {
   User,
   CheckCircle2,
   AlertTriangle,
+  Undo2,
   Lock,
   X,
   Send,
@@ -62,6 +63,8 @@ const OT_TYPE_COLORS = {
   infrastructure: 'bg-purple-600',
 };
 
+const FINAL_STATES = ['completed', 'failed', 'cancelled'];
+
 export default function CoordinationSheet({
   workOrder,
   currentDate,
@@ -87,6 +90,8 @@ export default function CoordinationSheet({
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [workOrderDetail, setWorkOrderDetail] = useState(null);
   const [isLoadingWorkOrder, setIsLoadingWorkOrder] = useState(false);
+  const [isRescuing, setIsRescuing] = useState(false);
+  const [rescueError, setRescueError] = useState(null);
 
   // ========== HELPER FUNCTIONS ==========
 
@@ -106,7 +111,7 @@ export default function CoordinationSheet({
   // Calcular si está bloqueada para ediciones normales
   // NOTA: Las OTs completadas quedan inmutables, pero OTs atrasadas SÍ se pueden cerrar
   const activeWorkOrder = workOrderDetail || workOrder;
-  const isLocked = activeWorkOrder?.status === 'completed';
+  const isFinalState = FINAL_STATES.includes(activeWorkOrder?.status);
   const viewDate = currentDate ? new Date(currentDate) : null;
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
@@ -115,10 +120,15 @@ export default function CoordinationSheet({
     viewStart.setHours(0, 0, 0, 0);
   }
   const isHistoricalView = Boolean(viewStart && viewStart < todayStart);
-  const isInteractionLocked = isLocked || isHistoricalView;
-  const lockedReason = activeWorkOrder?.status === 'completed' 
-    ? 'completada' 
-    : null;
+  const isInteractionLocked = isFinalState || isHistoricalView;
+  const canRescueHistorical = isHistoricalView && !isFinalState;
+  const finalStateLabel = activeWorkOrder?.status === 'completed'
+    ? 'completada'
+    : activeWorkOrder?.status === 'failed'
+      ? 'fallida'
+      : activeWorkOrder?.status === 'cancelled'
+        ? 'cancelada'
+        : 'finalizada';
 
   // ========== EFFECTS ==========
 
@@ -313,6 +323,26 @@ export default function CoordinationSheet({
     }
   };
 
+  // ========== VÁLVULA DE ESCAPE: Rescatar OT atrapada en el pasado ==========
+  const rescueToBacklog = async () => {
+    if (!confirm(`⚠️ ¿Rescatar OT #${activeWorkOrder.id} al Backlog?\n\nEsto limpiará la fecha y equipo asignado.\nEl técnico quedará desbloqueado y la OT volverá a pendientes para recoordinar.`)) {
+      return;
+    }
+    try {
+      setIsRescuing(true);
+      setRescueError(null);
+      await api.patch(`/v2/work-orders/${activeWorkOrder.id}/unassign`);
+      console.log('✅ OT rescatada al backlog desde vista histórica:', activeWorkOrder.id);
+      onClose?.();
+      onWorkOrderUpdated?.();
+    } catch (err) {
+      console.error('❌ Error al rescatar OT:', err);
+      setRescueError(err.response?.data?.detail || err.message || 'Error al rescatar la OT');
+    } finally {
+      setIsRescuing(false);
+    }
+  };
+
   const markAsIncomplete = async () => {
     if (!incompleteReason.trim()) {
       alert('⚠️ Ingresa una razón');
@@ -401,10 +431,10 @@ export default function CoordinationSheet({
                 <Badge className={`${typeColor} border-0 text-white`}>
                   {typeLabel}
                 </Badge>
-                {isLocked && (
+                {isFinalState && (
                   <Badge className="bg-red-900/50 border border-red-700 text-red-200 flex items-center gap-1">
                     <Lock size={12} />
-                    Bloqueada
+                    Estado final
                   </Badge>
                 )}
                 <span className="text-xs text-zinc-500">OT #{activeWorkOrder.id}</span>
@@ -421,21 +451,49 @@ export default function CoordinationSheet({
 
         {/* ========== ALERTA SI COMPLETADA/BLOQUEADA ========== */}
         {isHistoricalView && (
-          <Alert className="bg-amber-900/20 border-amber-700/50 mt-4">
-            <FileSearch size={16} className="text-amber-400" />
-            <AlertDescription className="text-amber-300">
-              Vista historica: esta OT se muestra en modo solo lectura desde Coordinacion.
-            </AlertDescription>
-          </Alert>
+          <div className="mt-4 space-y-3">
+            <Alert className="bg-amber-900/20 border-amber-700/50">
+              <FileSearch size={16} className="text-amber-400" />
+              <AlertDescription className="text-amber-300">
+                <span className="font-semibold block">Vista histórica — Solo lectura</span>
+                {canRescueHistorical
+                  ? 'Esta OT quedó atrapada en el pasado sin cerrarse. Podés rescatarla al Backlog para recoordinarla.'
+                  : 'OT en estado final. No puede modificarse.'}
+              </AlertDescription>
+            </Alert>
+
+            {/* ☂️ VÁLVULA DE ESCAPE: Solo si quedó en el pasado y no está en estado final */}
+            {canRescueHistorical && (
+              <div className="space-y-2">
+                <Button
+                  onClick={rescueToBacklog}
+                  disabled={isRescuing}
+                  className="w-full bg-sky-700 hover:bg-sky-600 text-white font-semibold border border-sky-500/50 shadow-lg shadow-sky-900/30"
+                >
+                  {isRescuing ? (
+                    <><span className="animate-spin mr-2">⏳</span>Rescatando...</>
+                  ) : (
+                    <><Undo2 size={16} className="mr-2" />☂️ Rescatar al Backlog</>
+                  )}
+                </Button>
+                {rescueError && (
+                  <p className="text-xs text-red-400 text-center">{rescueError}</p>
+                )}
+                <p className="text-[10px] text-zinc-500 text-center">
+                  Limpia fecha y equipo asignado · El técnico queda desbloqueado · OT vuelve a pendientes
+                </p>
+              </div>
+            )}
+          </div>
         )}
 
-        {isLocked && (
+        {isFinalState && (
           <Alert className="bg-red-900/20 border-red-700/50 mt-4">
             <Lock size={16} className="text-red-400" />
             <AlertDescription className="text-red-300">
-              {lockedReason === 'completada' 
+              {finalStateLabel === 'completada' 
                 ? '✅ Orden ya completada. Para reabrir, contactá a un administrador o al técnico responsable (ventana de 2h desde cierre).' 
-                : '🔒 Orden programada en el pasado y no fue ejecutada. Para editar, contactá a un administrador.'
+                : `🔒 Orden ${finalStateLabel}. No puede modificarse desde Coordinación.`
               }
             </AlertDescription>
           </Alert>
@@ -719,7 +777,7 @@ export default function CoordinationSheet({
             <div className="flex items-center gap-2">
               <Button
                 onClick={() => handleDurationChange(duration - 5)}
-                disabled={duration <= 5 || isLocked}
+                disabled={duration <= 5 || isInteractionLocked}
                 variant="outline"
                 size="sm"
                 className="h-10 w-10 p-0 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
@@ -752,7 +810,7 @@ export default function CoordinationSheet({
 
               <Button
                 onClick={() => handleDurationChange(duration + 5)}
-                disabled={duration >= 480 || isLocked}
+                disabled={duration >= 480 || isInteractionLocked}
                 variant="outline"
                 size="sm"
                 className="h-10 w-10 p-0 border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
@@ -794,7 +852,7 @@ export default function CoordinationSheet({
             {durationChanged && isInteractionLocked && (
               <div className="rounded-lg bg-red-900/20 border border-red-700/50 p-3 text-center">
                 <p className="text-xs text-red-300 font-medium">
-                  🔒 {isHistoricalView ? 'Vista historica en solo lectura.' : `OT ${lockedReason}. No se puede guardar.`}
+                  🔒 {isHistoricalView ? 'Vista historica en solo lectura.' : `OT ${finalStateLabel}. No se puede guardar.`}
                 </p>
               </div>
             )}
@@ -887,9 +945,9 @@ export default function CoordinationSheet({
             >
               ↩️ Devolver al Backlog
             </Button>
-            {isInteractionLocked && !isHistoricalView && (
+            {isFinalState && !isHistoricalView && (
               <p className="text-xs text-red-400">
-                🔒 OT {lockedReason}. No se puede devolver al backlog.
+                🔒 OT {finalStateLabel}. No se puede devolver al backlog.
               </p>
             )}
           </div>

@@ -26,6 +26,23 @@ const LEVEL_OPTIONS = [
   { value: 'alto', label: 'Alto' },
 ];
 
+const LEVEL_VALUE_MAP = {
+  bajo: 'bajo',
+  low: 'bajo',
+  minimo: 'minimo',
+  'mínimo': 'minimo',
+  minimum: 'minimo',
+  medio: 'medio',
+  medium: 'medio',
+  alto: 'alto',
+  high: 'alto',
+};
+
+function normalizeLevelValue(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return LEVEL_VALUE_MAP[normalized] || 'medio';
+}
+
 function YesNoRow({ label, value, onChange, anomaly = false }) {
   const yesMeans = anomaly ? 'Anomalia' : 'Correcto';
   const noMeans = anomaly ? 'Sin anomalias' : 'Falta / no funciona';
@@ -193,10 +210,10 @@ export default function VehicleInspectionDialog({
         km_actual: km,
 
         mechanical_conditions: null,
-        oil_level: form.oil_level,
-        water_level: form.water_level,
-        fuel_level: form.fuel_level,
-        brake_fluid_level: form.brake_fluid_level,
+        oil_level: normalizeLevelValue(form.oil_level),
+        water_level: normalizeLevelValue(form.water_level),
+        fuel_level: normalizeLevelValue(form.fuel_level),
+        brake_fluid_level: normalizeLevelValue(form.brake_fluid_level),
 
         has_hydraulic_leaks: form.has_hydraulic_leaks,
         pulls_to_one_side: form.pulls_to_one_side,

@@ -27,6 +27,8 @@ export function useCoordinationSync(
   const pollingIntervalRef = useRef(null);
   const lastFetchRef = useRef(0);
   const abortControllerRef = useRef(null);
+  const activeRequestIdRef = useRef(0);
+  const hasInitializedDateRef = useRef(false);
 
   const {
     pollInterval = 5000,
@@ -38,14 +40,25 @@ export function useCoordinationSync(
   /**
    * Fetch data desde /coordination/grid
    */
-  const fetchCoordinationData = useCallback(async () => {
+  const fetchCoordinationData = useCallback(async (options = {}) => {
+    const { force = false, reason = 'poll' } = options;
+
     // Deduplication: no hacer requests simultáneas
     const now = Date.now();
-    if (now - lastFetchRef.current < 1000) {
+    if (!force && now - lastFetchRef.current < 1000) {
       console.log('⏭️ Request duplicado evitado');
       return; // última fetch hace < 1 segundo
     }
     lastFetchRef.current = now;
+
+    // Cancelar request anterior para evitar stale data
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const requestId = ++activeRequestIdRef.current;
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
     setIsLoading(true);
     setError(null);
@@ -68,7 +81,13 @@ export function useCoordinationSync(
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
+        signal: abortController.signal,
       });
+
+      // Ignorar respuestas viejas que llegan fuera de orden
+      if (requestId !== activeRequestIdRef.current) {
+        return;
+      }
 
       const newData = {
         teams: response.data?.teams || [],
@@ -84,17 +103,22 @@ export function useCoordinationSync(
         teams: newData.teams.length,
         allocations: newData.allocations.length,
         backlog: newData.backlog.length,
+        reason,
         syncedAt: new Date(newData.syncedAt).toLocaleTimeString(),
       });
     } catch (err) {
       // Ignorar AbortError (request cancelado intencionalmente)
-      if (err.name !== 'AbortError') {
+      if (err.name !== 'AbortError' && err.code !== 'ERR_CANCELED') {
         console.error('❌ Error sincronizando:', err.message);
-        setError(err);
-        onError?.(err);
+        if (requestId === activeRequestIdRef.current) {
+          setError(err);
+          onError?.(err);
+        }
       }
     } finally {
-      setIsLoading(false);
+      if (requestId === activeRequestIdRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [currentDate, onError, onSync]);
 
@@ -105,13 +129,13 @@ export function useCoordinationSync(
     if (pollingIntervalRef.current) return; // Ya está corriendo
 
     // Fetch inmediatamente
-    fetchCoordinationData();
+    fetchCoordinationData({ reason: 'start' });
 
     // Luego cada pollInterval ms
     pollingIntervalRef.current = setInterval(() => {
       if (!document.hidden) {
         // Solo si página es visible
-        fetchCoordinationData();
+        fetchCoordinationData({ reason: 'poll' });
       }
     }, pollInterval);
 
@@ -127,14 +151,21 @@ export function useCoordinationSync(
       pollingIntervalRef.current = null;
       console.log('🛑 Polling detenido');
     }
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
   }, []);
 
   /**
    * Refetch manual
    */
-  const refetch = useCallback(() => {
-    lastFetchRef.current = 0; // Reset deduplication
-    return fetchCoordinationData();
+  const refetch = useCallback((options = {}) => {
+    if (options.force) {
+      lastFetchRef.current = 0; // Reset deduplication
+    }
+    return fetchCoordinationData({ reason: 'manual', ...options });
   }, [fetchCoordinationData]);
 
   /**
@@ -171,7 +202,20 @@ export function useCoordinationSync(
     } else {
       stopPolling();
     }
-  }, [enabled, autoStart, currentDate]);
+  }, [enabled, autoStart]);
+
+  // Cambio de fecha: bypass de dedupe y fetch inmediato de contexto
+  useEffect(() => {
+    if (!enabled || !autoStart) return;
+
+    // Evitar doble fetch en primer mount (startPolling ya hizo fetch)
+    if (!hasInitializedDateRef.current) {
+      hasInitializedDateRef.current = true;
+      return;
+    }
+
+    refetch({ force: true, reason: 'date-change' });
+  }, [currentDate, enabled, autoStart, refetch]);
 
   return {
     data,
