@@ -1,8 +1,8 @@
 # 🗺️ Roadmap Emerald ERP 2026
 
-**Versión:** 1.0 (Consolidado)  
-**Última revisión:** 2 de marzo 2026  
-**Status:** Q1 ✅ COMPLETADO | Q2-Q4 🚧 PLANEADO
+**Versión:** 1.1 (Q2 en progreso)  
+**Última revisión:** 21 de marzo 2026  
+**Status:** Q1 ✅ COMPLETADO | Q2 🚧 EN PROGRESO (Bug fixes + Optimizaciones) | Q3-Q4 📋 PLANEADO
 
 ---
 
@@ -102,6 +102,17 @@ Status: Production Ready
 ✅ JSONB para eventos y metadata
 ✅ Alembic migrations ejecutadas
 ```
+
+### 🐛 Hot Fixes (21 Marzo 2026) 
+
+**3 bugs corregidos en coordinación (commit 0694c00):**
+- ✅ Loading bar latency (persistent height fix)
+- ✅ Historical data flickering (polling gate by date)
+- 🟡 Inspection button missing (role normalization - pending)
+
+See: [SESION_21_MARZO_2026_CONSOLIDACION.md](SESION_21_MARZO_2026_CONSOLIDACION.md)
+
+@@### Base de Datos (Q1)
 
 ### Frontend (Q1)
 ```

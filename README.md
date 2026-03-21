@@ -2,45 +2,27 @@
 Sistema de Gestión Integral para ISP (Internet Service Providers)
 
 **Estado:** ✅ Production Ready  
-**Última actualización:** 9 de marzo de 2026  
+**Última actualización:** 21 de marzo de 2026  
 **Branch:** develop  
 **Módulos Completos:** Autenticación, Tickets, Órdenes de Trabajo, Coordinación, Inventario, Ingeniería/NOC, Fleet (vehículos), **Auditoría Universal**
 
----
 
-## 📚 **DOCUMENTACIÓN CONSOLIDADA** ⭐
+## 📚 **GUÍA RÁPIDA DE DOCUMENTACIÓN** ⭐
 
-### Para cualquier persona que necesite entender el proyecto:
+### ⚡ Lee Primero (por rol):
 
-1. **[⚡ EXECUTIVE_SUMMARY.md](EXECUTIVE_SUMMARY.md)** ← Léeme primero (2 min)
-   - Overview rápido del sistema
-   - Responde FAQ
-   - Perfect para arquitectos en apuro
+- **Para Cualquier Dev:** [LEER_PRIMERO_ACTUAL.md](docs/LEER_PRIMERO_ACTUAL.md) (5 min)
+- **Para Arquitectos:** [ROADMAP.md](docs/ROADMAP.md) + [docs/INDICE_DOCUMENTACION_2026_03_21.md](docs/INDICE_DOCUMENTACION_2026_03_21.md)
+- **Para DevOps:** [DEPLOYMENT.md](docs/DEPLOYMENT.md) + [DESARROLLO_LOCAL.md](docs/DESARROLLO_LOCAL.md)
 
-2. **[🎭 MASTER_CONTEXT.md](MASTER_CONTEXT.md)** ← El documento completo (30 min)
-   - Stack technológico detallado
-   - Estructura del proyecto
-   - Modelo de datos con relaciones
-   - Módulos funcionales y su estado
-   - Reglas de negocio
-   - Patrones arquitectónicos
+### 📖 Índice Completo:
 
-3. **[🤖 AI_ARCHITECT_CONTEXT.md](AI_ARCHITECT_CONTEXT.md)** ← Para IAs (Gemini, Claude)
-   - Decisiones arquitectónicas clave
-   - Troubleshooting matrix
-   - Contribución guidelines
-   - Deuda técnica
+**[→ Ir a Índice de Documentación Actualizado](docs/INDICE_DOCUMENTACION_2026_03_21.md)**
+- 18+ archivos documentados por prioridad
+- Links por tema (Seguridad, DB, Deploy, Módulos)
+- Troubleshooting rápido
 
-4. **[📖 DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md)** ← Índice de todo
-   - Links a documentación específica por tema
-   - Guía de lectura por perfil (arquitecto, dev, ops, qa)
-   - Referencias cruzadas
-
-5. **[🔄 AUTO_SYNC_CONTEXT_SETUP.md](docs/AUTO_SYNC_CONTEXT_SETUP.md)** ← Script automático
-   - Cómo sincronizar docs a Google Drive
-   - Setup de Rclone
-   - Monitoreo y troubleshooting
-   - Uso: `nohup ./auto_sync_context.sh > sync.log 2>&1 &`
+**Estado de módulos (Q1 2026):** ✅ Coordinación, ✅ Fleet, ✅ Auditoría - TODOS OPERATIVO
 
 ---
 
