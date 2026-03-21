@@ -279,12 +279,21 @@ export default function CoordinationGridPage() {
 
         {/* ÁREA DE CALENDARIO */}
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-          {isDateSwitchLoading && (
-            <div className="px-4 py-2 border-b border-emerald-800/40 bg-emerald-950/30 text-xs text-emerald-300 flex items-center gap-2">
-              <Loader size={14} className="animate-spin" />
-              Cargando agenda de {format(currentDate, 'dd MMM yyyy', { locale: es })}...
-            </div>
-          )}
+          <div
+            className={`h-8 px-4 border-b text-xs flex items-center gap-2 flex-shrink-0 transition-colors duration-200 ${
+              isDateSwitchLoading
+                ? 'border-emerald-800/40 bg-emerald-950/30 text-emerald-300'
+                : 'border-zinc-800 bg-zinc-900/20 text-zinc-500'
+            }`}
+          >
+            <Loader
+              size={14}
+              className={isDateSwitchLoading ? 'animate-spin' : 'opacity-40'}
+            />
+            {isDateSwitchLoading
+              ? `Cargando agenda de ${format(currentDate, 'dd MMM yyyy', { locale: es })}...`
+              : 'Agenda sincronizada'}
+          </div>
 
           {/* Tabs mañana/tarde */}
           <div className="flex gap-2 p-3 border-b border-zinc-800 bg-zinc-900/30 flex-shrink-0 select-none">

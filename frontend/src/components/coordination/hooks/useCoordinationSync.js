@@ -4,6 +4,7 @@
  * Gestiona sincronización automática con el backend.
  * Polling cada 5 segundos (pausa si página oculta).
  * BD es la fuente de verdad.
+ * NOTA: Polling se desactiva automáticamente para fechas históricas (no es hoy).
  * 
  * @param {Date} currentDate - Fecha a sincronizar
  * @param {boolean} enabled - Habilitar polling
@@ -12,7 +13,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { format } from 'date-fns';
+import { format, startOfDay } from 'date-fns';
 import api from '@/api/client';
 
 export function useCoordinationSync(
@@ -194,15 +195,19 @@ export function useCoordinationSync(
    * Iniciar/detener polling cuando enabled o currentDate cambia
    * IMPORTANTE: No incluir startPolling/stopPolling en dependencias
    * para evitar feedback loops infinitos
+   * NOTA: Solo hace polling si es fecha actual (hoy)
    */
   useEffect(() => {
-    if (enabled && autoStart) {
+    // Detectar si es hoy o una fecha pasada/futura
+    const isToday = startOfDay(currentDate).getTime() === startOfDay(new Date()).getTime();
+
+    if (enabled && autoStart && isToday) {
       startPolling();
       return () => stopPolling();
     } else {
       stopPolling();
     }
-  }, [enabled, autoStart]);
+  }, [enabled, autoStart, currentDate, startPolling, stopPolling]);
 
   // Cambio de fecha: bypass de dedupe y fetch inmediato de contexto
   useEffect(() => {
