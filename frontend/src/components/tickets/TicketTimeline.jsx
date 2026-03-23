@@ -308,6 +308,7 @@ function TimelineEventCard({ event }) {
           )}
         </div>
       </div>
+      </div>
     </>
   );
 }

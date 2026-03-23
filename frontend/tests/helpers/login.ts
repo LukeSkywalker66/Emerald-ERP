@@ -2,6 +2,10 @@
 // helpers/login.ts
 import { Page, expect } from '@playwright/test';
 
+declare const process: {
+  env: Record<string, string | undefined>;
+};
+
 type LoginOptions = {
   email?: string;
   password?: string;

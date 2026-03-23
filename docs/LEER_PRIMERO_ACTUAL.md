@@ -1,6 +1,6 @@
-# 🚀 LEER PRIMERO - Emerald ERP (Actualizado 21 Marzo 2026)
+# 🚀 LEER PRIMERO - Emerald ERP (Actualizado 23 Marzo 2026)
 
-**Última actualización:** 21 de Marzo 2026, 18:30 hs  
+**Última actualización:** 23 de Marzo 2026, 23:30 hs  
 **Estado del proyecto:** Fase B Completada, Coordinación + Fleet Operativos ✅
 
 ---
@@ -9,7 +9,7 @@
 
 Emerald ERP es un sistema de gestión para ISP en Argentina. Stack: **Python 3.11 (FastAPI) + React + Vite + PostgreSQL 15**.
 
-**Estado Actual (21 Mar 2026):**
+**Estado Actual (23 Mar 2026):**
 - ✅ Módulo de Inventario completo y funcional
 - ✅ Módulo de Coordinación (grilla de tareas) con sincronización en tempo real
 - ✅ Módulo de Flota (inspecciones diarias de vehículos)
@@ -18,6 +18,8 @@ Emerald ERP es un sistema de gestión para ISP en Argentina. Stack: **Python 3.1
 - ✅ Work Orders con múltiples estados y transiciones seguras
 - ✅ Auth JWT con Refresh Tokens y Rate Limiting
 - ✅ Frontend build sin errores + optimizaciones de performance
+- ✅ Tooling TS de tests E2E estabilizado (helpers/login.ts sin errores de editor)
+- ✅ JSX corrupto en TicketTimeline corregido
 
 **Próximo paso crítico:** Estabilización de bugs menores y optimizaciones funcionales
 
@@ -82,7 +84,14 @@ Emerald ERP es un sistema de gestión para ISP en Argentina. Stack: **Python 3.1
 
 ---
 
-## 🐛 Bugs Recién Corregidos (Esta Sesión)
+## 🐛 Bugs Recién Corregidos (Sesión 23 Mar)
+
+1. ✅ **TS Error en tests/helpers/login.ts** → VS Code no reconocía `process.env`.
+	- Solución: setup TS para frontend tests + tipado local defensivo.
+2. ✅ **JSX roto en TicketTimeline.jsx** → faltaba cierre de contenedor `div`.
+	- Solución: cierre de tag faltante y validación con typecheck.
+
+## 🐛 Bugs Corregidos (Sesión 21 Mar)
 
 1. ✅ **Inspección Diaria Bloqueada** → Rol técnico no se detectaba correctamente
 2. ✅ **Latido Visual en Coordinación** → Barra de carga causa layout shift
@@ -157,7 +166,8 @@ Para nueva sesión, menciona:
 
 **Prompt ideal para Copilot:**
 ```
-Estoy en Emerald ERP (21 Mar 2026). Fase B completa: Coordinación + Fleet operativos.
-Acabamos de corregir: inspección bloqueada, latido visual, histórico que desaparece.
+Estoy en Emerald ERP (23 Mar 2026). Fase B completa: Coordinación + Fleet operativos.
+Acabamos de corregir: errores TS en tests/login helper y JSX en TicketTimeline.
+Quiero validar permisos por rol 'operador' en WorkOrders y cerrar smoke tests de coordinación.
 ¿Qué quieres que arregle ahora?
 ```
