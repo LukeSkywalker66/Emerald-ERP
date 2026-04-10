@@ -1,5 +1,5 @@
 # backend/src/db/postgres.py
-from sqlalchemy import text
+from sqlalchemy import func, text
 from src.database import SessionLocal, engine
 from src import models
 from src.services.location_resolver import (

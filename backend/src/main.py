@@ -25,6 +25,7 @@ from src.routers.v1 import admin  # Administración y desbloqueo
 from src.routers.v2 import users as users_v2
 from src.routers.v2 import roles as roles_v2
 from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet, installation_types, audit
+from src.routers.oraculo import router as oraculo_router
 
 # 👇 IMPORTAMOS EL NUEVO SERVICIO (Tu lógica adaptada)
 from src.services import diagnosis as diagnosis_service 
@@ -283,6 +284,8 @@ from src.database import SessionLocal
 # ==========================
 # 🔵 SECCIÓN BEHOLDER (Monitor)
 # ==========================
+
+app.include_router(oraculo_router)
 
 @app.get("/health")
 def health():

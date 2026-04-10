@@ -44,11 +44,12 @@ def consultar_diagnostico(pppoe_user: str, ip: str = None) -> dict:
         if external_id:
             diagnosis["onu_status_smrt"] = smartolt.get_onu_status(external_id)
             diagnosis["onu_signal_smrt"] = smartolt.get_onu_signals(external_id)
-            # diagnosis["onu_vlan"] = smartolt.get_attached_vlans(external_id) # Opcional según performance
+            diagnosis["onu_vlan"] = smartolt.get_attached_vlans(external_id)
         else:
              # Caso raro: Cliente en ISPCube pero sin ONU vinculada
              diagnosis["onu_status_smrt"] = {"status": False, "error": "Sin ONU asociada"}
              diagnosis["onu_signal_smrt"] = {"status": False, "error": "Sin ONU asociada"}
+             diagnosis["onu_vlan"] = []
 
         return diagnosis
 
