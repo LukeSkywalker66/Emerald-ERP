@@ -10,6 +10,19 @@ from src.services.location_resolver import (
 )
 import time
 
+
+def _record_stage_count(db, model_class, stage_name: str, sync_stats: dict, stats_key: str, logger):
+    try:
+        count = db.get_count(model_class)
+    except Exception as exc:
+        sync_stats["error"] = f"count_failed:{stage_name}:{exc}"
+        logger.exception("[SYNC] No se pudo contar %s en BD", stage_name)
+        return 0
+
+    sync_stats[stats_key] = count
+    logger.info(f"   ✅ {count} {stage_name} en BD")
+    return count
+
 def sync_nodes(db):
     print("   ↳ Buscando Nodos en ISPCube...", end=" ", flush=True)
     try:
@@ -297,33 +310,27 @@ def nightly_sync_task(self):
 
         logger.info("📦 [1/6] Sincronizando nodos ISPCube...")
         sync_nodes(db)
-        sync_stats["nodes"] = db.get_count(models.Node)
-        logger.info(f"   ✅ {sync_stats['nodes']} nodos en BD")
+        _record_stage_count(db, models.Node, "nodos", sync_stats, "nodes", logger)
         
         logger.info("📦 [2/6] Sincronizando secrets Mikrotik...")
         sync_secrets(db)
-        sync_stats["secrets"] = db.get_count(models.PPPSecret)
-        logger.info(f"   ✅ {sync_stats['secrets']} secrets en BD")
+        _record_stage_count(db, models.PPPSecret, "secrets", sync_stats, "secrets", logger)
         
         logger.info("📦 [3/6] Sincronizando ONUs SmartOLT...")
         sync_onus(db)
-        sync_stats["onus"] = db.get_count(models.Subscriber)
-        logger.info(f"   ✅ {sync_stats['onus']} ONUs en BD")
+        _record_stage_count(db, models.Subscriber, "ONUs", sync_stats, "onus", logger)
         
         logger.info("📦 [4/6] Sincronizando planes ISPCube...")
         sync_plans(db)
-        sync_stats["plans"] = db.get_count(models.Plan)
-        logger.info(f"   ✅ {sync_stats['plans']} planes en BD")
+        _record_stage_count(db, models.Plan, "planes", sync_stats, "plans", logger)
         
         logger.info("📦 [5/6] Sincronizando conexiones ISPCube...")
         sync_connections(db)
-        sync_stats["connections"] = db.get_count(models.Connection)
-        logger.info(f"   ✅ {sync_stats['connections']} conexiones en BD")
+        _record_stage_count(db, models.Connection, "conexiones", sync_stats, "connections", logger)
         
         logger.info("📦 [6/6] Sincronizando clientes ISPCube...")
         sync_clientes(db)
-        sync_stats["clientes"] = db.get_count(models.Cliente)
-        logger.info(f"   ✅ {sync_stats['clientes']} clientes en BD")
+        _record_stage_count(db, models.Cliente, "clientes", sync_stats, "clientes", logger)
         
         logger.info("🔗 Cruzando datos (Match Connections)...")
         db.match_connections()

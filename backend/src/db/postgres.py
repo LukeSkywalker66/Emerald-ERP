@@ -19,6 +19,14 @@ class Database:
     def commit(self):
         self.db.commit()
 
+    def get_count(self, model_class):
+        """Return a fast row count for a mapped model.
+
+        Uses SELECT COUNT(*) on the underlying table instead of loading rows
+        into memory, which keeps the nightly sync lightweight.
+        """
+        return self.db.query(func.count()).select_from(model_class).scalar() or 0
+
     # --- INSERTS (Replicando sqlite.py) ---
     def insert_subscriber(self, unique_external_id, sn, olt_name, olt_id, board, port, onu, onu_type_id, name, mode, vlan=None):
         # Usamos merge o add. Como ahora tenemos un ID autoincremental, 
