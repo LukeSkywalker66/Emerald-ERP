@@ -40,6 +40,7 @@ class SesionCliente(BaseModel):
     inicio: str
     fin: str
     duracion: str
+    ip_cliente: Optional[str] = None
     razon_desconexion: Optional[str] = None
     router: str
 
@@ -78,6 +79,11 @@ _RANGE_SECONDS = {
 _GRAYLOG_SESSION_CACHE: dict[str, tuple[float, list[SesionIpCliente]]] = {}
 _GRAYLOG_SESSION_CACHE_LOCK = asyncio.Lock()
 _REQUEST_LOGGER = logging.getLogger("uvicorn.error")
+_ORACULO_NODO_IP_MAP_REVERSE = {
+    value: key
+    for key, value in config.ORACULO_NODO_IP_MAP.items()
+    if key and value
+}
 
 
 def _is_transient_error(exc: Exception) -> bool:
@@ -111,6 +117,25 @@ def _resolve_influx_node_ip(router_ip: Optional[str]) -> Optional[str]:
         return None
 
     return config.ORACULO_NODO_IP_MAP.get(router_ip, router_ip)
+
+
+def _to_operator_router(router_value: Optional[str]) -> str:
+    if not router_value:
+        return "Desconocido"
+
+    router = router_value.strip()
+    if not router:
+        return "Desconocido"
+
+    mapped = config.ORACULO_NODO_IP_MAP.get(router)
+    if mapped:
+        return mapped
+
+    reverse_mapped = _ORACULO_NODO_IP_MAP_REVERSE.get(router)
+    if reverse_mapped:
+        return reverse_mapped
+
+    return router
 
 
 def _extract_ipv4_candidates(message_text: str) -> list[str]:
@@ -483,6 +508,7 @@ def _pair_sessions(usuario_pppoe: str, graylog_messages: list[dict], limite: int
             or msg.get("gl2_remote_ip")
             or "Desconocido"
         )
+        ip_cliente = _extract_session_ip(text)
 
         eventos.append(
             {
@@ -490,7 +516,8 @@ def _pair_sessions(usuario_pppoe: str, graylog_messages: list[dict], limite: int
                 "is_login": is_login,
                 "is_logout": is_logout,
                 "reason": _extract_disconnect_reason(text),
-                "router": str(router),
+                "router": _to_operator_router(str(router)),
+                "ip_cliente": ip_cliente,
             }
         )
 
@@ -518,6 +545,7 @@ def _pair_sessions(usuario_pppoe: str, graylog_messages: list[dict], limite: int
                     inicio=inicio_ts.isoformat(),
                     fin=fin_ts.isoformat(),
                     duracion=_format_duration(inicio_ts, fin_ts),
+                    ip_cliente=inicio_ev.get("ip_cliente") or ev.get("ip_cliente"),
                     razon_desconexion=ev.get("reason"),
                     router=ev.get("router") or inicio_ev.get("router") or "Desconocido",
                 )
@@ -530,6 +558,7 @@ def _pair_sessions(usuario_pppoe: str, graylog_messages: list[dict], limite: int
                 inicio=inicio_ts.isoformat(),
                 fin="Activa",
                 duracion=_format_duration(inicio_ts, now),
+                ip_cliente=inicio_ev.get("ip_cliente"),
                 razon_desconexion=None,
                 router=inicio_ev.get("router") or "Desconocido",
             )
@@ -580,7 +609,7 @@ def _query_graylog_session_windows(usuario_pppoe: str, limite: int, range_sec: O
             {
                 "inicio": timestamp.isoformat(),
                 "ip_cliente": ip_cliente,
-                "router": str(router),
+                "router": _to_operator_router(str(router)),
                 "razon_desconexion": _extract_disconnect_reason(text),
                 "is_login": is_login,
                 "is_logout": is_logout,
