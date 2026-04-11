@@ -277,9 +277,7 @@ def nightly_sync_task(self):
     logger.info(f"   Timestamp: {start_time.isoformat()}")
     logger.info("=" * 80)
     
-    init_db()
-    db = Database()
-    
+    db = None
     sync_stats = {
         "success": False,
         "nodes": 0,
@@ -293,6 +291,10 @@ def nightly_sync_task(self):
     }
     
     try:
+        # Garantiza que la validación/migración del esquema también quede dentro del manejo de errores.
+        init_db()
+        db = Database()
+
         logger.info("📦 [1/6] Sincronizando nodos ISPCube...")
         sync_nodes(db)
         sync_stats["nodes"] = db.get_count(models.Node)
@@ -363,7 +365,8 @@ def nightly_sync_task(self):
         return sync_stats
         
     finally:
-        db.close()
+        if db is not None:
+            db.close()
         end_time = datetime.utcnow()
         duration = (end_time - start_time).total_seconds()
         sync_stats["duration_seconds"] = duration
@@ -372,4 +375,7 @@ def nightly_sync_task(self):
         logger.info(f"📅 Fin: {end_time.isoformat()}")
 
 if __name__ == "__main__":
-    nightly_sync_task()
+    try:
+        nightly_sync_task()
+    except Exception:
+        config.logger.exception("[CRITICAL] Fallo catastrófico en el Nightly Sync")
