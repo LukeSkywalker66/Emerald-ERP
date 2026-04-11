@@ -13,6 +13,7 @@ Documentación completa de todos los endpoints disponibles en la API de Emerald 
 | 🔐 [Autenticación](#autenticación) | Sistema de API Keys | 6 | ✅ |
 | 📋 [Tickets (CRM)](#tickets-crm) | Gestión de soporte y órdenes de trabajo | 12+ | ✅ |
 | 📦 [Inventory](#inventory-gestión-de-stock) | Gestión de almacenes y stock | 8 | ✅ **NUEVO** |
+| 🛰️ [Oráculo PPPoE](#-oráculo-pppoe-graylog--influx) | Tráfico y sesiones PPPoE con IP dinámica | 4 | ✅ |
 | 🌐 Beholder (Legacy) | Sistema de diagnóstico | Múltiples | ⚠️ |
 
 ---
@@ -55,6 +56,8 @@ curl -X POST "http://localhost/admin/api-keys" \
 - `GET /search`
 - `GET /diagnosis/{pppoe_user}`
 - `GET /live/{pppoe_user}`
+
+**Nota:** Los endpoints Oráculo `/api/v1/oraculo/*` requieren `x-api-key`.
 
 ### Endpoints Admin de Gestión (Requieren autenticación)
 
@@ -339,6 +342,145 @@ Obtener tráfico en tiempo real de un usuario.
 
 **Códigos de Error:**
 - `500` - Error en consulta a Mikrotik
+
+---
+
+## 🛰️ Oráculo PPPoE (Graylog + Influx)
+
+Oráculo resuelve tráfico e historial PPPoE con IP dinámica combinando:
+- Graylog (eventos login/logout)
+- InfluxDB (series de tráfico)
+- Cache TTL de sesiones + concurrencia acotada por semáforo
+
+### Seguridad
+
+Todos los endpoints de Oráculo requieren header `x-api-key`.
+
+```bash
+curl -X GET "http://localhost:8500/api/v1/oraculo/debug" \
+  -H "x-api-key: tu_api_key"
+```
+
+### Convención de nodos en outputs
+
+Cuando Oráculo devuelve `router`/nodo:
+- Se traduce usando `ORACULO_NODO_IP_MAP` definido en `.env`
+- Se prioriza el formato operador-friendly (IP externa del router)
+- Si no existe mapeo, se devuelve el valor original del log
+
+### GET /api/v1/oraculo/trafico/{ip_cliente}
+
+Obtiene tráfico por IP cliente para rango realtime/histórico.
+
+**Autenticación:** Requerida (`x-api-key`)  
+**Método:** GET
+
+**Query Parameters:**
+| Parámetro | Tipo | Requerido | Valores |
+|-----------|------|-----------|---------|
+| `rango` | string | ❌ | `15m`, `30m`, `60m`, `12h`, `24h`, `7d`, `30d` |
+
+**Response (200):**
+```json
+[
+  {
+    "tiempo": "2026-04-10T12:30:00+00:00",
+    "descarga_mbps": 12.48,
+    "subida_mbps": 2.91
+  }
+]
+```
+
+### GET /api/v1/oraculo/sesiones/{usuario_pppoe}
+
+Obtiene historial de sesiones PPPoE desde Graylog.
+
+**Autenticación:** Requerida (`x-api-key`)  
+**Método:** GET
+
+**Query Parameters:**
+| Parámetro | Tipo | Requerido | Rango |
+|-----------|------|-----------|-------|
+| `limite` | int | ❌ | `1..200` (default `20`) |
+
+**Response (200):**
+```json
+[
+  {
+    "inicio": "2026-04-09T13:13:49.216000+00:00",
+    "fin": "Activa",
+    "duracion": "1 d 11 h 28 min",
+    "ip_cliente": "138.59.175.6",
+    "razon_desconexion": null,
+    "router": "138.59.175.6"
+  }
+]
+```
+
+Notas técnicas:
+- `ip_cliente` se extrae del mismo evento de Graylog durante el armado de sesión.
+- No se hacen reconsultas extras para calcular IP en este endpoint.
+
+### GET /api/v1/oraculo/trafico-pppoe/{usuario_pppoe}
+
+Resuelve sesiones + IP dinámica + tráfico por segmentos y devuelve serie única.
+
+**Autenticación:** Requerida (`x-api-key`)  
+**Método:** GET
+
+**Query Parameters:**
+| Parámetro | Tipo | Requerido | Valores |
+|-----------|------|-----------|---------|
+| `rango` | string | ❌ | `15m`, `30m`, `60m`, `12h`, `24h`, `7d`, `30d` |
+
+**Response (200):**
+```json
+[
+  {
+    "tiempo": "2026-04-10T10:00:00+00:00",
+    "descarga_mbps": 18.73,
+    "subida_mbps": 3.41
+  }
+]
+```
+
+Contrato crítico:
+- Sin datos devuelve `[]` (no `500`).
+
+### GET /api/v1/oraculo/debug
+
+Health operativo de integraciones Oráculo (Influx + Graylog).
+
+**Autenticación:** Requerida (`x-api-key`)  
+**Método:** GET
+
+**Response (200):**
+```json
+{
+  "influx": {
+    "ok": true,
+    "time_sec": 0.031,
+    "detail": "OK"
+  },
+  "graylog": {
+    "ok": true,
+    "time_sec": 0.044,
+    "detail": "OK"
+  }
+}
+```
+
+### Ejemplos curl Oráculo
+
+```bash
+# Historial de sesiones (incluye ip_cliente)
+curl -X GET "http://localhost:8500/api/v1/oraculo/sesiones/aaaltamirano?limite=5" \
+  -H "x-api-key: tu_api_key"
+
+# Tráfico PPPoE por rango
+curl -X GET "http://localhost:8500/api/v1/oraculo/trafico-pppoe/aaaltamirano?rango=24h" \
+  -H "x-api-key: tu_api_key"
+```
 
 ---
 
