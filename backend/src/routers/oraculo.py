@@ -152,6 +152,8 @@ def _extract_ipv4_candidates(message_text: str) -> list[str]:
 def _extract_session_ip(message_text: str) -> Optional[str]:
     text = message_text.lower()
     direct_patterns = (
+        r"logged in\s*,\s*((?:\d{1,3}\.){3}\d{1,3})",
+        r"authenticated\s*,?\s*((?:\d{1,3}\.){3}\d{1,3})",
         r"(?:assigned|asignada|asignado|ip)\s*[:=]\s*((?:\d{1,3}\.){3}\d{1,3})",
         r"(?:address|cliente|client)\s*[:=]\s*((?:\d{1,3}\.){3}\d{1,3})",
         r"(?:ip_cliente|ip cliente)\s*[:=]\s*((?:\d{1,3}\.){3}\d{1,3})",
@@ -165,6 +167,16 @@ def _extract_session_ip(message_text: str) -> Optional[str]:
     candidates = _extract_ipv4_candidates(message_text)
     if not candidates:
         return None
+
+    if "logged in" in text:
+        login_match = re.search(r"logged in\s*,\s*((?:\d{1,3}\.){3}\d{1,3})", text, re.IGNORECASE)
+        if login_match:
+            return login_match.group(1)
+
+    if "authenticated" in text:
+        auth_match = re.search(r"authenticated\s*,?\s*((?:\d{1,3}\.){3}\d{1,3})", text, re.IGNORECASE)
+        if auth_match:
+            return auth_match.group(1)
 
     for candidate in candidates:
         if config.MK_HOST and candidate != config.MK_HOST:
@@ -436,19 +448,32 @@ def _query_graylog_raw(usuario_pppoe: str, limite: int, range_sec: Optional[int]
 
 
 def _extract_disconnect_reason(message_text: str) -> Optional[str]:
+    terminating_match = re.search(r"terminating\.\.\.\s*-\s*(.+)$", message_text, re.IGNORECASE)
+    if terminating_match:
+        reason = terminating_match.group(1).strip()
+        if reason:
+            return reason
+
     reason_match = re.search(r"(?:reason|razon|motivo)\s*[:=]\s*(.+)$", message_text, re.IGNORECASE)
     if reason_match:
-        return reason_match.group(1).strip()
+        reason = reason_match.group(1).strip()
+        if reason and any(char.isalpha() for char in reason):
+            return reason
 
     out_match = re.search(r"logged out\s*,\s*(.+)$", message_text, re.IGNORECASE)
     if out_match:
         possible_reason = out_match.group(1).strip()
-        if possible_reason and "user" not in possible_reason.lower():
+        if possible_reason and "user" not in possible_reason.lower() and any(char.isalpha() for char in possible_reason):
             return possible_reason
 
     discon_match = re.search(r"disconnected\s*,\s*(.+)$", message_text, re.IGNORECASE)
     if discon_match:
-        return discon_match.group(1).strip()
+        reason = discon_match.group(1).strip()
+        if reason and any(char.isalpha() for char in reason):
+            return reason
+
+    if "disconnected" in message_text.lower():
+        return "Desconectado"
 
     return None
 
