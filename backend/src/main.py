@@ -16,10 +16,11 @@ from pydantic import BaseModel
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Imports de Emerald
-from src.database import engine, Base, get_db
+from src.database import engine, Base, get_db, SessionLocal
 from src import models
 from src import config
 from src.services.api_key_service import APIKeyService
+from src.repositories.user_repository import UserRepository
 from src.routers.v1 import auth  # Removed old tickets router import
 from src.routers.v1 import admin  # Administración y desbloqueo
 from src.routers.v2 import users as users_v2
@@ -51,7 +52,7 @@ def run_db_migrations():
 
 app = FastAPI(
     title="Emerald ERP + Beholder",
-    redirect_slashes=False,  # NO hacer redirects 307, aceptar ambas formas
+    redirect_slashes=True,  # Redirigir automáticamente entre /endpoint y /endpoint/
 )
 
 # ✨ NUEVO: Configurar carpeta de medios para adjuntos
@@ -88,7 +89,7 @@ app.include_router(
 )
 app.include_router(
     work_orders.router,
-    prefix="/api",
+    prefix="/api/v2/work-orders",
     tags=["Work Orders"]
 )
 app.include_router(
@@ -98,9 +99,11 @@ app.include_router(
 )
 app.include_router(
     installation_types.router,
-    prefix="/api",
+    prefix="/api/v2/installation-types",
     tags=["Installation"]
 )
+# NOTE: search router uses absolute paths (/v2/search, /v2/users, /external/customer-lookup)
+# so prefix stays at /api to avoid path doubling
 app.include_router(
     search.router,
     prefix="/api",
@@ -124,7 +127,7 @@ app.include_router(
 # Inventory Module
 app.include_router(
     inventory.router,
-    prefix="/api",
+    prefix="/api/v2/inventory",
     tags=["Inventory"]
 )
 
@@ -155,7 +158,7 @@ app.include_router(
 # Audit Logs Module (Admin Only)
 app.include_router(
     audit.router,
-    prefix="/api",
+    prefix="/api/v2/audit-logs",
     tags=["Audit Logs"]
 )
 
@@ -209,7 +212,24 @@ async def security_middleware(request: Request, call_next):
         return await call_next(request)
     
     # Endpoints que requieren autenticación
-    protected_endpoints = ["/admin", "/api/clientes", "/api/servicios", "/api/v2/tickets", "/api/v2/users"]
+    protected_endpoints = [
+        "/admin",
+        "/api/clientes",
+        "/api/servicios",
+        "/api/v1/auth/change-password",
+        "/api/v1/auth/me",
+        "/api/v2",
+        "/api/v2/tickets",
+        "/api/v2/users",
+        "/api/v2/work-orders",
+        "/api/v2/inventory",
+        "/api/v2/engineering",
+        "/api/v2/coordination",
+        "/api/v2/vehicles",
+        "/api/v2/fleet",
+        "/api/v2/installation-types",
+        "/api/v2/audit-logs",
+    ]
     is_protected = any(request.url.path.startswith(p) for p in protected_endpoints)
     
     if is_protected:
@@ -252,14 +272,29 @@ async def security_middleware(request: Request, call_next):
                     payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
                     user_id_from_token = payload.get("sub")
                     
-                    # DEBUG: Log del JWT
-                    import logging
-                    logger = logging.getLogger("uvicorn.error")
-                    logger.info(f"🔑 [JWT AUTH] Token decodificado. Payload sub={user_id_from_token}, tipo={type(user_id_from_token)}")
-                    logger.info(f"🔑 [JWT AUTH] Payload completo: {payload}")
+                    # Resolver User completo desde DB para evitar doble decode en dependency
+                    if user_id_from_token:
+                        try:
+                            db = SessionLocal()
+                            user_repo = UserRepository(db)
+                            user = user_repo.get(int(user_id_from_token))
+                            if user and user.is_active:
+                                request.state.user = user
+                                request.state.user_id = user_id_from_token
+                                request.state.auth_type = "jwt"
+                            db.close()
+                        except Exception as e:
+                            import logging
+                            logger = logging.getLogger("uvicorn.error")
+                            logger.error(f"🔑 [JWT AUTH] Error resolviendo usuario desde DB: {e}")
+                            # Fallback: settear solo user_id como antes
+                            request.state.user_id = user_id_from_token
+                            request.state.auth_type = "jwt"
+                    else:
+                        # Fallback: solo user_id si no se pudo resolver User
+                        request.state.user_id = user_id_from_token
+                        request.state.auth_type = "jwt"
                     
-                    request.state.user_id = user_id_from_token
-                    request.state.auth_type = "jwt"
                     return await call_next(request)
                 except JWTError as e:
                     import logging

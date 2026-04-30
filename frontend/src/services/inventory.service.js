@@ -5,15 +5,15 @@
  * Maneja errores, transformación de datos y validación básica.
  * 
  * Endpoints disponibles:
- * - Warehouses: GET/POST /api/inventory/warehouses, GET /{id}/stock
- * - Products: GET/POST /api/inventory/products
- * - Serial Items: POST /api/inventory/serial-items
- * - Operations: POST /api/inventory/transfer, POST /api/inventory/adjustments
- * - Movements: GET /api/inventory/movements
+ * - Warehouses: GET/POST /api/v2/inventory/warehouses, GET /{id}/stock
+ * - Products: GET/POST /api/v2/inventory/products
+ * - Serial Items: POST /api/v2/inventory/serial-items
+ * - Operations: POST /api/v2/inventory/transfer, POST /api/v2/inventory/adjustments
+ * - Movements: GET /api/v2/inventory/movements
  */
 import api from '@/api/client';
 
-const BASE_URL = '/inventory';
+const BASE_URL = '/v2/inventory';
 
 // ============================================
 // WAREHOUSES

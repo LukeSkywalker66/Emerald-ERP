@@ -24,7 +24,7 @@ from src.schemas.inventory import (
 )
 from src.utils.audit import log_create, log_update, log_delete, get_entity_dict
 
-router = APIRouter(prefix="/inventory", tags=["inventory"])
+router = APIRouter(tags=["inventory"])
 logger = logging.getLogger("uvicorn.error")
 
 

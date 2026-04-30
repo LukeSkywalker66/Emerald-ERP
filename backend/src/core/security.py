@@ -1,12 +1,13 @@
 """
 Utilidades de seguridad: hashing de passwords y JWT tokens
 """
+from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Optional, Any
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -240,6 +241,75 @@ def get_current_user(
         )
     return user
     
+def get_current_user_from_state(
+    request: Request,
+    db: Session = Depends(get_db)
+) -> User:
+    """
+    FastAPI Dependency: Obtiene usuario autenticado desde request.state.
+    
+    FLUJO PREFERIDO (sin doble decode JWT):
+        1. Middleware ya procesó auth y setteó request.state.user → lo retorna directo
+        2. Si middleware no procesó (endpoints legacy), fallback decode JWT directo
+    
+    Esto elimina la doble decodificación de JWT que ocurría cuando:
+      - Middleware decodificaba JWT y setteaba request.state.user_id
+      - get_current_user() DECODIFICABA EL MISMO JWT OTRA VEZ
+    
+    Returns:
+        User: Objeto usuario autenticado.
+    
+    Raises:
+        HTTPException(401): Sin credenciales o token inválido.
+        HTTPException(403): Usuario inactivo.
+    """
+    # 1. Middleware ya resolvió el User completo
+    user = getattr(request.state, "user", None)
+    if user is not None:
+        return user
+    
+    # 2. Fallback: middleware no procesó → decode JWT directo
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No se pudo validar las credenciales",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jwt.decode(token, config.SECRET_KEY, algorithms=[config.ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token inválido: no contiene user_id"
+            )
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido o expirado",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    user_repo = UserRepository(db)
+    user = user_repo.get(int(user_id))
+    
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuario no encontrado"
+        )
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Usuario inactivo"
+        )
+    
+    return user
+
+
 def get_current_active_superuser(
     current_user = Depends(get_current_user)
 ):
@@ -274,6 +344,51 @@ def get_current_active_superuser(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tienes permisos suficientes"
         )
+    return current_user
+
+
+def require_admin(
+    current_user: User = Depends(get_current_user_from_state)
+) -> User:
+    """
+    DEPENDENCIA UNIFICADA: Valida que el usuario tenga permisos de administración.
+    
+    Considera administrador a quien cumple CUALQUIERA de estas condiciones:
+      - is_superuser == True (flag de superusuario)
+      - role_name == "admin" o "superadmin" (case-insensitive)
+    
+    Reemplaza las funciones duplicadas anteriormente:
+      - audit.py: get_current_admin_user()
+      - admin.py: verify_admin_role()
+    
+    Returns:
+        User: El mismo usuario autenticado si tiene permisos admin.
+    
+    Raises:
+        HTTPException(403): Usuario sin permisos de administración.
+    
+    Usage:
+        @router.get("/admin/settings")
+        def admin_settings(admin: User = Depends(require_admin)):
+            ...
+    """
+    user_role = (current_user.role_name or "").lower()
+    
+    if not current_user.is_superuser and user_role not in ("admin", "superadmin"):
+        import logging
+        logger = logging.getLogger("Emerald.Security")
+        logger.warning(
+            f"[SECURITY] Usuario {current_user.username} (id={current_user.id}) "
+            f"intentó acceder a endpoint admin. "
+            f"role_name='{current_user.role_name}', "
+            f"is_superuser={current_user.is_superuser}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Acceso denegado: se requieren permisos de administración "
+                   f"(rol actual: '{current_user.role_name}')"
+        )
+    
     return current_user
 
 

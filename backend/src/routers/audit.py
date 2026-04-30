@@ -10,52 +10,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, and_, desc
 
 from src.database import get_db
-from src.core.security import get_current_user
+from src.core.security import require_admin
 from src.models.audit import AuditLog, AuditAction
 from src.models.user import User
 from src.schemas.audit import AuditLogResponse, AuditLogListResponse
 
 
-router = APIRouter(prefix="/v2/audit-logs", tags=["Audit Logs"])
-
-
-# ============================================
-# DEPENDENCY: ROLE-BASED ACCESS CONTROL
-# ============================================
-
-def get_current_admin_user(
-    current_user: User = Depends(get_current_user)
-) -> User:
-    """
-    FastAPI Dependency: Valida que el usuario autenticado es ADMIN.
-    
-    Similar a get_current_active_superuser pero valida por rol en vez de flag.
-    Usa para endpoints que requieren rol 'admin' específicamente.
-    
-    Args:
-        current_user: Usuario ya autenticado (inyectado por get_current_user)
-    
-    Returns:
-        User: El mismo usuario si tiene rol 'admin'
-    
-    Raises:
-        HTTPException (403): Usuario autenticado pero no tiene rol admin
-    
-    Usage en endpoint:
-        @router.get("/v2/audit-logs")
-        def get_audit_logs(admin: User = Depends(get_current_admin_user)):
-            # Solo ejecuta si admin.role_name == 'admin'
-    """
-    # Normalizar rol (puede venir como 'Admin', 'ADMIN', etc.)
-    user_role = (current_user.role_name or "").lower()
-    
-    if user_role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Acceso denegado: se requiere rol 'admin' (rol actual: '{current_user.role_name}')"
-        )
-    
-    return current_user
+router = APIRouter(tags=["Audit Logs"])
 
 
 # ============================================
@@ -75,8 +36,8 @@ def get_audit_logs(
     limit: int = Query(100, ge=1, le=500, description="Número máximo de registros a retornar"),
     offset: int = Query(0, ge=0, description="Offset para paginación"),
     
-    # Autenticación y autorización
-    admin: User = Depends(get_current_admin_user),
+    # Autenticación y autorización (unificada desde security.py)
+    admin: User = Depends(require_admin),
     db: Session = Depends(get_db)
 ):
     """
@@ -185,7 +146,7 @@ def get_audit_logs(
 @router.get("/{audit_log_id}", response_model=AuditLogResponse)
 def get_audit_log_by_id(
     audit_log_id: int,
-    admin: User = Depends(get_current_admin_user),
+    admin: User = Depends(require_admin),
     db: Session = Depends(get_db)
 ):
     """

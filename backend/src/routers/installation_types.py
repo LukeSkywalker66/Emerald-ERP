@@ -9,7 +9,7 @@ from src.database import get_db
 from src.models.installation import InstallationType
 from src.schemas.installation import InstallationTypeResponse
 
-router = APIRouter(prefix="/v2/installation-types", tags=["installation"])
+router = APIRouter(tags=["installation"])
 
 
 @router.get("", response_model=List[InstallationTypeResponse])

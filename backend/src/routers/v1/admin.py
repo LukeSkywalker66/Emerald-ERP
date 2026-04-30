@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
 
 from src.database import get_db
-from src.core.security import get_current_user
+from src.core.security import require_admin
 from src.models.user import User
 from src.models.audit import LoginAttempt
 from src.services.rate_limit_service import RateLimitService
@@ -22,21 +22,12 @@ router = APIRouter(
 )
 
 
-def verify_admin_role(current_user: User = Depends(get_current_user)):
-    """Valida que el usuario actual sea admin."""
-    if not current_user.is_superuser:
-        logger.warning(f"[SECURITY] Usuario {current_user.username} intentó acceder a endpoint admin")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Acceso denegado: Se requiere rol administrador"
-        )
-    return current_user
 
 
 @router.post("/unlock-user")
 def unlock_user(
     username_or_email: str,
-    admin_user: User = Depends(verify_admin_role),
+    admin_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """
@@ -80,7 +71,7 @@ def unlock_user(
 @router.post("/unlock-ip")
 def unlock_ip(
     ip_address: str,
-    admin_user: User = Depends(verify_admin_role),
+    admin_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """
@@ -127,7 +118,7 @@ def unlock_ip(
 
 @router.get("/rate-limit-config")
 def get_rate_limit_config(
-    admin_user: User = Depends(verify_admin_role),
+    admin_user: User = Depends(require_admin),
 ):
     """
     Obtiene la configuración actual de rate limiting.
@@ -152,7 +143,7 @@ def get_rate_limit_config(
 @router.get("/login-attempts/{username_or_email}")
 def get_login_attempts(
     username_or_email: str,
-    admin_user: User = Depends(verify_admin_role),
+    admin_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """

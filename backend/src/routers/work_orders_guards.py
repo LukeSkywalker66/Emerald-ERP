@@ -4,8 +4,38 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from src.models.tickets import WorkOrder, WorkOrderStatus, TicketTimeline, TicketTimelineEventType
+from src.models.tickets import Ticket, WorkOrder, WorkOrderStatus, TicketTimeline, TicketTimelineEventType
 from src.models.user import User
+
+
+def validate_ticket_for_work_order(ticket_id: int, db: Session) -> Ticket:
+    """
+    Valida que un ticket existe y puede tener una Work Order asociada.
+    
+    Función COMPARTIDA entre tickets.py y work_orders.py para evitar
+    lógica duplicada de validación de tickets al crear OTs.
+    
+    Args:
+        ticket_id: ID del ticket a validar.
+        db: Sesión SQLAlchemy.
+    
+    Returns:
+        Ticket: Objeto ticket validado.
+    
+    Raises:
+        HTTPException(404): Ticket no encontrado.
+        HTTPException(422): Ticket no apto para OT (estado inválido, etc).
+    
+    Usage:
+        ticket = validate_ticket_for_work_order(payload.ticket_id, db)
+    """
+    ticket = db.get(Ticket, ticket_id)
+    if not ticket:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Ticket {ticket_id} no encontrado"
+        )
+    return ticket
 
 
 def validate_coordination_not_locked(

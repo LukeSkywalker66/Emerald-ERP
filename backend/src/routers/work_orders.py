@@ -41,8 +41,12 @@ from src.services.work_order_service import create_work_order_for_ticket
 logger = logging.getLogger(__name__)
 
 
-from .work_orders_guards import validate_coordination_not_locked, get_coordination_options_for_incomplete_work_order
-router = APIRouter(prefix="/v2/work-orders", tags=["work-orders"])
+from .work_orders_guards import (
+    validate_coordination_not_locked,
+    get_coordination_options_for_incomplete_work_order,
+    validate_ticket_for_work_order,
+)
+router = APIRouter(tags=["work-orders"])
 
 
 @router.post("", response_model=WorkOrderDetailResponse, status_code=status.HTTP_201_CREATED)
@@ -52,9 +56,7 @@ def create_work_order(
     current_user: User = Depends(get_current_user),
 ):
     """Crear una nueva OT heredando datos del ticket asociado."""
-    ticket = db.query(Ticket).filter(Ticket.id == payload.ticket_id).first()
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket = validate_ticket_for_work_order(payload.ticket_id, db)
     try:
         wo = create_work_order_for_ticket(
             db,

@@ -50,6 +50,7 @@ from src.services.installation_onboarding import (
 )
 from src.services.work_order_service import create_work_order_for_ticket
 from src.utils.audit import log_create, log_update
+from .work_orders_guards import validate_ticket_for_work_order
 
 router = APIRouter()
 logger = logging.getLogger("uvicorn.error")
@@ -855,9 +856,7 @@ def create_work_order(
     db: Session = Depends(get_db),
     user_id: int = Depends(get_user_id),
 ):
-    ticket = db.get(Ticket, ticket_id)
-    if not ticket:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
+    ticket = validate_ticket_for_work_order(ticket_id, db)
 
     try:
         work_order = create_work_order_for_ticket(
