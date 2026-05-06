@@ -15,6 +15,12 @@ export default defineConfig(({ mode }) => {
         '@': path.resolve(__dirname, './src'),
       },
     },
+    // 🛡️ Source maps controlados por entorno:
+    //   - Por defecto (npm run build) → false (seguro para producción)
+    //   - npm run build:debug → true (source maps para debugging)
+    build: {
+      sourcemap: process.env.VITE_ENABLE_SOURCEMAPS === 'true',
+    },
     server: {
       host: true,
       allowedHosts: true,
