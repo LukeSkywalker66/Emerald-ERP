@@ -23,6 +23,7 @@ from src.schemas.inventory import (
     StockAdjustmentRequest, StockAdjustmentResponse,
     StockAlertItem
 )
+from src.schemas.fleet import VehicleSummary
 from src.utils.audit import log_create, log_update, log_delete, get_entity_dict
 
 router = APIRouter(tags=["inventory"])
@@ -131,7 +132,10 @@ def list_warehouses(
     - **warehouse_type**: Filtrar por CENTRAL, MOBILE o VIRTUAL
     - **user_id**: Filtrar por técnico asignado (útil para listar camionetas de un técnico)
     """
-    stmt = select(Warehouse).options(joinedload(Warehouse.user))
+    stmt = select(Warehouse).options(
+        joinedload(Warehouse.user),
+        joinedload(Warehouse.vehicle),
+    )
     
     if warehouse_type:
         stmt = stmt.where(Warehouse.type == warehouse_type)
@@ -142,10 +146,16 @@ def list_warehouses(
     stmt = stmt.order_by(Warehouse.type, Warehouse.name)
     warehouses = db.execute(stmt).scalars().all()
     
+    def _exclude_vehicle(d: dict) -> dict:
+        """Excluir 'vehicle' del __dict__ del modelo ORM para evitar
+        TypeError por duplicado con el kwarg explícito vehicle=..."""
+        return {k: v for k, v in d.items() if k != 'vehicle'}
+
     return [
         WarehouseResponse(
-            **warehouse.__dict__,
-            user_name=_safe_user_name(warehouse.user)
+            **_exclude_vehicle(warehouse.__dict__),
+            user_name=_safe_user_name(warehouse.user),
+            vehicle=VehicleSummary.model_validate(warehouse.vehicle) if warehouse.vehicle else None,
         )
         for warehouse in warehouses
     ]
@@ -162,11 +172,12 @@ def create_warehouse(
     - Si es tipo **MOBILE**, debe especificar `user_id` (técnico asignado).
     - Si es tipo **CENTRAL** o **VIRTUAL**, `user_id` debe ser null.
     """
-    # Validar: MOBILE requiere user_id
-    if payload.type == WarehouseType.MOBILE and not payload.user_id:
+    # FASE 6: MOBILE warehouses deben crearse exclusivamente desde el módulo Flota
+    # (create_vehicle en fleet.py → _create_mobile_warehouse)
+    if payload.type == WarehouseType.MOBILE:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Warehouses tipo MOBILE requieren user_id (técnico asignado)"
+            detail="Los almacenes MOBILE deben crearse desde el módulo Flota"
         )
     
     # Validar: CENTRAL/VIRTUAL no deben tener user_id
@@ -208,8 +219,9 @@ def create_warehouse(
         logger.error(f"❌ [AUDIT] Error al registrar creación de warehouse {warehouse.id}: {audit_error}")
     
     return WarehouseResponse(
-        **warehouse.__dict__,
-        user_name=_safe_user_name(warehouse.user)
+        **_exclude_vehicle(warehouse.__dict__),
+        user_name=_safe_user_name(warehouse.user),
+        vehicle=VehicleSummary.model_validate(warehouse.vehicle) if warehouse.vehicle else None,
     )
 
 
@@ -302,8 +314,9 @@ def update_warehouse(
         logger.error(f"❌ [AUDIT] Error al registrar actualización de warehouse {warehouse.id}: {audit_error}")
     
     return WarehouseResponse(
-        **warehouse.__dict__,
-        user_name=_safe_user_name(warehouse.user)
+        **_exclude_vehicle(warehouse.__dict__),
+        user_name=_safe_user_name(warehouse.user),
+        vehicle=VehicleSummary.model_validate(warehouse.vehicle) if warehouse.vehicle else None,
     )
 
 

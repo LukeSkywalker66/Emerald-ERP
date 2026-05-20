@@ -60,6 +60,24 @@ class VehicleDetailResponse(VehicleResponse):
     team_name: Optional[str] = None
 
 
+class VehicleSummary(BaseModel):
+    """
+    Resumen minimalista de vehículo para incluir como objeto anidado
+    en respuestas de otros módulos (Warehouse, Team).
+    
+    NO es una tabla — se popula exclusivamente vía JOIN a la tabla vehicles
+    en runtime. Sin datos duplicados, sin columnas adicionales.
+    """
+    id: int
+    name: str
+    license_plate: Optional[str] = None
+    vehicle_brand: Optional[str] = None
+    vehicle_model: Optional[str] = None
+    full_name: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class VehicleInspectionCreate(BaseModel):
     """Payload para crear planilla diaria de inspección de vehículo."""
     vehicle_id: int = Field(..., gt=0)

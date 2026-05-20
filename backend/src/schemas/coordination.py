@@ -6,6 +6,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field, ConfigDict
 
 from src.models.coordination import TeamRole
+from src.schemas.fleet import VehicleSummary
 
 
 # ========== Team Schemas ==========
@@ -67,3 +68,7 @@ class TeamDetailResponse(TeamResponse):
     """Schema de respuesta con miembros incluidos."""
     members: List[TeamMemberResponse] = Field(default_factory=list)
     leader_name: Optional[str] = Field(None, description="Nombre del líder de cuadrilla")
+    vehicle: Optional[VehicleSummary] = Field(
+        None,
+        description="Vehículo asignado a la cuadrilla. Populado via JOIN a tabla vehicles, no es columna propia."
+    )

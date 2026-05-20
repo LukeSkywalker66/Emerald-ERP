@@ -5,7 +5,7 @@
  * Diseño Cyberpunk/Emerald.
  */
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Edit2, Trash2, Users, Plus, X, Truck, Package } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -20,16 +20,13 @@ const TeamCard = ({
   onDelete,
   availableUsers = [],
   onTeamUpdated,
-  vehicles = [],
 }) => {
   const [showAddMember, setShowAddMember] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState(null);
   const [updatingMemberId, setUpdatingMemberId] = useState(null);
 
-  const assignedVehicle = useMemo(() => {
-    if (!team?.vehicle_id) return null;
-    return vehicles.find((v) => Number(v.id) === Number(team.vehicle_id)) || null;
-  }, [vehicles, team]);
+  // El vehículo viene resuelto via JOIN desde el backend (TeamDetailResponse.vehicle)
+  const assignedVehicle = team?.vehicle || null;
 
   /**
    * Obtener color de rol
@@ -193,7 +190,7 @@ const TeamCard = ({
                 </p>
                 <div className="flex items-center gap-1 mt-1 text-xs text-zinc-500">
                   <Package className="h-3 w-3 text-amber-400" />
-                  <span>{assignedVehicle.warehouse_name || 'Warehouse s/d'}</span>
+                  <span>{assignedVehicle.full_name || assignedVehicle.name || 'Warehouse s/d'}</span>
                 </div>
               </>
             ) : (

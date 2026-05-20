@@ -35,7 +35,6 @@ const CuadrillasPage = () => {
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [vehicles, setVehicles] = useState([]);
-  const [loadingVehicles, setLoadingVehicles] = useState(false);
 
   // ========== EFFECTS ==========
 
@@ -101,36 +100,6 @@ const CuadrillasPage = () => {
   };
 
   /**
-   * Cargar vehículos disponibles (autos de la flota con sus warehouses asociados)
-   */
-  const loadVehicles = async () => {
-    try {
-      setLoadingVehicles(true);
-      const data = await fleetService.getVehicles({ status: 'ACTIVE' });
-      const list = Array.isArray(data) ? data.map(v => ({
-        id: v.id,
-        name: v.name,
-        label: `${v.name}${v.license_plate ? ` (${v.license_plate})` : ''}`,
-        code: v.license_plate,
-        vehicle_brand: v.vehicle_brand,
-        vehicle_model: v.vehicle_model,
-        vehicle_year: v.vehicle_year,
-        warehouse_id: v.warehouse_id,
-        warehouse_name: v.warehouse_name,
-        status: v.status,
-        team_id: v.team_id,
-        team_name: v.team_name,
-      })) : [];
-      setVehicles(list);
-    } catch (err) {
-      console.error('Error loading vehicles:', err);
-      // No mostrar error aquí, es secundario
-    } finally {
-      setLoadingVehicles(false);
-    }
-  };
-
-  /**
    * Crear nueva cuadrilla
    */
   const handleCreateTeam = async (teamData) => {
@@ -185,6 +154,33 @@ const CuadrillasPage = () => {
     } catch (err) {
       console.error('Error deleting team:', err);
       alert(`❌ Error al eliminar: ${err.message}`);
+    }
+  };
+
+  /**
+   * Cargar vehículos disponibles para selector en diálogos de crear/editar cuadrilla.
+   * NO se pasa a TeamCard — el vehículo asignado viene resuelto via JOIN desde el backend.
+   */
+  const loadVehicles = async () => {
+    try {
+      const data = await fleetService.getVehicles({ status: 'ACTIVE' });
+      const list = Array.isArray(data) ? data.map(v => ({
+        id: v.id,
+        name: v.name,
+        label: `${v.name}${v.license_plate ? ` (${v.license_plate})` : ''}`,
+        code: v.license_plate,
+        vehicle_brand: v.vehicle_brand,
+        vehicle_model: v.vehicle_model,
+        vehicle_year: v.vehicle_year,
+        warehouse_id: v.warehouse_id,
+        warehouse_name: v.warehouse_name,
+        status: v.status,
+        team_id: v.team_id,
+        team_name: v.team_name,
+      })) : [];
+      setVehicles(list);
+    } catch (err) {
+      console.error('Error loading vehicles:', err);
     }
   };
 
@@ -312,7 +308,6 @@ const CuadrillasPage = () => {
               onDelete={handleDeleteTeam}
               availableUsers={availableUsersForAssign}
               onTeamUpdated={loadTeams}
-              vehicles={vehicles}
             />
           ))}
         </div>

@@ -4,7 +4,7 @@ Service layer para gestión de cuadrillas.
 Implementa CRUD de teams, administración de miembros y validaciones.
 """
 from typing import List, Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from src.models.coordination import Team, TeamMember, TeamRole
 from src.models.user import User
@@ -16,6 +16,7 @@ from src.schemas.coordination import (
     TeamDetailResponse,
     TeamMemberResponse,
 )
+from src.schemas.fleet import VehicleSummary
 
 
 class TeamService:
@@ -36,7 +37,7 @@ class TeamService:
         Returns:
             Lista de TeamDetailResponse
         """
-        query = self.db.query(Team)
+        query = self.db.query(Team).options(joinedload(Team.vehicle))
         
         if active_only:
             query = query.filter(Team.is_active == True)
@@ -68,6 +69,7 @@ class TeamService:
                     team.leader.user.full_name or team.leader.user.username
                     if team.leader else None
                 ),
+                vehicle=VehicleSummary.model_validate(team.vehicle) if team.vehicle else None,
             )
             for team in teams
         ]
@@ -82,7 +84,7 @@ class TeamService:
         Returns:
             TeamDetailResponse o None
         """
-        team = self.db.query(Team).filter(Team.id == team_id).first()
+        team = self.db.query(Team).options(joinedload(Team.vehicle)).filter(Team.id == team_id).first()
         
         if not team:
             return None
@@ -111,6 +113,7 @@ class TeamService:
                 team.leader.user.full_name or team.leader.user.username
                 if team.leader else None
             ),
+            vehicle=VehicleSummary.model_validate(team.vehicle) if team.vehicle else None,
         )
 
     def create_team(self, payload: TeamCreate) -> TeamDetailResponse:

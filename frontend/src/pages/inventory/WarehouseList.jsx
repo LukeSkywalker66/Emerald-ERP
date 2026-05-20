@@ -111,15 +111,10 @@ export default function WarehouseList() {
         throw new Error('El nombre es obligatorio');
       }
       
-      if (formData.type === 'MOBILE' && !formData.user_id) {
-        throw new Error('Los almacenes MOBILE requieren asignar un técnico (user_id)');
-      }
-      
       // Preparar payload
       const payload = {
         name: formData.name.trim(),
         type: formData.type,
-        user_id: formData.type === 'MOBILE' ? formData.user_id : null
       };
       
       await createWarehouse(payload);
@@ -148,14 +143,9 @@ export default function WarehouseList() {
         throw new Error('El nombre es obligatorio');
       }
       
-      if (formData.type === 'MOBILE' && !formData.user_id) {
-        throw new Error('Los almacenes MOBILE requieren asignar un técnico (user_id)');
-      }
-      
       const payload = {
         name: formData.name.trim(),
         type: formData.type,
-        user_id: formData.type === 'MOBILE' ? formData.user_id : null
       };
       
       await updateWarehouse(selectedWarehouse.id, payload);
@@ -402,6 +392,30 @@ export default function WarehouseList() {
                 </h3>
               </Link>
               
+              {/* Vehicle info (MOBILE) */}
+              {warehouse.vehicle && (
+                <div className="mb-3 px-3 py-2 rounded-md bg-emerald-900/20 border border-emerald-800/30">
+                  <div className="flex items-center gap-2 text-xs text-zinc-400 mb-1">
+                    <Truck className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>Móvil asignado</span>
+                  </div>
+                  <p className="text-sm text-emerald-300 font-medium truncate">
+                    {warehouse.vehicle.full_name || warehouse.vehicle.name}
+                  </p>
+                  {warehouse.vehicle.license_plate && (
+                    <p className="text-xs text-zinc-400 truncate">
+                      Patente: {warehouse.vehicle.license_plate}
+                    </p>
+                  )}
+                  {warehouse.vehicle.vehicle_model && (
+                    <p className="text-xs text-zinc-500 truncate">
+                      {warehouse.vehicle.vehicle_brand || ''} {warehouse.vehicle.vehicle_model}
+                      {warehouse.vehicle.vehicle_year ? ` · ${warehouse.vehicle.vehicle_year}` : ''}
+                    </p>
+                  )}
+                </div>
+              )}
+              
               {/* Details */}
               <div className="space-y-2">
                 <div className="flex items-center space-x-2 text-sm text-zinc-400">
@@ -505,30 +519,12 @@ export default function WarehouseList() {
                   className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
                 >
                   <option value="CENTRAL">CENTRAL - Depósito principal</option>
-                  <option value="MOBILE">MOBILE - Camioneta de técnico</option>
                   <option value="VIRTUAL">VIRTUAL - Ubicación lógica</option>
                 </select>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Los almacenes tipo MOBILE se crean automáticamente desde el módulo Flota
+                </p>
               </div>
-
-              {/* User ID (solo si es MOBILE) */}
-              {formData.type === 'MOBILE' && (
-                <div>
-                  <label className="block text-sm font-medium text-zinc-300 mb-2">
-                    ID del Técnico Asignado *
-                  </label>
-                  <input
-                    type="number"
-                    value={formData.user_id || ''}
-                    onChange={(e) => setFormData({ ...formData, user_id: e.target.value ? parseInt(e.target.value) : null })}
-                    placeholder="Ej: 2"
-                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
-                    required
-                  />
-                  <p className="mt-2 text-xs text-zinc-500">
-                    Los almacenes MOBILE requieren asignar un técnico
-                  </p>
-                </div>
-              )}
 
               {/* Buttons */}
               <div className="flex items-center space-x-3 pt-4">
@@ -617,29 +613,15 @@ export default function WarehouseList() {
                   className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors"
                 >
                   <option value="CENTRAL">CENTRAL - Depósito principal</option>
-                  <option value="MOBILE">MOBILE - Camioneta de técnico</option>
                   <option value="VIRTUAL">VIRTUAL - Ubicación lógica</option>
                 </select>
-              </div>
-
-              {formData.type === 'MOBILE' && (
-                <div>
-                  <label className="block text-sm font-medium text-zinc-300 mb-2">
-                    ID del Técnico Asignado *
-                  </label>
-                  <input
-                    type="number"
-                    value={formData.user_id || ''}
-                    onChange={(e) => setFormData({ ...formData, user_id: e.target.value ? parseInt(e.target.value) : null })}
-                    placeholder="Ej: 2"
-                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors"
-                    required
-                  />
-                  <p className="mt-2 text-xs text-zinc-500">
-                    Los almacenes MOBILE requieren asignar un técnico
+                {formData.type === 'MOBILE' && (
+                  <p className="mt-2 text-xs text-amber-400 flex items-center gap-1">
+                    ⚠️ Los almacenes MOBILE se gestionan desde el módulo Flota.
+                    No es posible cambiar su tipo aquí.
                   </p>
-                </div>
-              )}
+                )}
+              </div>
 
               <div className="flex items-center space-x-3 pt-4">
                 <button

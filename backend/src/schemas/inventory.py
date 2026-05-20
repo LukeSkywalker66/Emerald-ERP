@@ -12,6 +12,7 @@ from src.models.inventory import (
     SerialItemStatus,
     MovementType
 )
+from src.schemas.fleet import VehicleSummary
 
 
 # ============================================
@@ -43,6 +44,10 @@ class WarehouseResponse(WarehouseBase):
     created_at: datetime
     updated_at: datetime
     user_name: Optional[str] = Field(None, description="Nombre del técnico asignado si es MOBILE")
+    vehicle: Optional[VehicleSummary] = Field(
+        None,
+        description="Vehículo asociado (solo MOBILE). Populado via JOIN a tabla vehicles, no es columna propia."
+    )
     
     model_config = ConfigDict(from_attributes=True)
 
