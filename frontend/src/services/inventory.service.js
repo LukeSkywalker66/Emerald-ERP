@@ -1,19 +1,33 @@
 /**
  * Servicio de Inventario Operativo - Emerald ERP
- * 
+ *
  * Centraliza toda la comunicación con el API de Inventario.
  * Maneja errores, transformación de datos y validación básica.
- * 
+ *
  * Endpoints disponibles:
  * - Warehouses: GET/POST /api/v2/inventory/warehouses, GET /{id}/stock
  * - Products: GET/POST /api/v2/inventory/products
  * - Serial Items: POST /api/v2/inventory/serial-items
  * - Operations: POST /api/v2/inventory/transfer, POST /api/v2/inventory/adjustments
  * - Movements: GET /api/v2/inventory/movements
+ * - **Stock Alerts (Optimizado):** GET /api/v2/inventory/stock/alerts
  */
 import api from '@/api/client';
 
 const BASE_URL = '/v2/inventory';
+
+// ============================================
+// PROMISE CACHING (elimina N+1 HTTP duplicados)
+// ============================================
+// Cachea la Promise (no el resultado) para que múltiples llamadas síncronas
+// en el mismo tick compartan la misma request HTTP.
+let _warehousesPromiseCache = null;
+let _productsPromiseCache = null;
+
+function _invalidateCaches() {
+  _warehousesPromiseCache = null;
+  _productsPromiseCache = null;
+}
 
 // ============================================
 // WAREHOUSES
@@ -25,9 +39,16 @@ const BASE_URL = '/v2/inventory';
  * @returns {Promise<Array>} Array de warehouses
  */
 export const getWarehouses = async (filters = {}) => {
+  const noFilters = Object.keys(filters).length === 0;
+  // Usar cache solo cuando no hay filtros (caso común para stats/alerts)
+  if (noFilters && _warehousesPromiseCache) {
+    return _warehousesPromiseCache;
+  }
   try {
-    const { data } = await api.get(`${BASE_URL}/warehouses`, { params: filters });
-    return data || [];
+    const promise = api.get(`${BASE_URL}/warehouses`, { params: filters })
+      .then(res => res.data || []);
+    if (noFilters) _warehousesPromiseCache = promise;
+    return promise;
   } catch (error) {
     console.error('❌ Error fetching warehouses:', error);
     throw error;
@@ -36,7 +57,7 @@ export const getWarehouses = async (filters = {}) => {
 
 /**
  * Obtener el warehouse MOBILE asignado a un técnico específico.
- * Filtro client-side usando el user_id porque la API devuelve todos los MOBILE.
+ * Usa el filtro user_id del backend en lugar de filtrar client-side.
  * @param {number} userId - ID del usuario técnico logueado
  * @returns {Promise<Object|null>} Warehouse o null si no existe
  */
@@ -44,9 +65,10 @@ export const getMyWarehouse = async (userId) => {
   if (!userId) return null;
 
   try {
-    // Compatibilidad: algunos endpoints usan "type" y otros "warehouse_type"
-    const warehouses = await getWarehouses({ type: 'MOBILE', warehouse_type: 'MOBILE' });
-    return warehouses.find((warehouse) => warehouse.user_id === userId) || null;
+    const { data } = await api.get(`${BASE_URL}/warehouses`, {
+      params: { warehouse_type: 'MOBILE', user_id: userId }
+    });
+    return data?.[0] || null;
   } catch (error) {
     console.error('❌ Error fetching technician warehouse:', error);
     throw error;
@@ -129,12 +151,16 @@ export const getWarehouseStock = async (warehouseId) => {
  * @returns {Promise<Array>} Array de productos
  */
 export const getProducts = async (filters = {}) => {
+  const noFilters = Object.keys(filters).length === 0;
+  // Usar cache solo cuando no hay filtros (caso común para stats/alerts)
+  if (noFilters && _productsPromiseCache) {
+    return _productsPromiseCache;
+  }
   try {
-    // Los parámetros se pasan como query string (?type=BULK&category=Cableado)
-    // axios/api lo maneja automáticamente con { params: filters }
-    const { data } = await api.get(`${BASE_URL}/products`, { params: filters });
-    console.log('✅ Products fetched with filters:', filters, 'Result count:', data?.length);
-    return data || [];
+    const promise = api.get(`${BASE_URL}/products`, { params: filters })
+      .then(res => res.data || []);
+    if (noFilters) _productsPromiseCache = promise;
+    return promise;
   } catch (error) {
     console.error('❌ Error fetching products:', error);
     console.error('  Filters sent:', filters);
@@ -264,61 +290,24 @@ export const getMovements = async (filters = {}) => {
 };
 
 // ============================================
-// HELPERS / AGGREGATE DATA
+// STOCK ALERTS (OPTIMIZADO — Una sola request)
 // ============================================
 
 /**
- * Calcular productos con stock bajo (helper frontend)
- * Combina datos de productos y warehouses para detectar alertas
- * @returns {Promise<Array>} Productos con stock < min_stock_alert
+ * Obtener alertas de stock bajo usando el endpoint optimizado.
+ *
+ * **ANTES (N+1 masivo):** N productos × M warehouses = N×M requests HTTP
+ * **AHORA:** Una sola query agregada en el backend (LEFT JOIN + GROUP BY + HAVING)
+ *
+ * @returns {Promise<Array>} StockAlertItem[] - { product_id, product_name, product_sku,
+ *          product_type, category, total_stock, min_stock_alert, deficit }
  */
 export const getStockAlerts = async () => {
   try {
-    // Obtener todos los productos
-    const products = await getProducts();
-    
-    // Obtener todos los warehouses con stock
-    const warehouses = await getWarehouses();
-    
-    const alerts = [];
-    
-    for (const product of products) {
-      let totalStock = 0;
-      
-      // Sumar stock de todos los warehouses
-      for (const warehouse of warehouses) {
-        try {
-          const warehouseStock = await getWarehouseStock(warehouse.id);
-          const productStock = warehouseStock.items?.find(
-            item => item.product_id === product.id
-          );
-          
-          if (productStock) {
-            if (product.type === 'BULK') {
-              totalStock += productStock.quantity || 0;
-            } else if (product.type === 'SERIALIZED') {
-              totalStock += productStock.serial_count || 0;
-            }
-          }
-        } catch (error) {
-          console.warn(`Warning: Could not fetch stock for warehouse ${warehouse.id}`);
-        }
-      }
-      
-      // Si stock total < mínimo configurado, agregar a alertas
-      if (totalStock < product.min_stock_alert) {
-        alerts.push({
-          product,
-          totalStock,
-          minStock: product.min_stock_alert,
-          deficit: product.min_stock_alert - totalStock
-        });
-      }
-    }
-    
-    return alerts;
+    const { data } = await api.get(`${BASE_URL}/stock/alerts`);
+    return data || [];
   } catch (error) {
-    console.error('❌ Error calculating stock alerts:', error);
+    console.error('❌ Error fetching stock alerts:', error);
     throw error;
   }
 };
@@ -381,7 +370,7 @@ export default {
   // Movements
   getMovements,
   
-  // Helpers
+  // Stock Alerts (optimizado)
   getStockAlerts,
   getInventoryStats
 };

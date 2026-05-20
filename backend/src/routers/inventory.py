@@ -6,7 +6,7 @@ from typing import List, Optional
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, func
 
 from src.database import get_db
 from src.models.inventory import (
@@ -20,7 +20,8 @@ from src.schemas.inventory import (
     SerialItemCreate, SerialItemUpdate, SerialItemResponse,
     StockMovementResponse, WarehouseStockResponse, StockItemDetail,
     StockTransferRequest, StockTransferResponse,
-    StockAdjustmentRequest, StockAdjustmentResponse
+    StockAdjustmentRequest, StockAdjustmentResponse,
+    StockAlertItem
 )
 from src.utils.audit import log_create, log_update, log_delete, get_entity_dict
 
@@ -46,6 +47,72 @@ def _safe_user_name(user: Optional[User]) -> Optional[str]:
     if user is None:
         return None
     return user.full_name or user.username
+
+
+# ============================================
+# STOCK ALERTS ENDPOINT (OPTIMIZADO — Una sola query)
+# ============================================
+
+@router.get("/stock/alerts", response_model=List[StockAlertItem])
+def get_stock_alerts(
+    db: Session = Depends(get_db)
+):
+    """
+    **Endpoint optimizado** para alertas de stock mínimo.
+    
+    En lugar de que el frontend haga N×M consultas (productos × warehouses),
+    esta única query agrega stock BULK y cuenta seriales por producto,
+    comparando contra min_stock_alert.
+    
+    **Retorna:** Lista de productos cuyo stock total es menor a su mínimo configurado.
+    """
+    # Una sola consulta: LEFT JOIN products → stock_bulk → serial_items
+    # con agregación y filtro HAVING para stock < mínimo
+    stmt = (
+        select(
+            Product.id,
+            Product.name,
+            Product.sku,
+            Product.type,
+            Product.category,
+            Product.min_stock_alert,
+            func.coalesce(func.sum(StockBulk.quantity), 0).label("total_bulk"),
+            func.count(SerialItem.id).label("total_serialized")
+        )
+        .outerjoin(StockBulk, and_(
+            StockBulk.product_id == Product.id,
+            StockBulk.quantity > 0
+        ))
+        .outerjoin(SerialItem, and_(
+            SerialItem.product_id == Product.id,
+            SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.USED])
+        ))
+        .group_by(Product.id, Product.name, Product.sku, Product.type, Product.category, Product.min_stock_alert)
+        .having(
+            # stock total (bulk sum + serial count) < min_stock_alert
+            func.coalesce(func.sum(StockBulk.quantity), 0) +
+            func.count(SerialItem.id) < Product.min_stock_alert
+        )
+        .order_by(Product.name)
+    )
+    
+    results = db.execute(stmt).all()
+    
+    alerts = []
+    for row in results:
+        total_stock = float(row.total_bulk or 0) + float(row.total_serialized or 0)
+        alerts.append(StockAlertItem(
+            product_id=row.id,
+            product_name=row.name,
+            product_sku=row.sku,
+            product_type=row.type,
+            category=row.category,
+            total_stock=total_stock,
+            min_stock_alert=row.min_stock_alert,
+            deficit=float(row.min_stock_alert) - total_stock
+        ))
+    
+    return alerts
 
 
 # ============================================
@@ -265,52 +332,52 @@ def delete_warehouse(
             detail=f"Warehouse con id {warehouse_id} no encontrado"
         )
     
-    # Validación 1: Verificar stock bulk
+    # Validación 1: Verificar stock bulk (SELECT COUNT optimizado)
     bulk_count = db.execute(
-        select(StockBulk).where(
+        select(func.count()).select_from(StockBulk).where(
             and_(
                 StockBulk.warehouse_id == warehouse_id,
                 StockBulk.quantity > 0
             )
         )
-    ).scalars().all()
+    ).scalar()
     
-    if bulk_count:
+    if bulk_count and bulk_count > 0:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"No se puede eliminar: El almacén tiene {len(bulk_count)} producto(s) con stock BULK. Transfiera o ajuste el stock antes de eliminar."
+            detail=f"No se puede eliminar: El almacén tiene {bulk_count} producto(s) con stock BULK. Transfiera o ajuste el stock antes de eliminar."
         )
     
-    # Validación 2: Verificar serial items
+    # Validación 2: Verificar serial items (SELECT COUNT optimizado)
     serial_count = db.execute(
-        select(SerialItem).where(
+        select(func.count()).select_from(SerialItem).where(
             and_(
                 SerialItem.warehouse_id == warehouse_id,
                 SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.USED])
             )
         )
-    ).scalars().all()
+    ).scalar()
     
-    if serial_count:
+    if serial_count and serial_count > 0:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"No se puede eliminar: El almacén tiene {len(serial_count)} item(s) serializados activos. Transfiera o dé de baja los items antes de eliminar."
+            detail=f"No se puede eliminar: El almacén tiene {serial_count} item(s) serializados activos. Transfiera o dé de baja los items antes de eliminar."
         )
     
-    # Validación 3: Verificar movimientos (origen o destino)
+    # Validación 3: Verificar movimientos (origen o destino) (SELECT COUNT optimizado)
     movements_count = db.execute(
-        select(StockMovement).where(
+        select(func.count()).select_from(StockMovement).where(
             or_(
                 StockMovement.from_warehouse_id == warehouse_id,
                 StockMovement.to_warehouse_id == warehouse_id
             )
         )
-    ).scalars().all()
+    ).scalar()
     
-    if movements_count:
+    if movements_count and movements_count > 0:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"No se puede eliminar: El almacén tiene {len(movements_count)} movimiento(s) registrado(s) en el historial. No se puede eliminar un almacén con historial de auditoría."
+            detail=f"No se puede eliminar: El almacén tiene {movements_count} movimiento(s) registrado(s) en el historial. No se puede eliminar un almacén con historial de auditoría."
         )
     
     # 🔒 AUDIT LOG: Capturar valores ANTES del delete
@@ -411,12 +478,18 @@ def get_warehouse_stock(
         )
     
     # Agregar items SERIALIZED
+    # Construir mapa de categorías desde los productos ya cargados (evita N+1 queries)
+    product_category_map = {}
+    for item in serial_items:
+        if item.product_id not in product_category_map and item.product:
+            product_category_map[item.product_id] = item.product.category
+    
     for product_id, serials in serials_by_product.items():
         product = serials[0].product_name  # Tomar de primer serial
         sku = serials[0].product_sku
         
-        # Obtener product completo para category
-        prod_obj = db.get(Product, product_id)
+        # Usar el mapa de categorías ya cargado en lugar de N+1 db.get()
+        category = product_category_map.get(product_id)
         
         items.append(
             StockItemDetail(
@@ -424,7 +497,7 @@ def get_warehouse_stock(
                 product_name=product,
                 product_sku=sku,
                 product_type=ProductType.SERIALIZED,
-                category=prod_obj.category if prod_obj else None,
+                category=category,
                 quantity=None,
                 serial_items=serials,
                 serial_count=len(serials)
@@ -618,49 +691,49 @@ def delete_product(
             detail=f"Producto con id {product_id} no encontrado"
         )
     
-    # Validación 1: Verificar stock bulk
+    # Validación 1: Verificar stock bulk (SELECT COUNT optimizado)
     bulk_count = db.execute(
-        select(StockBulk).where(
+        select(func.count()).select_from(StockBulk).where(
             and_(
                 StockBulk.product_id == product_id,
                 StockBulk.quantity > 0
             )
         )
-    ).scalars().all()
+    ).scalar()
     
-    if bulk_count:
+    if bulk_count and bulk_count > 0:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"No se puede eliminar: El producto tiene stock BULK disponible en {len(bulk_count)} almacén(es). Transfiera o consume el stock antes de eliminar."
+            detail=f"No se puede eliminar: El producto tiene stock BULK disponible en {bulk_count} almacén(es). Transfiera o consume el stock antes de eliminar."
         )
     
-    # Validación 2: Verificar serial items activos
+    # Validación 2: Verificar serial items activos (SELECT COUNT optimizado)
     serial_count = db.execute(
-        select(SerialItem).where(
+        select(func.count()).select_from(SerialItem).where(
             and_(
                 SerialItem.product_id == product_id,
                 SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.USED])
             )
         )
-    ).scalars().all()
+    ).scalar()
     
-    if serial_count:
+    if serial_count and serial_count > 0:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"No se puede eliminar: El producto tiene {len(serial_count)} item(s) serializados activos. Transfiera o dé de baja los items antes de eliminar."
+            detail=f"No se puede eliminar: El producto tiene {serial_count} item(s) serializados activos. Transfiera o dé de baja los items antes de eliminar."
         )
     
-    # Validación 3: Verificar movimientos históricos
+    # Validación 3: Verificar movimientos históricos (SELECT COUNT optimizado)
     movements_count = db.execute(
-        select(StockMovement).where(
+        select(func.count()).select_from(StockMovement).where(
             StockMovement.product_id == product_id
         )
-    ).scalars().all()
+    ).scalar()
     
-    if movements_count:
+    if movements_count and movements_count > 0:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"No se puede eliminar: El producto tiene {len(movements_count)} movimiento(s) registrado(s) en el historial. No se pueden eliminar productos con historial de auditoría."
+            detail=f"No se puede eliminar: El producto tiene {movements_count} movimiento(s) registrado(s) en el historial. No se pueden eliminar productos con historial de auditoría."
         )
     
     # Capturar valores anteriores para auditoría

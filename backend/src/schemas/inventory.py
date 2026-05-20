@@ -290,3 +290,24 @@ class StockAdjustmentResponse(BaseModel):
     message: str
     
     model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================
+# STOCK ALERT SCHEMAS (OPTIMIZED ENDPOINT)
+# ============================================
+
+class StockAlertItem(BaseModel):
+    """
+    Ítem de alerta de stock — resultado del endpoint optimizado /stock/alerts.
+    Reemplaza el N+1 masivo del frontend con una sola consulta agregada.
+    """
+    product_id: int
+    product_name: str
+    product_sku: str
+    product_type: ProductType
+    category: Optional[str] = None
+    total_stock: float = Field(..., description="Suma total del stock en todos los warehouses")
+    min_stock_alert: int = Field(..., description="Mínimo configurado antes de alertar")
+    deficit: float = Field(..., description="Cuánto falta para alcanzar el mínimo")
+
+    model_config = ConfigDict(from_attributes=True)

@@ -224,17 +224,17 @@ export default function InventoryDashboard() {
                 <div key={idx} className="p-3 bg-red-900/10 border border-red-900/30 rounded-lg">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-red-300">{alert.product.name}</p>
-                      <p className="text-xs text-zinc-400 mt-0.5">SKU: {alert.product.sku}</p>
+                      <p className="text-sm font-medium text-red-300">{alert.product_name}</p>
+                      <p className="text-xs text-zinc-400 mt-0.5">SKU: {alert.product_sku}</p>
                     </div>
                     <span className="text-xs font-mono text-red-400 bg-red-900/30 px-2 py-1 rounded">
                       -{alert.deficit}
                     </span>
                   </div>
                   <div className="mt-2 flex items-center space-x-2 text-xs">
-                    <span className="text-zinc-500">Stock: {alert.totalStock}</span>
+                    <span className="text-zinc-500">Stock: {alert.total_stock}</span>
                     <span className="text-zinc-600">•</span>
-                    <span className="text-zinc-500">Mín: {alert.minStock}</span>
+                    <span className="text-zinc-500">Mín: {alert.min_stock_alert}</span>
                   </div>
                 </div>
               ))}
