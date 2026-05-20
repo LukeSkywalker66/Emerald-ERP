@@ -24,10 +24,17 @@ export const applyTicketFilters = (workOrders = [], filters = {}) => {
     if (search.trim()) {
       const searchLower = search.toLowerCase();
       const idMatch = wo.id?.toString().includes(searchLower);
-      const clientMatch = ticket.client_name?.toLowerCase().includes(searchLower);
-      const addressMatch = ticket.address?.toLowerCase().includes(searchLower);
 
-      if (!idMatch && !clientMatch && !addressMatch) {
+      // Fallback chain: top-level first, then ticket
+      const clientName = wo.client_name || ticket.client_name || ticket.contact_info?.client_name || '';
+      const address = wo.address || ticket.address || ticket.availability_note || '';
+
+      const clientMatch = clientName.toLowerCase().includes(searchLower);
+      const addressMatch = address.toLowerCase().includes(searchLower);
+      // También buscar en ticket_title (subject) y description
+      const titleMatch = (wo.ticket_title || ticket.subject || '').toLowerCase().includes(searchLower);
+
+      if (!idMatch && !clientMatch && !addressMatch && !titleMatch) {
         return false;
       }
     }

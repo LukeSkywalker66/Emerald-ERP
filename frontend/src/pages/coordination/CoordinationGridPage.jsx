@@ -4,7 +4,7 @@
  * 4 de febrero de 2026
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { addDays, format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
@@ -66,17 +66,37 @@ export default function CoordinationGridPage() {
   // WorkOrderType config (DB-driven labels/colors/icons)
   const [workOrderTypes, setWorkOrderTypes] = useState([]);
   const [workOrderTypeMap, setWorkOrderTypeMap] = useState({});
+  const workOrderTypesRetryRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
-    getWorkOrderTypes(true)
-      .then((types) => {
-        if (!cancelled) {
-          setWorkOrderTypes(types);
-          setWorkOrderTypeMap(buildTypeMap(types));
-        }
-      })
-      .catch((err) => console.warn('⚠️ No se pudieron cargar tipos de OT:', err));
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 2000;
+
+    function attemptFetch() {
+      if (cancelled) return;
+      getWorkOrderTypes(true)
+        .then((types) => {
+          if (!cancelled) {
+            setWorkOrderTypes(types);
+            setWorkOrderTypeMap(buildTypeMap(types));
+          }
+        })
+        .catch((err) => {
+          workOrderTypesRetryRef.current += 1;
+          if (workOrderTypesRetryRef.current < MAX_RETRIES && !cancelled) {
+            console.warn(
+              `⚠️ Reintento ${workOrderTypesRetryRef.current}/${MAX_RETRIES} para tipos de OT:`,
+              err?.message || err
+            );
+            setTimeout(attemptFetch, RETRY_DELAY_MS);
+          } else {
+            console.warn('⚠️ No se pudieron cargar tipos de OT tras', MAX_RETRIES, 'intentos:', err);
+          }
+        });
+    }
+
+    attemptFetch();
     return () => { cancelled = true; };
   }, []);
 

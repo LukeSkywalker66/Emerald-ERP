@@ -41,7 +41,7 @@ export function useOptimisticUpdates(initialData) {
       timestamp: Date.now(),
       type,
       payload,
-      snapshot: JSON.parse(JSON.stringify(data)), // Deep clone
+      snapshot: structuredClone(data),
     });
 
     // Agregar a pending
@@ -109,7 +109,7 @@ export function useOptimisticUpdates(initialData) {
 
     // Recuperar snapshot
     const snapshot = updateStackRef.current[stackIndex].snapshot;
-    setData(JSON.parse(JSON.stringify(snapshot))); // Restore snapshot
+    setData(structuredClone(snapshot)); // Restore snapshot
 
     // Remover del stack
     updateStackRef.current = updateStackRef.current.slice(0, stackIndex);
@@ -136,7 +136,7 @@ export function useOptimisticUpdates(initialData) {
     }
 
     const oldestSnapshot = updateStackRef.current[0].snapshot;
-    setData(JSON.parse(JSON.stringify(oldestSnapshot)));
+    setData(structuredClone(oldestSnapshot));
 
     updateStackRef.current = [];
     setPendingUpdates([]);

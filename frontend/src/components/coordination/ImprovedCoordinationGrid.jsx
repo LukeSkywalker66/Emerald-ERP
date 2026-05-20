@@ -256,24 +256,33 @@ export default function ImprovedCoordinationGrid({
     });
 
     // Listeners globales para move y end
+    let rafId = null;
     function handleMouseMove(moveEvent) {
-      const delta = moveEvent.clientX - e.clientX;
-      const gridWidth = document.querySelector('.improved-grid-container')?.offsetWidth || window.innerWidth * 0.6;
-      const pixelsPerMinute = gridWidth / totalMinutes;
-      const deltaMinutes = Math.round(delta / pixelsPerMinute);
-      
-      // Granularidad de 5 minutos, mínimo 15 min, máximo antes de la siguiente OT o fin de turno
-      const roundedDelta = Math.round(deltaMinutes / 5) * 5;
-      const newDuration = Math.max(15, Math.min(originalDuration + roundedDelta, maxDuration));
+      if (rafId) return; // Throttle con requestAnimationFrame
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const delta = moveEvent.clientX - e.clientX;
+        const gridWidth = document.querySelector('.improved-grid-container')?.offsetWidth || window.innerWidth * 0.6;
+        const pixelsPerMinute = gridWidth / totalMinutes;
+        const deltaMinutes = Math.round(delta / pixelsPerMinute);
+        
+        // Granularidad de 5 minutos, mínimo 15 min, máximo antes de la siguiente OT o fin de turno
+        const roundedDelta = Math.round(deltaMinutes / 5) * 5;
+        const newDuration = Math.max(15, Math.min(originalDuration + roundedDelta, maxDuration));
 
-      // Actualizar ref y estado para renderizar suavemente
-      currentDurationRef.current = newDuration;
-      setResizingDuration(newDuration);
+        // Actualizar ref y estado para renderizar suavemente
+        currentDurationRef.current = newDuration;
+        setResizingDuration(newDuration);
+      });
     }
 
     async function handleMouseUp(upEvent) {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
       
       // Marcar que acaba de terminar un resize (para prevenir click accidental)
       justFinishedResizingRef.current = true;

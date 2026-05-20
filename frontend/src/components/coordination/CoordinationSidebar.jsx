@@ -1,11 +1,11 @@
 /**
  * CoordinationSidebar.jsx
- * 
+ *
  * Sidebar táctico con agrupación por barrio y filtros.
  * Diseño compacto para máximo aprovechamiento vertical.
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Accordion,
   AccordionContent,
@@ -44,11 +44,38 @@ export default function CoordinationSidebar({
   const [pendingClosureStats, setPendingClosureStats] = useState(null);
   const [isLoadingPendingStats, setIsLoadingPendingStats] = useState(false);
   const [pendingStatsError, setPendingStatsError] = useState(null);
+  const prevWorkOrderCountRef = useRef(workOrders.length);
+  const pendingRefreshTimerRef = useRef(null);
 
   // ========== CARGAR STATS AL MONTAR ==========
   useEffect(() => {
     loadPendingClosureStats();
   }, []);
+
+  // ========== AUTO-REFRESCAR CUANDO WORK ORDERS CAMBIAN ==========
+  // Si cambia la cantidad de workOrders en backlog (por rescate, re-asignación, etc.)
+  // refrescamos stats automáticamente con un breve debounce para evitar llamadas múltiples.
+  useEffect(() => {
+    if (workOrders.length !== prevWorkOrderCountRef.current) {
+      prevWorkOrderCountRef.current = workOrders.length;
+
+      // Limpiar timer anterior (debounce)
+      if (pendingRefreshTimerRef.current) {
+        clearTimeout(pendingRefreshTimerRef.current);
+      }
+
+      // Refrescar después de 1s para evitar ráfagas
+      pendingRefreshTimerRef.current = setTimeout(() => {
+        loadPendingClosureStats();
+      }, 1000);
+    }
+
+    return () => {
+      if (pendingRefreshTimerRef.current) {
+        clearTimeout(pendingRefreshTimerRef.current);
+      }
+    };
+  }, [workOrders.length]);
 
   const loadPendingClosureStats = async () => {
     try {
