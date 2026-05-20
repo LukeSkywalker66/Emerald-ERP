@@ -18,6 +18,7 @@ from src.database import Base as OldBase
 from src.database.base import Base as NewBase
 from src.models.user import Role, User  # Modelos nuevos
 from src.models.inventory import *  # Modelos de Inventory
+from src.models.work_order_types import WorkOrderTypeConfig  # WorkOrderType configuration
 try:
     from src.models.tickets import *  # Modelos de Tickets (nueva arquitectura)
 except ImportError:

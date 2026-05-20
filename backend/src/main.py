@@ -25,7 +25,7 @@ from src.routers.v1 import auth  # Removed old tickets router import
 from src.routers.v1 import admin  # Administración y desbloqueo
 from src.routers.v2 import users as users_v2
 from src.routers.v2 import roles as roles_v2
-from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet, installation_types, audit
+from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet, installation_types, audit, work_order_types
 from src.routers.oraculo import router as oraculo_router
 
 # 👇 IMPORTAMOS EL NUEVO SERVICIO (Tu lógica adaptada)
@@ -101,6 +101,11 @@ app.include_router(
     installation_types.router,
     prefix="/api/v2/installation-types",
     tags=["Installation"]
+)
+app.include_router(
+    work_order_types.router,
+    prefix="/api/v2/work-order-types",
+    tags=["Work Order Types"]
 )
 # NOTE: search router uses absolute paths (/v2/search, /v2/users, /external/customer-lookup)
 # so prefix stays at /api to avoid path doubling

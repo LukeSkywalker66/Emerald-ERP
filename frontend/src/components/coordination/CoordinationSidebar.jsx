@@ -34,6 +34,8 @@ export default function CoordinationSidebar({
   onQuickAction,
   onSelectWorkOrder,
   defaultCity = null,
+  workOrderTypes = [],
+  workOrderTypeMap = {},
 }) {
   // ========== HOOKS DE FILTROS ==========
   const { filters, updateFilter, toggleCity, toggleType, clearFilters } = useTicketFilters();
@@ -163,6 +165,7 @@ export default function CoordinationSidebar({
         onTypesChange={toggleType}
         onCriticalChange={(val) => updateFilter('onlyCritical', val)}
         onClearAll={clearFilters}
+        workOrderTypes={workOrderTypes}
       />
 
       <ScrollArea className="flex-1 min-h-0">
@@ -259,6 +262,7 @@ export default function CoordinationSidebar({
                         workOrder={wo}
                         currentDate={currentDate}
                         onQuickAction={onQuickAction}
+                        workOrderTypeMap={workOrderTypeMap}
                       />
                     ))}
                   </AccordionContent>

@@ -194,6 +194,8 @@ export default function FluidCoordinationCalendar({
 
     const bgColor = typeConfig[event.workOrder?.ot_type] || 'bg-zinc-600/90';
 
+    const duration = event.workOrder?.estimated_duration || event.estimated_duration || 0;
+
     return (
       <div
         className={`
@@ -203,8 +205,11 @@ export default function FluidCoordinationCalendar({
         `}
       >
         <div className="font-bold truncate">{event.title}</div>
-        <div className="text-white/80 truncate text-[10px]">
-          OT #{event.id}
+        <div className="flex items-center justify-between gap-1 mt-0.5">
+          <span className="text-white/80 truncate text-[10px]">OT #{event.id}</span>
+          <span className="text-[10px] font-mono opacity-90 bg-black/30 px-1 rounded shrink-0">
+            {duration}m
+          </span>
         </div>
       </div>
     );

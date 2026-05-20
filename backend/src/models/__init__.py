@@ -5,6 +5,7 @@ Unifica todos los modelos: Auth, Tickets, Beholder, API Keys, WorkOrders, Engine
 from .user import Role, User
 from .audit import AuditLog, LoginAttempt, AuditAction
 from .installation import InstallationType
+from .work_order_types import WorkOrderTypeConfig
 # DEPRECATED: Old ticket models replaced by new tickets.py version
 # Do NOT import from .ticket to avoid SQLAlchemy registry conflicts
 from .tickets import (
@@ -93,6 +94,8 @@ __all__ = [
 	"TicketReason",
 	"Tag",
 	"TicketAttachment",
+	# WorkOrderType configuration
+	"WorkOrderTypeConfig",
 	# Coordination models
 	"Team",
 	"TeamMember",

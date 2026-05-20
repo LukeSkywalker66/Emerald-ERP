@@ -102,6 +102,16 @@ function applyCoordinationFilters(workOrders, filters) {
   });
 }
 
+/**
+ * Get Tailwind bg class for a work order type.
+ * Falls back to amber if type is unknown or no map is provided.
+ */
+function getTypeColor(wo, workOrderTypeMap) {
+  if (!workOrderTypeMap || !wo?.ot_type) return 'bg-amber-600/80';
+  const typeConfig = workOrderTypeMap[wo.ot_type];
+  return typeConfig?.color || 'bg-amber-600/80';
+}
+
 export default function ImprovedCoordinationGrid({
   teams = [],
   workOrders = [],
@@ -115,6 +125,9 @@ export default function ImprovedCoordinationGrid({
   onRollbackAssign,    // (woId) => void
   onOptimisticResize,  // (woId, newDuration) => void
   onRollbackResize,    // (woId) => void
+  // DB-driven WorkOrderType config
+  workOrderTypes = [],
+  workOrderTypeMap = {},
 }) {
   const [draggedItem, setDraggedItem] = useState(null);
   const [isResizing, setIsResizing] = useState(null);
@@ -712,13 +725,13 @@ export default function ImprovedCoordinationGrid({
                             }
                           }}
                           className={`absolute top-2 h-16 rounded border transition-all pointer-events-auto group/task overflow-hidden ${isPastDate ? 'cursor-default' : 'cursor-move'} ${
-                            draggedItem?.id === wo.id 
-                              ? 'bg-amber-500 border-amber-400 shadow-2xl opacity-80 scale-105' 
-                              : isResizing?.workOrderId === wo.id 
-                                ? 'bg-amber-500 border-amber-400 shadow-lg' 
+                            draggedItem?.id === wo.id
+                              ? 'bg-amber-500 border-amber-400 shadow-2xl opacity-80 scale-105'
+                              : isResizing?.workOrderId === wo.id
+                                ? 'bg-amber-500 border-amber-400 shadow-lg'
                                 : isPastDate
                                   ? 'bg-zinc-700/80 border-zinc-600/50 hover:bg-zinc-700'
-                                  : 'bg-amber-600/80 border-amber-500/50 hover:bg-amber-700'
+                                  : `${getTypeColor(wo, workOrderTypeMap)} hover:brightness-110`
                           } ${isAtMaxDuration ? 'border-l-2 border-l-red-500' : ''}`}
                           style={{
                             left: `calc(${pos.left}% + 0.5rem)`,
@@ -728,14 +741,19 @@ export default function ImprovedCoordinationGrid({
                         >
                           {/* Contenido */}
                           <div className="p-1.5 h-full flex flex-col text-xs text-white overflow-hidden">
-                            <p className="font-bold truncate">{wo.client_name || 'S/N'}</p>
+                            <p className="font-bold truncate leading-tight">{wo.client_name || 'S/N'}</p>
                             {isResizing?.workOrderId === wo.id && (
-                              <p className="text-xs font-mono bg-black/20 px-1 rounded mt-0.5">{timeDisplay}</p>
+                              <p className="text-xs font-mono bg-black/20 px-1 rounded mt-0.5 truncate">{timeDisplay}</p>
                             )}
-                            {!isResizing?.workOrderId === wo.id && (
+                            {isResizing?.workOrderId !== wo.id && (
                               <>
-                                <p className="truncate opacity-80 text-xs">{wo.address || '—'}</p>
-                                <p className="mt-auto text-xs opacity-75">OT #{wo.id}</p>
+                                <p className="truncate opacity-80 text-xs leading-tight">{wo.address || '—'}</p>
+                                <div className="mt-auto flex items-center justify-between gap-1">
+                                  <span className="text-[10px] opacity-75 truncate">OT #{wo.id}</span>
+                                  <span className="text-[10px] font-mono opacity-90 bg-black/30 px-1 rounded shrink-0">
+                                    {wo.estimated_duration || 0}m
+                                  </span>
+                                </div>
                               </>
                             )}
                           </div>

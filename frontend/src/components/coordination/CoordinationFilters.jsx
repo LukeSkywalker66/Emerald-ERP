@@ -1,15 +1,17 @@
 /**
  * CoordinationFilters.jsx
- * 
+ *
  * Panel de filtros multicriterio para reducir ruido visual.
- * Localidades, tipos de trabajo, búsqueda universal y prioridad.
+ * Localidades, tipos de trabajo (desde DB), búsqueda universal y prioridad.
  */
 
 import React, { useMemo, useState } from 'react';
 import {
   Search,
   Wrench,
-  Wifi,
+  Package,
+  ArrowUpFromLine,
+  Building2,
   AlertCircle,
   X,
   ChevronDown,
@@ -24,10 +26,13 @@ import {
 } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
 
-const OT_TYPES = [
-  { id: 'repair', label: 'Reparación', icon: Wrench },
-  { id: 'install', label: 'Instalación', icon: Wifi },
-];
+// Map icon names from DB to lucide-react components
+const ICON_MAP = {
+  Wrench,
+  Package,
+  ArrowUpFromLine,
+  Building2,
+};
 
 export default function CoordinationFilters({
   filters,
@@ -37,6 +42,7 @@ export default function CoordinationFilters({
   onTypesChange,
   onCriticalChange,
   onClearAll,
+  workOrderTypes = [],  // DB-driven work order type configs
 }) {
   const [expandCities, setExpandCities] = useState(false);
   const cityList = useMemo(
@@ -107,30 +113,35 @@ export default function CoordinationFilters({
         </div>
       )}
 
-      {/* ========== TIPOS DE TRABAJO ========== */}
-      <div>
-        <p className="text-[10px] text-zinc-500 uppercase tracking-wide mb-1.5">
-          Tipo de Trabajo
-        </p>
-        <div className="flex gap-1 justify-start">
-          {OT_TYPES.map(({ id, label, icon: Icon }) => (
-            <Button
-              key={id}
-              size="sm"
-              variant={filters.types.includes(id) ? 'default' : 'outline'}
-              onClick={() => onTypesChange(id)}
-              className={`h-7 px-2 text-xs flex items-center gap-1 ${
-                filters.types.includes(id)
-                  ? 'bg-emerald-600 border-emerald-500 hover:bg-emerald-700'
-                  : 'border-zinc-700 hover:bg-zinc-700'
-              }`}
-            >
-              <Icon size={12} />
-              {label}
-            </Button>
-          ))}
+      {/* ========== TIPOS DE TRABAJO (desde DB) ========== */}
+      {workOrderTypes.length > 0 && (
+        <div>
+          <p className="text-[10px] text-zinc-500 uppercase tracking-wide mb-1.5">
+            Tipo de Trabajo
+          </p>
+          <div className="flex gap-1 justify-start flex-wrap">
+            {workOrderTypes.map((type) => {
+              const Icon = ICON_MAP[type.icon] || Wrench;
+              return (
+                <Button
+                  key={type.code}
+                  size="sm"
+                  variant={filters.types.includes(type.code) ? 'default' : 'outline'}
+                  onClick={() => onTypesChange(type.code)}
+                  className={`h-7 px-2 text-xs flex items-center gap-1 ${
+                    filters.types.includes(type.code)
+                      ? 'bg-emerald-600 border-emerald-500 hover:bg-emerald-700'
+                      : 'border-zinc-700 hover:bg-zinc-700'
+                  }`}
+                >
+                  <Icon size={12} />
+                  {type.name}
+                </Button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ========== PRIORIDAD: SOLO CRÍTICOS ========== */}
       <div className="flex items-center justify-between p-2 rounded bg-zinc-800/30 border border-zinc-700/50">
@@ -174,17 +185,20 @@ export default function CoordinationFilters({
                 <X size={10} />
               </Badge>
             ))}
-            {filters.types.map((type) => (
-              <Badge
-                key={type}
-                variant="secondary"
-                className="text-[10px] px-2 py-0.5 gap-1 cursor-pointer hover:bg-zinc-700"
-                onClick={() => onTypesChange(type)}
-              >
-                🔧 {type}
-                <X size={10} />
-              </Badge>
-            ))}
+            {filters.types.map((typeCode) => {
+              const typeConfig = workOrderTypes.find((t) => t.code === typeCode);
+              return (
+                <Badge
+                  key={typeCode}
+                  variant="secondary"
+                  className="text-[10px] px-2 py-0.5 gap-1 cursor-pointer hover:bg-zinc-700"
+                  onClick={() => onTypesChange(typeCode)}
+                >
+                  🔧 {typeConfig?.name || typeCode}
+                  <X size={10} />
+                </Badge>
+              );
+            })}
             {filters.onlyCritical && (
               <Badge
                 variant="destructive"

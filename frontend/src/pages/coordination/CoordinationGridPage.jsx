@@ -21,6 +21,7 @@ import CoordinationSidebar from '@/components/coordination/CoordinationSidebar';
 import CoordinationSheet from '@/components/coordination/CoordinationSheet';
 import ImprovedCoordinationGrid from '@/components/coordination/ImprovedCoordinationGrid';
 import { useCoordinationSync } from '@/components/coordination/hooks';
+import { getWorkOrderTypes, buildTypeMap } from '@/services/workOrderTypes.service';
 
 
 // ========== PÁGINA PRINCIPAL ==========
@@ -61,6 +62,23 @@ export default function CoordinationGridPage() {
     const stored = sessionStorage.getItem('coordination_activeTimeBlock');
     return stored || 'morning';
   });
+
+  // WorkOrderType config (DB-driven labels/colors/icons)
+  const [workOrderTypes, setWorkOrderTypes] = useState([]);
+  const [workOrderTypeMap, setWorkOrderTypeMap] = useState({});
+
+  useEffect(() => {
+    let cancelled = false;
+    getWorkOrderTypes(true)
+      .then((types) => {
+        if (!cancelled) {
+          setWorkOrderTypes(types);
+          setWorkOrderTypeMap(buildTypeMap(types));
+        }
+      })
+      .catch((err) => console.warn('⚠️ No se pudieron cargar tipos de OT:', err));
+    return () => { cancelled = true; };
+  }, []);
 
   // Sincronización automática con BD (polling 5s)
   const syncResult = useCoordinationSync(currentDate, true, {
@@ -224,6 +242,8 @@ export default function CoordinationGridPage() {
           currentDate={currentDate}
           onQuickAction={() => handleManualRefresh()}
           onSelectWorkOrder={handleEventClick}
+          workOrderTypes={workOrderTypes}
+          workOrderTypeMap={workOrderTypeMap}
         />
       )}
 
@@ -357,6 +377,8 @@ export default function CoordinationGridPage() {
                 onRollbackAssign={handleRollbackAssign}
                 onOptimisticResize={handleOptimisticResize}
                 onRollbackResize={handleRollbackResize}
+                workOrderTypes={workOrderTypes}
+                workOrderTypeMap={workOrderTypeMap}
               />
             )}
           </div>
@@ -378,6 +400,8 @@ export default function CoordinationGridPage() {
           handleManualRefresh();
         }}
         onWorkOrderUpdated={() => handleManualRefresh()}
+        workOrderTypes={workOrderTypes}
+        workOrderTypeMap={workOrderTypeMap}
       />
     </div>
   );

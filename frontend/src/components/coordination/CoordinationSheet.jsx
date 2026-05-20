@@ -49,21 +49,22 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 
-const OT_TYPE_LABELS = {
+const FINAL_STATES = ['completed', 'failed', 'cancelled'];
+
+/** Fallback por si workOrderTypeMap está vacío */
+const FALLBACK_TYPE_LABELS = {
   repair: 'Reparación',
   install: 'Instalación',
   pickup: 'Retiro',
   infrastructure: 'Infraestructura',
 };
 
-const OT_TYPE_COLORS = {
+const FALLBACK_TYPE_COLORS = {
   repair: 'bg-amber-600',
   install: 'bg-emerald-600',
   pickup: 'bg-blue-600',
   infrastructure: 'bg-purple-600',
 };
-
-const FINAL_STATES = ['completed', 'failed', 'cancelled'];
 
 export default function CoordinationSheet({
   workOrder,
@@ -72,6 +73,8 @@ export default function CoordinationSheet({
   onClose,
   onDurationChange,
   onWorkOrderUpdated,
+  workOrderTypes = [],
+  workOrderTypeMap = {},
 }) {
   const navigate = useNavigate();
   const [duration, setDuration] = useState(workOrder?.estimated_duration || 60);
@@ -378,8 +381,8 @@ export default function CoordinationSheet({
 
   if (!workOrder) return null;
 
-  const typeLabel = OT_TYPE_LABELS[activeWorkOrder.ot_type] || 'Tarea';
-  const typeColor = OT_TYPE_COLORS[activeWorkOrder.ot_type] || 'bg-zinc-600';
+  const typeLabel = workOrderTypeMap[activeWorkOrder.ot_type]?.name || FALLBACK_TYPE_LABELS[activeWorkOrder.ot_type] || 'Tarea';
+  const typeColor = workOrderTypeMap[activeWorkOrder.ot_type]?.color || FALLBACK_TYPE_COLORS[activeWorkOrder.ot_type] || 'bg-zinc-600';
   const hasAvailability = ticket?.availability_note;
   const clientPhone = [
     ticket?.contact_info?.phone,

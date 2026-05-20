@@ -17,6 +17,9 @@ import {
   Wifi,
   Truck,
   AlertTriangle,
+  Package,
+  ArrowUpFromLine,
+  Building2,
   User,
   MapPin,
   FileText,
@@ -54,21 +57,32 @@ const PRIORITY_CONFIG = {
   },
 };
 
-// ========== CONFIGURACIÓN DE TIPO ==========
+// ========== CONFIGURACIÓN DE TIPO (fallback si no hay DB) ==========
 
-const TYPE_ICONS = {
+const FALLBACK_TYPE_ICONS = {
   repair: Wrench,
   install: Wifi,
   pickup: Truck,
   infrastructure: AlertTriangle,
 };
 
-const TYPE_LABELS = {
+const FALLBACK_TYPE_LABELS = {
   repair: 'Reparación',
   install: 'Instalación',
   pickup: 'Retiro',
   infrastructure: 'Infraestructura',
   incident: 'Incidente',
+};
+
+/** Mapa de nombre de icono (string) → componente lucide-react */
+const ICON_MAP = {
+  Wrench,
+  Wifi,
+  Truck,
+  AlertTriangle,
+  Package,
+  ArrowUpFromLine,
+  Building2,
 };
 
 // ========== COMPONENTE PRINCIPAL ==========
@@ -78,6 +92,7 @@ export default function DraggableWorkOrderCard({
   currentDate,
   onQuickAction,
   isDragging = false,
+  workOrderTypeMap = {},
 }) {
   const [showCoordinationSheet, setShowCoordinationSheet] = useState(false);
   const [duration, setDuration] = useState(workOrder?.estimated_duration || 60);
@@ -87,9 +102,11 @@ export default function DraggableWorkOrderCard({
   const priority = workOrder.ticket?.priority || 'low';
   const priorityConfig = PRIORITY_CONFIG[priority] || PRIORITY_CONFIG.low;
 
-  // Tipo de OT (icono)
+  // Tipo de OT (icono) — desde DB si disponible, fallback a hardcode
   const otType = workOrder.ot_type || 'repair';
-  const TypeIcon = TYPE_ICONS[otType] || Wrench;
+  const typeConfig = workOrderTypeMap[otType];
+  const iconName = typeConfig?.icon;
+  const TypeIcon = (iconName && ICON_MAP[iconName]) || FALLBACK_TYPE_ICONS[otType] || Wrench;
 
   // ========== TÍTULO: BARRIO > DIRECCIÓN > FALLBACK ==========
   // NUNCA mostrar availability_note, notas, u otros campos aquí
@@ -124,8 +141,8 @@ export default function DraggableWorkOrderCard({
     ? problemDescription.substring(0, 100) + '...'
     : problemDescription;
 
-  // Tipo de OT (label)
-  const otTypeLabel = TYPE_LABELS[otType] || 'Otro';
+  // Tipo de OT (label) — desde DB si disponible, fallback a hardcode
+  const otTypeLabel = typeConfig?.name || FALLBACK_TYPE_LABELS[otType] || 'Otro';
 
   // Fecha de creación formateada
   const createdDate = createdAt 
