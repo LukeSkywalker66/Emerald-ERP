@@ -170,6 +170,23 @@ export const getProducts = async (filters = {}) => {
 };
 
 /**
+ * Obtener categorías de productos desde la tabla product_categories
+ * @param {boolean} activeOnly - Solo categorías activas
+ * @returns {Promise<Array>} Lista de categorías [{ id, name, is_active }]
+ */
+export const getProductCategories = async (activeOnly = true) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/product-categories`, {
+      params: { active_only: activeOnly }
+    });
+    return data;
+  } catch (error) {
+    console.error('❌ Error loading product categories:', error);
+    throw error;
+  }
+};
+
+/**
  * Crear nuevo producto
  * @param {Object} payload - { name, sku, type, category?, description?, min_stock_alert? }
  * @returns {Promise<Object>} Producto creado

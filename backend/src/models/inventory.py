@@ -9,7 +9,7 @@ from enum import Enum as PyEnum
 
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Text, ForeignKey,
-    Enum, UniqueConstraint, Index, text
+    Enum, UniqueConstraint, Index, text, Boolean
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from src.database import Base
@@ -52,6 +52,45 @@ class MovementType(str, PyEnum):
 # ============================================
 # MODELOS
 # ============================================
+
+
+class ProductCategory(Base):
+    """
+    Catálogo de categorías de productos.
+    Tabla de referencia poblada con valores semilla:
+    Cableado, Equipos, Accesorios, Herramientas.
+    """
+    __tablename__ = "product_categories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        unique=True,
+        index=True,
+        comment="Nombre de la categoría (Ej: Cableado, Equipos)"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("true"),
+        comment="Si la categoría está disponible para nuevos productos"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+        onupdate=datetime.utcnow
+    )
+
+    def __repr__(self):
+        return f"<ProductCategory(id={self.id}, name='{self.name}')>"
+
 
 class Warehouse(Base):
     """

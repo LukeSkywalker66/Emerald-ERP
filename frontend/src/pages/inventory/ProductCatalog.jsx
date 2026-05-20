@@ -11,11 +11,12 @@ import {
   Trash2,
   Edit2
 } from 'lucide-react';
-import { 
-  getProducts, 
+import {
+  getProducts,
   createProduct,
   updateProduct,
-  deleteProduct 
+  deleteProduct,
+  getProductCategories
 } from '@/services/inventory.service';
 
 export default function ProductCatalog() {
@@ -23,6 +24,7 @@ export default function ProductCatalog() {
   const [filteredProducts, setFilteredProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [categories, setCategories] = useState([]);
 
   // Search/Filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -53,6 +55,7 @@ export default function ProductCatalog() {
 
   useEffect(() => {
     loadProducts();
+    loadCategories();
   }, []);
 
   useEffect(() => {
@@ -71,6 +74,15 @@ export default function ProductCatalog() {
       setError('No se pudieron cargar los productos');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadCategories = async () => {
+    try {
+      const data = await getProductCategories();
+      setCategories(data || []);
+    } catch (err) {
+      console.error('Error loading categories:', err);
     }
   };
 
@@ -250,7 +262,7 @@ export default function ProductCatalog() {
     setShowDeleteConfirm(true);
   };
 
-  const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
+  const categoryNames = categories.map(c => c.name);
 
   if (loading) {
     return (
@@ -316,8 +328,8 @@ export default function ProductCatalog() {
             className="px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
           >
             <option value="ALL">Todas las Categorías</option>
-            {categories.map(cat => (
-              <option key={cat} value={cat}>{cat}</option>
+            {categoryNames.map(name => (
+              <option key={name} value={name}>{name}</option>
             ))}
           </select>
         </div>
@@ -548,13 +560,16 @@ export default function ProductCatalog() {
                 <label className="block text-sm font-medium text-zinc-300 mb-2">
                   Categoría
                 </label>
-                <input
-                  type="text"
+                <select
                   value={formData.category}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  placeholder="Ej: Cableado, ONUs, Conectores"
-                  className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
-                />
+                  className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
+                >
+                  <option value="">Sin categoría</option>
+                  {categoryNames.map(name => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
               </div>
 
               {/* Description */}
@@ -723,13 +738,16 @@ export default function ProductCatalog() {
                   <label className="block text-sm font-medium text-zinc-300 mb-2">
                     Categoría
                   </label>
-                  <input
-                    type="text"
+                  <select
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    placeholder="Ej: Cableado, ONUs, Conectores"
-                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors"
-                  />
+                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors"
+                  >
+                    <option value="">Sin categoría</option>
+                    {categoryNames.map(name => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Description */}

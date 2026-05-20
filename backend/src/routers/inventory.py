@@ -10,13 +10,14 @@ from sqlalchemy import select, and_, or_, func
 
 from src.database import get_db
 from src.models.inventory import (
-    Warehouse, Product, StockBulk, SerialItem, StockMovement,
+    Warehouse, Product, ProductCategory, StockBulk, SerialItem, StockMovement,
     WarehouseType, ProductType, MovementType, SerialItemStatus
 )
 from src.models.user import User
 from src.schemas.inventory import (
     WarehouseCreate, WarehouseUpdate, WarehouseResponse,
     ProductCreate, ProductUpdate, ProductResponse,
+    ProductCategoryResponse,
     SerialItemCreate, SerialItemUpdate, SerialItemResponse,
     StockMovementResponse, WarehouseStockResponse, StockItemDetail,
     StockTransferRequest, StockTransferResponse,
@@ -607,6 +608,37 @@ def create_product(
         logger.error(f"❌ [AUDIT] Error al registrar creación de producto {product.id}: {audit_error}")
     
     return ProductResponse(**product.__dict__)
+
+
+# ============================================
+# PRODUCT CATEGORY ENDPOINTS
+# ============================================
+
+
+@router.get("/product-categories", response_model=List[ProductCategoryResponse])
+def list_product_categories(
+    active_only: bool = Query(True, description="Solo categorías activas"),
+    db: Session = Depends(get_db)
+):
+    """
+    Listar categorías de productos desde la tabla product_categories.
+    Los valores se siembran en migración: Cableado, Equipos, Accesorios, Herramientas.
+    """
+    try:
+        stmt = select(ProductCategory)
+        if active_only:
+            stmt = stmt.where(ProductCategory.is_active == True)
+        stmt = stmt.order_by(ProductCategory.name)
+        result = db.execute(stmt).scalars().all()
+        return [ProductCategoryResponse.model_validate(cat) for cat in result]
+    except Exception as e:
+        logger.error(f"Error al listar categorías de productos: {e}")
+        raise HTTPException(status_code=500, detail="Error al obtener categorías de productos")
+
+
+# ============================================
+# PRODUCT ENDPOINTS (continuación)
+# ============================================
 
 
 @router.put("/products/{product_id}", response_model=ProductResponse)

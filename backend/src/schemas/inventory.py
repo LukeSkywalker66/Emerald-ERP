@@ -91,6 +91,20 @@ class ProductResponse(ProductBase):
 
 
 # ============================================
+# PRODUCT CATEGORY SCHEMAS
+# ============================================
+
+
+class ProductCategoryResponse(BaseModel):
+    """Schema de respuesta para categoría de producto."""
+    id: int
+    name: str
+    is_active: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================
 # STOCK BULK SCHEMAS
 # ============================================
 
