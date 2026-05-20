@@ -8,7 +8,6 @@ import {
   AlertCircle,
   FileText,
   X,
-  Calendar,
   Package,
   Activity,
 } from 'lucide-react';
@@ -43,6 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import DatePickerPopover from '@/components/ui/DatePickerPopover';
 import api from '@/api/client';
 
 /**
@@ -240,35 +240,27 @@ export default function AuditLogsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Fecha Desde */}
             <div>
-              <label className="text-sm text-zinc-400 mb-2 block flex items-center gap-1">
-                <Calendar className="w-3.5 h-3.5" />
-                Desde
-              </label>
-              <Input
-                type="date"
+              <label className="text-sm text-zinc-400 mb-2 block">Desde</label>
+              <DatePickerPopover
                 value={filters.date_from}
-                onChange={(e) => {
-                  setFilters({ ...filters, date_from: e.target.value });
+                onChange={(value) => {
+                  setFilters({ ...filters, date_from: value });
                   setPagination((prev) => ({ ...prev, offset: 0 }));
                 }}
-                className="bg-zinc-950 border-zinc-800 text-zinc-100"
+                placeholder="Seleccionar fecha inicial"
               />
             </div>
 
             {/* Fecha Hasta */}
             <div>
-              <label className="text-sm text-zinc-400 mb-2 block flex items-center gap-1">
-                <Calendar className="w-3.5 h-3.5" />
-                Hasta
-              </label>
-              <Input
-                type="date"
+              <label className="text-sm text-zinc-400 mb-2 block">Hasta</label>
+              <DatePickerPopover
                 value={filters.date_to}
-                onChange={(e) => {
-                  setFilters({ ...filters, date_to: e.target.value });
+                onChange={(value) => {
+                  setFilters({ ...filters, date_to: value });
                   setPagination((prev) => ({ ...prev, offset: 0 }));
                 }}
-                className="bg-zinc-950 border-zinc-800 text-zinc-100"
+                placeholder="Seleccionar fecha final"
               />
             </div>
 
