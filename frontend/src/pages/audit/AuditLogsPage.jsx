@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Shield,
   Filter,
@@ -7,6 +7,10 @@ import {
   ChevronRight,
   AlertCircle,
   FileText,
+  X,
+  Calendar,
+  Package,
+  Activity,
 } from 'lucide-react';
 import {
   Card,
@@ -44,6 +48,12 @@ import api from '@/api/client';
 /**
  * AuditLogsPage - Monitor de auditoría universal
  * Vista SOLO para admins que muestra todos los cambios en el sistema
+ *
+ * Filtros mejorados:
+ * - Rango de fechas (Desde / Hasta)
+ * - Dropdown de módulo (populado desde backend)
+ * - Dropdown de acción (populado desde backend)
+ * - Filtro por ID de usuario
  */
 export default function AuditLogsPage() {
   const [logs, setLogs] = useState([]);
@@ -51,14 +61,20 @@ export default function AuditLogsPage() {
   const [error, setError] = useState(null);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedLog, setSelectedLog] = useState(null);
-  
+
+  // Opciones para dropdowns (populadas desde backend)
+  const [entityNames, setEntityNames] = useState([]);
+  const [actionTypes, setActionTypes] = useState([]);
+
   // Filtros
   const [filters, setFilters] = useState({
     entity_name: '',
     action: '',
     user_id: '',
+    date_from: '',
+    date_to: '',
   });
-  
+
   // Paginación
   const [pagination, setPagination] = useState({
     offset: 0,
@@ -66,25 +82,47 @@ export default function AuditLogsPage() {
     total: 0,
   });
 
+  // Cargar opciones de dropdowns al montar el componente
+  useEffect(() => {
+    const loadOptions = async () => {
+      try {
+        const [entityRes, actionRes] = await Promise.all([
+          api.get('/v2/audit-logs/entity-names'),
+          api.get('/v2/audit-logs/actions'),
+        ]);
+        setEntityNames(entityRes.data || []);
+        setActionTypes(actionRes.data || []);
+      } catch (err) {
+        console.error('❌ Error al cargar opciones de filtros:', err);
+        // No bloquear la carga principal si fallan los auxiliares
+      }
+    };
+    loadOptions();
+  }, []);
+
+  // Recargar cuando cambien los filtros o la paginación
   useEffect(() => {
     loadAuditLogs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pagination.offset, filters]);
 
-  const loadAuditLogs = async () => {
+  const loadAuditLogs = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      
+
       const params = new URLSearchParams({
         offset: pagination.offset,
         limit: pagination.limit,
       });
-      
+
       // Agregar filtros si están activos
       if (filters.entity_name) params.append('entity_name', filters.entity_name);
       if (filters.action) params.append('action', filters.action);
       if (filters.user_id) params.append('user_id', filters.user_id);
-      
+      if (filters.date_from) params.append('date_from', filters.date_from);
+      if (filters.date_to) params.append('date_to', filters.date_to);
+
       const response = await api.get(`/v2/audit-logs?${params}`);
       setLogs(response.data.items || []);
       setPagination((prev) => ({ ...prev, total: response.data.total || 0 }));
@@ -94,7 +132,7 @@ export default function AuditLogsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [pagination.offset, pagination.limit, filters]);
 
   const handleViewDetails = (log) => {
     setSelectedLog(log);
@@ -102,7 +140,7 @@ export default function AuditLogsPage() {
   };
 
   const handleResetFilters = () => {
-    setFilters({ entity_name: '', action: '', user_id: '' });
+    setFilters({ entity_name: '', action: '', user_id: '', date_from: '', date_to: '' });
     setPagination((prev) => ({ ...prev, offset: 0 }));
   };
 
@@ -117,6 +155,15 @@ export default function AuditLogsPage() {
       setPagination((prev) => ({ ...prev, offset: Math.max(0, prev.offset - prev.limit) }));
     }
   };
+
+  // Contar filtros activos
+  const activeFilterCount = [
+    filters.entity_name,
+    filters.action,
+    filters.user_id,
+    filters.date_from,
+    filters.date_to,
+  ].filter(Boolean).length;
 
   const getActionColor = (action) => {
     switch (action) {
@@ -162,63 +209,136 @@ export default function AuditLogsPage() {
 
       {/* Filtros */}
       <Card className="bg-zinc-900 border-zinc-800">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-zinc-100">
-            <Filter className="w-5 h-5" />
-            Filtros
-          </CardTitle>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-zinc-100">
+              <Filter className="w-5 h-5" />
+              Filtros
+              {activeFilterCount > 0 && (
+                <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 ml-2">
+                  {activeFilterCount} activo{activeFilterCount !== 1 ? 's' : ''}
+                </Badge>
+              )}
+            </CardTitle>
+            {activeFilterCount > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleResetFilters}
+                className="text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+              >
+                <X className="w-4 h-4 mr-1" />
+                Limpiar filtros
+              </Button>
+            )}
+          </div>
           <CardDescription className="text-zinc-400">
-            Buscar registros por entidad, acción o usuario
+            Buscar registros por fecha, módulo, acción o usuario
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Fecha Desde */}
             <div>
-              <label className="text-sm text-zinc-400 mb-2 block">Entidad</label>
+              <label className="text-sm text-zinc-400 mb-2 block flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5" />
+                Desde
+              </label>
               <Input
-                placeholder="ej: warehouses, tickets"
-                value={filters.entity_name}
-                onChange={(e) => setFilters({ ...filters, entity_name: e.target.value })}
+                type="date"
+                value={filters.date_from}
+                onChange={(e) => {
+                  setFilters({ ...filters, date_from: e.target.value });
+                  setPagination((prev) => ({ ...prev, offset: 0 }));
+                }}
                 className="bg-zinc-950 border-zinc-800 text-zinc-100"
               />
             </div>
+
+            {/* Fecha Hasta */}
             <div>
-              <label className="text-sm text-zinc-400 mb-2 block">Acción</label>
+              <label className="text-sm text-zinc-400 mb-2 block flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5" />
+                Hasta
+              </label>
+              <Input
+                type="date"
+                value={filters.date_to}
+                onChange={(e) => {
+                  setFilters({ ...filters, date_to: e.target.value });
+                  setPagination((prev) => ({ ...prev, offset: 0 }));
+                }}
+                className="bg-zinc-950 border-zinc-800 text-zinc-100"
+              />
+            </div>
+
+            {/* Módulo (Entity Name) */}
+            <div>
+              <label className="text-sm text-zinc-400 mb-2 block flex items-center gap-1">
+                <Package className="w-3.5 h-3.5" />
+                Módulo
+              </label>
               <Select
-                value={filters.action || 'all'}
-                onValueChange={(value) => setFilters({ ...filters, action: value === 'all' ? '' : value })}
+                value={filters.entity_name || 'all'}
+                onValueChange={(value) => {
+                  setFilters({ ...filters, entity_name: value === 'all' ? '' : value });
+                  setPagination((prev) => ({ ...prev, offset: 0 }));
+                }}
               >
                 <SelectTrigger className="bg-zinc-950 border-zinc-800 text-zinc-100">
-                  <SelectValue placeholder="Todas" />
+                  <SelectValue placeholder="Todos los módulos" />
                 </SelectTrigger>
-                <SelectContent className="bg-zinc-900 border-zinc-800">
-                  <SelectItem value="all">Todas</SelectItem>
-                  <SelectItem value="CREATE">CREATE</SelectItem>
-                  <SelectItem value="UPDATE">UPDATE</SelectItem>
-                  <SelectItem value="DELETE">DELETE</SelectItem>
-                  <SelectItem value="LOGIN">LOGIN</SelectItem>
-                  <SelectItem value="ACCESS_DENIED">ACCESS_DENIED</SelectItem>
+                <SelectContent className="bg-zinc-900 border-zinc-800 max-h-60">
+                  <SelectItem value="all">Todos los módulos</SelectItem>
+                  {entityNames.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Acción */}
             <div>
-              <label className="text-sm text-zinc-400 mb-2 block">User ID</label>
+              <label className="text-sm text-zinc-400 mb-2 block flex items-center gap-1">
+                <Activity className="w-3.5 h-3.5" />
+                Acción
+              </label>
+              <Select
+                value={filters.action || 'all'}
+                onValueChange={(value) => {
+                  setFilters({ ...filters, action: value === 'all' ? '' : value });
+                  setPagination((prev) => ({ ...prev, offset: 0 }));
+                }}
+              >
+                <SelectTrigger className="bg-zinc-950 border-zinc-800 text-zinc-100">
+                  <SelectValue placeholder="Todas las acciones" />
+                </SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-800">
+                  <SelectItem value="all">Todas las acciones</SelectItem>
+                  {actionTypes.map((action) => (
+                    <SelectItem key={action} value={action}>
+                      {action}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* User ID */}
+            <div className="lg:col-span-4 md:col-span-2">
+              <label className="text-sm text-zinc-400 mb-2 block">ID de Usuario</label>
               <Input
                 placeholder="ej: 5"
                 type="number"
                 value={filters.user_id}
-                onChange={(e) => setFilters({ ...filters, user_id: e.target.value })}
-                className="bg-zinc-950 border-zinc-800 text-zinc-100"
+                onChange={(e) => {
+                  setFilters({ ...filters, user_id: e.target.value });
+                  setPagination((prev) => ({ ...prev, offset: 0 }));
+                }}
+                className="bg-zinc-950 border-zinc-800 text-zinc-100 max-w-xs"
               />
-            </div>
-            <div className="flex items-end">
-              <Button
-                variant="outline"
-                onClick={handleResetFilters}
-                className="w-full border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-              >
-                Limpiar
-              </Button>
             </div>
           </div>
         </CardContent>
