@@ -7,7 +7,7 @@ Solo accesible para usuarios con rol 'admin'.
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
-from sqlalchemy import select, and_, desc
+from sqlalchemy import select, and_, desc, func
 
 from src.database import get_db
 from src.core.security import require_admin
@@ -106,10 +106,10 @@ def get_audit_logs(
         stmt = stmt.order_by(desc(AuditLog.created_at))
         
         # Contar total (sin paginación)
-        count_stmt = select(AuditLog.id)
+        count_stmt = select(func.count(AuditLog.id))
         if filters:
             count_stmt = count_stmt.where(and_(*filters))
-        total = len(db.execute(count_stmt).scalars().all())
+        total = db.scalar(count_stmt) or 0
         
         # Aplicar paginación
         stmt = stmt.limit(limit).offset(offset)

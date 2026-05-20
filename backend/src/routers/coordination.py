@@ -3,13 +3,15 @@ Router para gestión de coordinación (cuadrillas/teams).
 
 Endpoints para CRUD de teams y administración de miembros.
 """
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from src.database import get_db
 from src.services.team_service import TeamService
-from src.models.coordination import TeamRole
+from src.core.security import get_current_user
+from src.models.coordination import Team, TeamMember, TeamRole
+from src.models.user import User
 from src.schemas.coordination import (
     TeamCreate,
     TeamUpdate,
@@ -18,6 +20,7 @@ from src.schemas.coordination import (
     TeamDetailResponse,
     TeamMemberResponse,
 )
+from src.utils.audit import log_create, log_update, log_delete, get_entity_dict
 
 router = APIRouter(prefix="/api/v2/coordination", tags=["Coordination"])
 
@@ -75,6 +78,8 @@ def get_team(
 @router.post("/teams", response_model=TeamDetailResponse, status_code=status.HTTP_201_CREATED)
 def create_team(
     payload: TeamCreate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -89,7 +94,22 @@ def create_team(
     """
     try:
         service = TeamService(db)
-        return service.create_team(payload)
+        team = service.create_team(payload)
+        
+        # Auditoría no bloqueante
+        try:
+            log_create(
+                db=db,
+                user_id=current_user.id,
+                entity_name="teams",
+                entity_id=team.id,
+                new_values={"name": team.name, "vehicle_id": team.vehicle_id, "is_active": team.is_active},
+                ip_address=request.client.host if request.client else None,
+            )
+        except Exception:
+            pass
+        
+        return team
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -106,6 +126,8 @@ def create_team(
 def update_team(
     team_id: int,
     payload: TeamUpdate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -119,8 +141,28 @@ def update_team(
     **Response:** TeamDetailResponse actualizada
     """
     try:
+        # Capturar estado antes de la mutación
+        old_team = db.query(Team).filter(Team.id == team_id).first()
+        old_values = get_entity_dict(old_team, fields=["name", "vehicle_id", "is_active"]) if old_team else {}
+        
         service = TeamService(db)
-        return service.update_team(team_id, payload)
+        updated = service.update_team(team_id, payload)
+        
+        # Auditoría no bloqueante
+        try:
+            log_update(
+                db=db,
+                user_id=current_user.id,
+                entity_name="teams",
+                entity_id=team_id,
+                old_values=old_values,
+                new_values={"name": updated.name, "vehicle_id": updated.vehicle_id, "is_active": updated.is_active},
+                ip_address=request.client.host if request.client else None,
+            )
+        except Exception:
+            pass
+        
+        return updated
     except ValueError as e:
         if "no existe" in str(e):
             raise HTTPException(
@@ -141,6 +183,8 @@ def update_team(
 @router.delete("/teams/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_team(
     team_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -152,8 +196,26 @@ def delete_team(
     **Response:** 204 No Content
     """
     try:
+        # Capturar estado antes de la mutación
+        old_team = db.query(Team).filter(Team.id == team_id).first()
+        old_values = get_entity_dict(old_team, fields=["name", "vehicle_id", "is_active"]) if old_team else {}
+        
         service = TeamService(db)
         service.delete_team(team_id)
+        
+        # Auditoría no bloqueante
+        try:
+            log_delete(
+                db=db,
+                user_id=current_user.id,
+                entity_name="teams",
+                entity_id=team_id,
+                old_values=old_values,
+                ip_address=request.client.host if request.client else None,
+            )
+        except Exception:
+            pass
+        
         return None
     except ValueError as e:
         raise HTTPException(
@@ -173,6 +235,8 @@ def delete_team(
 def add_team_member(
     team_id: int,
     payload: TeamMemberCreate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -189,7 +253,27 @@ def add_team_member(
     """
     try:
         service = TeamService(db)
-        return service.add_member(team_id, payload)
+        member = service.add_member(team_id, payload)
+        
+        # Auditoría no bloqueante
+        try:
+            log_create(
+                db=db,
+                user_id=current_user.id,
+                entity_name="team_members",
+                entity_id=member.id,
+                new_values={
+                    "team_id": team_id,
+                    "user_id": payload.user_id,
+                    "role": payload.role,
+                    "user_name": member.user_name,
+                },
+                ip_address=request.client.host if request.client else None,
+            )
+        except Exception:
+            pass
+        
+        return member
     except ValueError as e:
         if "no existe" in str(e).lower():
             raise HTTPException(
@@ -211,6 +295,8 @@ def add_team_member(
 def remove_team_member(
     team_id: int,
     user_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -223,8 +309,32 @@ def remove_team_member(
     **Response:** 204 No Content
     """
     try:
+        # Capturar datos del miembro antes de eliminar
+        old_member = db.query(TeamMember).filter(
+            TeamMember.team_id == team_id,
+            TeamMember.user_id == user_id,
+        ).first()
+        
         service = TeamService(db)
         service.remove_member(team_id, user_id)
+        
+        # Auditoría no bloqueante
+        try:
+            log_delete(
+                db=db,
+                user_id=current_user.id,
+                entity_name="team_members",
+                entity_id=old_member.id if old_member else None,
+                old_values={
+                    "team_id": team_id,
+                    "user_id": user_id,
+                    "role": old_member.role if old_member else None,
+                },
+                ip_address=request.client.host if request.client else None,
+            )
+        except Exception:
+            pass
+        
         return None
     except ValueError as e:
         raise HTTPException(
@@ -243,6 +353,8 @@ def update_member_role(
     team_id: int,
     user_id: int,
     role: str,  # "leader" o "technician"
+    request: Request,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -258,9 +370,32 @@ def update_member_role(
     **Response:** TeamMemberResponse actualizado
     """
     try:
+        # Capturar rol anterior antes de la mutación
+        old_member = db.query(TeamMember).filter(
+            TeamMember.team_id == team_id,
+            TeamMember.user_id == user_id,
+        ).first()
+        old_role = old_member.role if old_member else None
+        
         team_role = TeamRole(role)
         service = TeamService(db)
-        return service.update_member_role(team_id, user_id, team_role)
+        updated = service.update_member_role(team_id, user_id, team_role)
+        
+        # Auditoría no bloqueante
+        try:
+            log_update(
+                db=db,
+                user_id=current_user.id,
+                entity_name="team_members",
+                entity_id=updated.id,
+                old_values={"team_id": team_id, "user_id": user_id, "role": old_role},
+                new_values={"team_id": team_id, "user_id": user_id, "role": role},
+                ip_address=request.client.host if request.client else None,
+            )
+        except Exception:
+            pass
+        
+        return updated
     except ValueError as e:
         if "no es un miembro" in str(e):
             raise HTTPException(

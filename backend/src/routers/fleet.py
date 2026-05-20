@@ -1,7 +1,7 @@
 """Router para gestión de flota (vehículos)."""
 from datetime import date
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -20,7 +20,7 @@ from src.schemas.fleet import (
     VehicleInspectionCreate,
     VehicleInspectionResponse,
 )
-from src.utils.audit import log_create
+from src.utils.audit import log_create, log_update, log_delete, get_entity_dict
 
 
 router = APIRouter(prefix="/api/v2/vehicles", tags=["Fleet"])
@@ -61,7 +61,12 @@ def _create_mobile_warehouse(db: Session, vehicle_name: str) -> Warehouse:
 
 
 @router.post("", response_model=VehicleResponse, status_code=status.HTTP_201_CREATED)
-def create_vehicle(vehicle_data: VehicleCreate, db: Session = Depends(get_db)):
+def create_vehicle(
+    vehicle_data: VehicleCreate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """
     Crear nuevo vehículo y su warehouse asociado automáticamente.
     
@@ -121,6 +126,27 @@ def create_vehicle(vehicle_data: VehicleCreate, db: Session = Depends(get_db)):
         created_at=vehicle.created_at,
         updated_at=vehicle.updated_at,
     )
+    
+    # Auditoría no bloqueante
+    try:
+        log_create(
+            db=db,
+            user_id=current_user.id,
+            entity_name="vehicles",
+            entity_id=vehicle.id,
+            new_values={
+                "name": vehicle.name,
+                "license_plate": vehicle.license_plate,
+                "vehicle_brand": vehicle.vehicle_brand,
+                "vehicle_model": vehicle.vehicle_model,
+                "vehicle_year": vehicle.vehicle_year,
+                "status": vehicle.status,
+                "warehouse_id": vehicle.warehouse_id,
+            },
+            ip_address=request.client.host if request.client else None,
+        )
+    except Exception:
+        pass
     
     return response
 
@@ -214,6 +240,8 @@ def get_vehicle(vehicle_id: int, db: Session = Depends(get_db)):
 def update_vehicle(
     vehicle_id: int,
     vehicle_data: VehicleUpdate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Actualizar vehículo."""
@@ -226,6 +254,12 @@ def update_vehicle(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Vehículo no encontrado",
         )
+    
+    # Capturar valores anteriores para auditoría
+    old_values = get_entity_dict(vehicle, fields=[
+        "name", "license_plate", "vehicle_brand", "vehicle_model",
+        "vehicle_year", "status",
+    ])
     
     # Verificar patente única (si se está actualizando)
     if vehicle_data.license_plate and vehicle_data.license_plate != vehicle.license_plate:
@@ -274,11 +308,33 @@ def update_vehicle(
         updated_at=vehicle.updated_at,
     )
     
+    # Auditoría no bloqueante
+    try:
+        log_update(
+            db=db,
+            user_id=current_user.id,
+            entity_name="vehicles",
+            entity_id=vehicle_id,
+            old_values=old_values,
+            new_values=get_entity_dict(vehicle, fields=[
+                "name", "license_plate", "vehicle_brand", "vehicle_model",
+                "vehicle_year", "status",
+            ]),
+            ip_address=request.client.host if request.client else None,
+        )
+    except Exception:
+        pass
+    
     return response
 
 
 @router.delete("/{vehicle_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_vehicle(vehicle_id: int, db: Session = Depends(get_db)):
+def delete_vehicle(
+    vehicle_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """
     Soft-delete de vehículo (marcar como RETIRED).
     
@@ -294,6 +350,11 @@ def delete_vehicle(vehicle_id: int, db: Session = Depends(get_db)):
             detail="Vehículo no encontrado",
         )
     
+    # Capturar valores anteriores para auditoría
+    old_values = get_entity_dict(vehicle, fields=[
+        "name", "license_plate", "status", "warehouse_id",
+    ])
+    
     # Verificar si tiene team asignado
     team = db.execute(
         select(Team).where(Team.vehicle_id == vehicle.id)
@@ -307,6 +368,19 @@ def delete_vehicle(vehicle_id: int, db: Session = Depends(get_db)):
     
     vehicle.status = VehicleStatus.RETIRED.value
     db.commit()
+    
+    # Auditoría no bloqueante
+    try:
+        log_delete(
+            db=db,
+            user_id=current_user.id,
+            entity_name="vehicles",
+            entity_id=vehicle_id,
+            old_values=old_values,
+            ip_address=request.client.host if request.client else None,
+        )
+    except Exception:
+        pass
     
     return None
 
