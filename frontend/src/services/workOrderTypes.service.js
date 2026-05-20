@@ -13,7 +13,7 @@ import api from '@/api/client';
  * @returns {Promise<Array<{id: number, code: string, name: string, description: string|null, color: string, icon: string|null, is_active: boolean}>>}
  */
 export const getWorkOrderTypes = async (activeOnly = true) => {
-  const { data } = await api.get('/api/v2/work-order-types', {
+  const { data } = await api.get('/v2/work-order-types', {
     params: { active_only: activeOnly },
   });
   return data;
