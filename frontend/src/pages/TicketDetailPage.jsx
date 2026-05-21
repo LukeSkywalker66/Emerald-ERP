@@ -1514,14 +1514,28 @@ export default function TicketDetailPage() {
                 Pegar Link de Google Maps
               </label>
               <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={mapsLink}
-                  onChange={(e) => { setMapsLink(e.target.value); setParseSuccess(''); }}
-                  placeholder="https://maps.app.goo.gl/..."
-                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2
-                             text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={mapsLink}
+                    onChange={(e) => { setMapsLink(e.target.value); setParseSuccess(''); }}
+                    placeholder="https://maps.app.goo.gl/..."
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2
+                               text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500
+                               pr-10"
+                  />
+                  {/* Indicador de resultado: tilde o cruz */}
+                  {parseSuccess === 'ok' && (
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400 text-lg leading-none">
+                      ✓
+                    </span>
+                  )}
+                  {parseSuccess === 'error' && (
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-red-400 text-lg leading-none">
+                      ✗
+                    </span>
+                  )}
+                </div>
                 <button
                   onClick={async () => {
                     if (!mapsLink.trim()) return;
@@ -1535,10 +1549,10 @@ export default function TicketDetailPage() {
                         latitude: res.data.latitude,
                         longitude: res.data.longitude,
                       }));
-                      setParseSuccess(`✓ Coordenadas: ${res.data.latitude.toFixed(6)}, ${res.data.longitude.toFixed(6)}`);
+                      setParseSuccess('ok');
                       setMapsLink('');
                     } catch (err) {
-                      setError('No se pudo extraer la ubicación');
+                      setParseSuccess('error');
                     } finally {
                       setIsParsingMapLink(false);
                     }
@@ -1552,12 +1566,9 @@ export default function TicketDetailPage() {
                   ) : (
                     <MapPin size={14} />
                   )}
-                  {isParsingMapLink ? 'Extrayendo...' : 'Extraer'}
+                  {isParsingMapLink ? 'Validando...' : 'Validar'}
                 </button>
               </div>
-              {parseSuccess && (
-                <p className="text-xs text-emerald-400 mt-2">{parseSuccess}</p>
-              )}
             </div>
           </div>
           <DialogFooter className="gap-2">
