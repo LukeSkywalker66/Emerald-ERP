@@ -4,7 +4,7 @@ Servicio para gestionar API Keys con validación, rotación y auditoría.
 
 import logging
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 from src import models
@@ -94,7 +94,7 @@ class APIKeyService:
         key_prefix = key[:10]
         
         # Calcular fecha de expiración
-        expires_at = datetime.utcnow() + timedelta(days=expires_in_days)
+        expires_at = datetime.now(timezone.utc) + timedelta(days=expires_in_days)
         
         # Crear registro en BD
         db_key = models.APIKey(
@@ -185,7 +185,7 @@ class APIKeyService:
                 return None
             
             # Verificar expiración
-            if db_key.expires_at and datetime.utcnow() > db_key.expires_at:
+            if db_key.expires_at and datetime.now(timezone.utc) > db_key.expires_at:
                 logger.warning(f"⚠️ API Key expirada: {prefix}...")
                 # Marcar como inactiva
                 db_key.active = 0
@@ -202,7 +202,7 @@ class APIKeyService:
                 return None
             
             # Actualizar último uso
-            db_key.last_used = datetime.utcnow()
+            db_key.last_used = datetime.now(timezone.utc)
             db.commit()
             
             logger.debug(f"✅ API Key validada: {prefix}... ({db_key.name})")
@@ -255,7 +255,7 @@ class APIKeyService:
         # Crear nueva key con mismos permisos
         new_key_data = await APIKeyService.create_api_key(
             db=db,
-            name=f"{old_key.name} (rotated-{datetime.utcnow().strftime('%Y%m%d')})",
+            name=f"{old_key.name} (rotated-{datetime.now(timezone.utc).strftime('%Y%m%d')})",
             scopes=old_key.scopes,
             expires_in_days=expires_in_days,
             created_by="system"
@@ -263,7 +263,7 @@ class APIKeyService:
         
         # Marcar vieja como inactiva
         old_key.active = 0
-        old_key.last_rotated_at = datetime.utcnow()
+        old_key.last_rotated_at = datetime.now(timezone.utc)
         old_key.rotation_count += 1
         db.commit()
         
@@ -293,7 +293,7 @@ class APIKeyService:
             int: Cantidad de keys marcadas como inactivas
         """
         expired = db.query(models.APIKey).filter(
-            models.APIKey.expires_at < datetime.utcnow(),
+            models.APIKey.expires_at < datetime.now(timezone.utc),
             models.APIKey.active == 1
         ).all()
         
@@ -328,11 +328,11 @@ class APIKeyService:
         Returns:
             list: Lista de keys por expirar
         """
-        alert_date = datetime.utcnow() + timedelta(days=days_before)
+        alert_date = datetime.now(timezone.utc) + timedelta(days=days_before)
         
         keys = db.query(models.APIKey).filter(
             models.APIKey.expires_at < alert_date,
-            models.APIKey.expires_at > datetime.utcnow(),
+            models.APIKey.expires_at > datetime.now(timezone.utc),
             models.APIKey.active == 1
         ).all()
         

@@ -46,8 +46,8 @@ async def parse_map_link(payload: ParseMapLinkRequest):
 
     # Pattern 1: /maps/place/...@lat,lng/
     pattern1 = re.compile(r"/maps/place/.*?/@(-?\d+\.\d+),(-?\d+\.\d+)")
-    # Pattern 2: /maps/?q=lat,lng
-    pattern2 = re.compile(r"/maps/\?q=(-?\d+\.\d+),(-?\d+\.\d+)")
+    # Pattern 2: /maps/?q=lat,lng (trailing slash optional)
+    pattern2 = re.compile(r"/maps/?\?q=(-?\d+\.\d+),(-?\d+\.\d+)")
     # Pattern 3: /maps/search/lat,lng
     pattern3 = re.compile(r"/maps/search/(-?\d+\.\d+),(-?\d+\.\d+)")
     # Pattern 4: @lat,lng en cualquier parte (catch-all)

@@ -868,6 +868,8 @@ def create_work_order(
             operational_instruction=payload.operational_instruction,
             description=payload.description,
             notes=payload.notes,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
             timeline_meta_extra={"source": "tickets_router"},
         )
     except ValueError as exc:
