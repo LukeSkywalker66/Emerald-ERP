@@ -601,9 +601,9 @@ export default function WorkOrderExecutionPage() {
                 </div>
               )}
 
-              {/* Google Maps Button */}
-              {(workOrder?.latitude || workOrder?.longitude) && (
-                <div className="mt-3">
+              {/* Google Maps Button — always visible, grayed if no coordinates */}
+              <div className="mt-3">
+                {workOrder?.latitude && workOrder?.longitude ? (
                   <a
                     href={`https://www.google.com/maps/search/?api=1&query=${workOrder.latitude},${workOrder.longitude}`}
                     target="_blank"
@@ -616,8 +616,17 @@ export default function WorkOrderExecutionPage() {
                     <MapPin size={14} />
                     Abrir en Google Maps
                   </a>
-                </div>
-              )}
+                ) : (
+                  <span
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg
+                               bg-zinc-900/50 text-zinc-600 border border-zinc-700/50
+                               cursor-not-allowed text-xs opacity-50"
+                  >
+                    <MapPin size={14} />
+                    Abrir en Google Maps
+                  </span>
+                )}
+              </div>
 
               {workOrder?.ticket_info?.contact_phone && (
                 <div>
