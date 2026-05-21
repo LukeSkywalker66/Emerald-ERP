@@ -537,6 +537,8 @@ def get_work_order_detail(
         resolution_notes=wo.resolution_notes,
         resolution_category=wo.resolution_category,
         photo_urls=wo.photo_urls,
+        latitude=wo.latitude,
+        longitude=wo.longitude,
         custom_data=wo.custom_data or {},
         notes=wo.notes,
         created_at=wo.created_at,
