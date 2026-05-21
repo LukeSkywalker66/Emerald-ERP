@@ -1543,7 +1543,7 @@ export default function TicketDetailPage() {
                     setParseSuccess('');
                     setError(null);
                     try {
-                      const res = await api.post('/api/v2/utils/parse-map-link', { url: mapsLink });
+                      const res = await api.post('/v2/utils/parse-map-link', { url: mapsLink });
                       setWoForm(prev => ({
                         ...prev,
                         latitude: res.data.latitude,
