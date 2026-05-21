@@ -39,7 +39,7 @@ def _try_extract_from_url(url: str) -> tuple[float, float] | None:
     patterns = [
         re.compile(r"/maps/place/.*?/@(-?\d+\.\d+),(-?\d+\.\d+)"),       # /maps/place/...@lat,lng/
         re.compile(r"/maps/?\?q=(-?\d+\.\d+),(-?\d+\.\d+)"),            # /maps/?q=lat,lng
-        re.compile(r"/maps/search/(-?\d+\.\d+),(-?\d+\.\d+)"),          # /maps/search/lat,lng
+        re.compile(r"/maps/search/(-?\d+\.\d+),[-+ ]?(-?\d+\.\d+)"),    # /maps/search/lat[,+]lng
         re.compile(r"@(-?\d+\.\d+),(-?\d+\.\d+)"),                      # @lat,lng (catch-all)
         re.compile(r"!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)"),                  # data=!3dlat!4dlng
     ]
