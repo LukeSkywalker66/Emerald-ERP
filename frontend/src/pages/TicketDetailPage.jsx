@@ -1552,7 +1552,10 @@ export default function TicketDetailPage() {
                       setParseSuccess('ok');
                       setMapsLink('');
                     } catch (err) {
+                      const detail = err?.response?.data?.detail || err?.message || 'Error desconocido';
+                      console.error('[parse-map-link] Error:', detail);
                       setParseSuccess('error');
+                      setError(detail);
                     } finally {
                       setIsParsingMapLink(false);
                     }
