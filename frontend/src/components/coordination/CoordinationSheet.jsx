@@ -896,6 +896,24 @@ export default function CoordinationSheet({
                   </p>
                 </div>
               )}
+
+              {/* Mostrar Ubicación — Google Maps */}
+              {(activeWorkOrder?.latitude || activeWorkOrder?.longitude) && (
+                <div className="col-span-2 mt-1">
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${activeWorkOrder.latitude},${activeWorkOrder.longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg
+                               bg-zinc-900 text-emerald-400 border border-emerald-500/50
+                               hover:shadow-[0_0_10px_rgba(52,211,153,0.5)]
+                               transition-all duration-200 text-xs w-full justify-center"
+                  >
+                    <MapPin size={14} />
+                    Mostrar Ubicación
+                  </a>
+                </div>
+              )}
             </div>
           </div>
         </div>
