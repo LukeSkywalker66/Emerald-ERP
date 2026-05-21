@@ -25,7 +25,7 @@ from src.routers.v1 import auth  # Removed old tickets router import
 from src.routers.v1 import admin  # Administración y desbloqueo
 from src.routers.v2 import users as users_v2
 from src.routers.v2 import roles as roles_v2
-from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet, installation_types, audit, work_order_types
+from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet, installation_types, audit, work_order_types, utils
 from src.routers.oraculo import router as oraculo_router
 
 # 👇 IMPORTAMOS EL NUEVO SERVICIO (Tu lógica adaptada)
@@ -165,6 +165,13 @@ app.include_router(
     audit.router,
     prefix="/api/v2/audit-logs",
     tags=["Audit Logs"]
+)
+
+# Utilities Module (parse-map-link, etc.)
+app.include_router(
+    utils.router,
+    prefix="/api/v2/utils",
+    tags=["Utilities"]
 )
 
 @app.on_event("startup")

@@ -26,6 +26,7 @@ import {
   Download,
   Image as ImageIcon,
   Zap,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -655,7 +656,10 @@ export default function TicketDetailPage() {
   const [closeNote, setCloseNote] = useState('');
   const [infraNote, setInfraNote] = useState('');
   const [showCreateWODialog, setShowCreateWODialog] = useState(false);
-  const [woForm, setWoForm] = useState({ ot_type: 'repair', priority: 'medium', operational_instruction: '' });
+  const [woForm, setWoForm] = useState({ ot_type: 'repair', priority: 'medium', operational_instruction: '', latitude: null, longitude: null });
+  const [mapsLink, setMapsLink] = useState('');
+  const [isParsingMapLink, setIsParsingMapLink] = useState(false);
+  const [parseSuccess, setParseSuccess] = useState('');
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [connectionHistory, setConnectionHistory] = useState([]);
@@ -921,9 +925,13 @@ export default function TicketDetailPage() {
         priority: woForm.priority,
         operational_instruction: woForm.operational_instruction,
         description: woForm.operational_instruction,
+        latitude: woForm.latitude,
+        longitude: woForm.longitude,
       });
       setShowCreateWODialog(false);
-      setWoForm({ ot_type: 'repair', priority: 'medium', operational_instruction: '' });
+      setWoForm({ ot_type: 'repair', priority: 'medium', operational_instruction: '', latitude: null, longitude: null });
+      setMapsLink('');
+      setParseSuccess('');
       await loadTicket();
     } catch (err) {
       setError(err.message || 'Error al crear OT');
@@ -1498,6 +1506,58 @@ export default function TicketDetailPage() {
               <p className="text-xs text-zinc-500 mt-2">
                 Esta instrucción se guarda en la OT y es independiente de la descripción histórica del ticket.
               </p>
+            </div>
+
+            {/* Pegar Link de Google Maps */}
+            <div className="border-t border-zinc-800 pt-4">
+              <label className="text-sm text-zinc-300 block mb-2">
+                Pegar Link de Google Maps
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={mapsLink}
+                  onChange={(e) => { setMapsLink(e.target.value); setParseSuccess(''); }}
+                  placeholder="https://maps.app.goo.gl/..."
+                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2
+                             text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <button
+                  onClick={async () => {
+                    if (!mapsLink.trim()) return;
+                    setIsParsingMapLink(true);
+                    setParseSuccess('');
+                    setError(null);
+                    try {
+                      const res = await api.post('/api/v2/utils/parse-map-link', { url: mapsLink });
+                      setWoForm(prev => ({
+                        ...prev,
+                        latitude: res.data.latitude,
+                        longitude: res.data.longitude,
+                      }));
+                      setParseSuccess(`✓ Coordenadas: ${res.data.latitude.toFixed(6)}, ${res.data.longitude.toFixed(6)}`);
+                      setMapsLink('');
+                    } catch (err) {
+                      setError('No se pudo extraer la ubicación');
+                    } finally {
+                      setIsParsingMapLink(false);
+                    }
+                  }}
+                  disabled={isParsingMapLink || !mapsLink.trim()}
+                  className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700
+                             text-white rounded-lg transition-colors text-sm flex items-center gap-1"
+                >
+                  {isParsingMapLink ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <MapPin size={14} />
+                  )}
+                  {isParsingMapLink ? 'Extrayendo...' : 'Extraer'}
+                </button>
+              </div>
+              {parseSuccess && (
+                <p className="text-xs text-emerald-400 mt-2">{parseSuccess}</p>
+              )}
             </div>
           </div>
           <DialogFooter className="gap-2">

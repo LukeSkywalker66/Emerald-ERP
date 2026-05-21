@@ -1,7 +1,7 @@
 """
 Beholder models - Infrastructure, Clients, and Technical tables
 """
-from sqlalchemy import Column, Integer, String, DateTime, Text, PrimaryKeyConstraint, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Text, Numeric, PrimaryKeyConstraint, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -50,12 +50,14 @@ class Connection(Base):
     __tablename__ = "connections"
     connection_id = Column(Integer, primary_key=True)
     pppoe_username = Column(String, index=True)
-    customer_id = Column(Integer, index=True) 
+    customer_id = Column(Integer, index=True)
     node_id = Column(Integer)
     plan_id = Column(Integer)
     direccion = Column(String)
     city_id = Column(Integer, ForeignKey("cities.id"), index=True, nullable=True)
     neighborhood_id = Column(Integer, ForeignKey("neighborhoods.id"), index=True, nullable=True)
+    latitude = Column(Numeric(10, 8), nullable=True, comment="Latitud de la dirección de la conexión")
+    longitude = Column(Numeric(10, 8), nullable=True, comment="Longitud de la dirección de la conexión")
 
     city = relationship("City", lazy="selectin")
     neighborhood = relationship("Neighborhood", lazy="selectin")

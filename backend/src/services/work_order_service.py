@@ -62,6 +62,8 @@ def create_work_order_for_ticket(
     extra_custom_data: Optional[dict] = None,
     timeline_content: Optional[str] = None,
     timeline_meta_extra: Optional[dict] = None,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
 ) -> WorkOrder:
     """Crea una OT con contrato semantico estricto y evento de timeline asociado.
 
@@ -98,6 +100,8 @@ def create_work_order_for_ticket(
         priority=resolved_priority,
         notes=instruction,
         custom_data=custom_data,
+        latitude=latitude,
+        longitude=longitude,
     )
     db.add(work_order)
     db.flush()

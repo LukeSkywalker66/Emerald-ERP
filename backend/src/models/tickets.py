@@ -27,6 +27,7 @@ from sqlalchemy import (
     Text,
     DateTime,
     Float,
+    Numeric,
     Index,
     Table,
     Column,
@@ -774,6 +775,16 @@ class WorkOrder(Base, TimestampMixin):
         Text,
         nullable=True,
         comment="Notas del técnico sobre el trabajo realizado (deprecated, usar resolution_notes)"
+    )
+
+    # ===== GEOLOCALIZACIÓN =====
+    latitude: Mapped[Optional[float]] = mapped_column(
+        Numeric(10, 8), nullable=True,
+        comment="Latitud para geolocalización de la dirección"
+    )
+    longitude: Mapped[Optional[float]] = mapped_column(
+        Numeric(10, 8), nullable=True,
+        comment="Longitud para geolocalización de la dirección"
     )
 
     # Relationships

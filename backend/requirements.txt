@@ -16,3 +16,4 @@ redis
 python-jose[cryptography]
 python-multipart
 influxdb-client==1.46.0
+httpx

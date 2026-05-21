@@ -67,6 +67,8 @@ def create_work_order(
             operational_instruction=payload.operational_instruction,
             description=payload.description,
             notes=payload.notes,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
             timeline_meta_extra={"source": "work_orders_router"},
         )
     except ValueError as exc:
@@ -577,7 +579,9 @@ def update_work_order(
         "status": wo.status.value,
         "team_id": wo.team_id,
         "scheduled_start": wo.scheduled_start.isoformat() if wo.scheduled_start else None,
-        "estimated_duration": wo.estimated_duration
+        "estimated_duration": wo.estimated_duration,
+        "latitude": float(wo.latitude) if wo.latitude is not None else None,
+        "longitude": float(wo.longitude) if wo.longitude is not None else None,
     }
     
     # Guardar estado anterior para logging
@@ -764,7 +768,9 @@ def update_work_order(
                 "status": wo.status.value,
                 "team_id": wo.team_id,
                 "scheduled_start": wo.scheduled_start.isoformat() if wo.scheduled_start else None,
-                "estimated_duration": wo.estimated_duration
+                "estimated_duration": wo.estimated_duration,
+                "latitude": float(wo.latitude) if wo.latitude is not None else None,
+                "longitude": float(wo.longitude) if wo.longitude is not None else None,
             }
         )
     except Exception as audit_error:

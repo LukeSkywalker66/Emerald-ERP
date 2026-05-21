@@ -100,6 +100,8 @@ class WorkOrderCreate(BaseModel):
         description="Instrucción operativa puntual para cuadrilla (fuente de verdad OT)",
     )
     notes: Optional[str] = Field(None, description="Notas opcionales del operador")
+    latitude: Optional[float] = Field(None, description="Latitud de la ubicación")
+    longitude: Optional[float] = Field(None, description="Longitud de la ubicación")
 
 
 class WorkOrderResponse(BaseModel):
@@ -151,7 +153,7 @@ class WorkOrderUpdate(BaseModel):
     completed_at: Optional[datetime] = None
     resolution_type: Optional[WorkOrderResolutionType] = None
     resolution_notes: Optional[str] = Field(
-        None, 
+        None,
         min_length=10,
         max_length=1000,
         description="Notas de resolución (mín 10, máx 1000 caracteres al completar)"
@@ -165,6 +167,8 @@ class WorkOrderUpdate(BaseModel):
         description="URLs de fotos de evidencia"
     )
     custom_data: Optional[Dict[str, Any]] = None
+    latitude: Optional[float] = Field(None, description="Latitud de la ubicación")
+    longitude: Optional[float] = Field(None, description="Longitud de la ubicación")
 
 
 class WorkOrderItemCreate(BaseModel):
@@ -215,6 +219,8 @@ class WorkOrderDetailResponse(BaseModel):
     photo_urls: Optional[List[str]] = None
     custom_data: Optional[Dict[str, Any]] = None
     notes: Optional[str] = None
+    latitude: Optional[float] = Field(None, description="Latitud de la ubicación")
+    longitude: Optional[float] = Field(None, description="Longitud de la ubicación")
     created_at: datetime
     updated_at: datetime
     
