@@ -44,6 +44,11 @@ async def parse_map_link(payload: ParseMapLinkRequest):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Error al resolver URL: {str(e)}")
 
+    import logging as _logging
+    _log = _logging.getLogger("uvicorn.error")
+    _log.warning(f"[parse-map-link] Input URL: {payload.url}")
+    _log.warning(f"[parse-map-link] Final URL: {final_url}")
+
     # Pattern 1: /maps/place/...@lat,lng/
     pattern1 = re.compile(r"/maps/place/.*?/@(-?\d+\.\d+),(-?\d+\.\d+)")
     # Pattern 2: /maps/?q=lat,lng (trailing slash optional)
@@ -53,8 +58,9 @@ async def parse_map_link(payload: ParseMapLinkRequest):
     # Pattern 4: @lat,lng en cualquier parte (catch-all)
     pattern4 = re.compile(r"@(-?\d+\.\d+),(-?\d+\.\d+)")
 
-    for pattern in [pattern1, pattern2, pattern3, pattern4]:
+    for i, pattern in enumerate([pattern1, pattern2, pattern3, pattern4], 1):
         match = pattern.search(final_url)
+        _log.warning(f"[parse-map-link] Pattern {i}: {pattern.pattern} -> {'MATCH ✓' if match else 'no match'}")
         if match:
             return ParseMapLinkResponse(
                 latitude=float(match.group(1)),
