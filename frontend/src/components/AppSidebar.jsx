@@ -341,6 +341,9 @@ export function AppSidebar() {
   // Detectar si un item está activo
   const isItemActive = (href) => {
     if (pathname === href) return true;
+    // No marcar el Dashboard raíz (/app) cuando estamos en una sub-ruta
+    if (href === '/app') return false;
+    // No marcar Inventory Dashboard cuando estamos en sub-páginas de inventario
     if (href === '/app/inventory' && pathname.startsWith('/app/inventory/')) {
       return false;
     }
@@ -357,7 +360,7 @@ export function AppSidebar() {
       className={`
         bg-gradient-to-b from-zinc-950 to-zinc-900/80
         transition-all duration-300 ease-in-out
-        ${isCollapsed ? 'w-16' : 'w-64'}
+        ${isCollapsed ? 'w-20' : 'w-64'}
       `}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
