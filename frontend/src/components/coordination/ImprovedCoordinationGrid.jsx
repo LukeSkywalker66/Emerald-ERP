@@ -8,7 +8,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { format, addMinutes, parse, startOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { AlertTriangle, Clock, MapPin, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, Clock, MapPin, MapPinOff, ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import api from '@/api/client';
 import './ImprovedCoordinationGrid.css';
@@ -750,7 +750,18 @@ export default function ImprovedCoordinationGrid({
                         >
                           {/* Contenido */}
                           <div className="p-1.5 h-full flex flex-col text-xs text-white overflow-hidden">
-                            <p className="font-bold truncate leading-tight">{wo.client_name || 'S/N'}</p>
+                            <div className="flex items-center gap-0.5 min-w-0">
+                              {(!wo.latitude || !wo.longitude) && (
+                                <MapPinOff
+                                  size={9}
+                                  className="flex-shrink-0 text-amber-300/90"
+                                  title="Sin ubicación cargada"
+                                />
+                              )}
+                              <p className="font-bold truncate leading-tight min-w-0">
+                                {wo.client_name || 'S/N'}
+                              </p>
+                            </div>
                             {isResizing?.workOrderId === wo.id && (
                               <p className="text-xs font-mono bg-black/20 px-1 rounded mt-0.5 truncate">{timeDisplay}</p>
                             )}

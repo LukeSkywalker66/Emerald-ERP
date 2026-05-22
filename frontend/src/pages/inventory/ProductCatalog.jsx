@@ -14,6 +14,7 @@ import {
 import {
   getProducts,
   createProduct,
+  createSerialItem,
   updateProduct,
   deleteProduct,
   getProductCategories
@@ -50,7 +51,8 @@ export default function ProductCatalog() {
     type: 'BULK',
     category: 'Cableado',
     description: '',
-    min_stock_alert: 50
+    min_stock_alert: 50,
+    serial_numbers: ''
   });
 
   useEffect(() => {
@@ -139,7 +141,29 @@ export default function ProductCatalog() {
         min_stock_alert: parseInt(formData.min_stock_alert) || 0
       };
 
-      await createProduct(payload);
+      const created = await createProduct(payload);
+
+      // If SERIALIZED type, create serial items for each serial number
+      if (formData.type === 'SERIALIZED' && formData.serial_numbers.trim()) {
+        const serials = formData.serial_numbers
+          .split(/\n|,/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+        const productId = created?.id || created?.product?.id;
+        if (productId && serials.length > 0) {
+          // Create serial items one by one
+          for (const serial of serials) {
+            await createSerialItem({
+              serial_number: serial,
+              product_id: productId,
+              warehouse_id: null, // will be assigned on stock entry
+              status: 'NEW',
+              notes: null,
+            });
+          }
+        }
+      }
 
       // Reload products
       await loadProducts();
@@ -152,7 +176,8 @@ export default function ProductCatalog() {
         type: 'BULK',
         category: 'Cableado',
         description: '',
-        min_stock_alert: 50
+        min_stock_alert: 50,
+        serial_numbers: ''
       });
     } catch (err) {
       console.error('Error creating product:', err);
@@ -192,6 +217,26 @@ export default function ProductCatalog() {
 
       await updateProduct(selectedProduct.id, payload);
 
+      // If SERIALIZED type and serial numbers entered, create serial items
+      if (formData.type === 'SERIALIZED' && formData.serial_numbers.trim()) {
+        const serials = formData.serial_numbers
+          .split(/\n|,/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+        if (serials.length > 0) {
+          for (const serial of serials) {
+            await createSerialItem({
+              serial_number: serial,
+              product_id: selectedProduct.id,
+              warehouse_id: null,
+              status: 'NEW',
+              notes: null,
+            });
+          }
+        }
+      }
+
       // Reload products
       await loadProducts();
 
@@ -204,7 +249,8 @@ export default function ProductCatalog() {
         type: 'BULK',
         category: 'Cableado',
         description: '',
-        min_stock_alert: 50
+        min_stock_alert: 50,
+        serial_numbers: ''
       });
     } catch (err) {
       console.error('Error updating product:', err);
@@ -489,7 +535,8 @@ export default function ProductCatalog() {
                     type: 'BULK',
                     category: 'Cableado',
                     description: '',
-                    min_stock_alert: 50
+                    min_stock_alert: 50,
+                    serial_numbers: ''
                   });
                 }}
                 className="text-zinc-400 hover:text-white transition-colors"
@@ -555,6 +602,25 @@ export default function ProductCatalog() {
                 </select>
               </div>
 
+              {/* Serial Numbers (only for SERIALIZED type) */}
+              {formData.type === 'SERIALIZED' && (
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Números de Serie
+                  </label>
+                  <textarea
+                    value={formData.serial_numbers}
+                    onChange={(e) => setFormData({ ...formData, serial_numbers: e.target.value })}
+                    placeholder="Ingresá un serial por línea o separados por coma&#10;Ej: ONU-2024-001, ONU-2024-002, ONU-2024-003"
+                    rows="4"
+                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors resize-none"
+                  />
+                  <p className="text-xs text-zinc-500 mt-1">
+                    Se crearán items individuales con cada serial al guardar el producto
+                  </p>
+                </div>
+              )}
+
               {/* Category */}
               <div>
                 <label className="block text-sm font-medium text-zinc-300 mb-2">
@@ -617,7 +683,8 @@ export default function ProductCatalog() {
                       type: 'BULK',
                       category: 'Cableado',
                       description: '',
-                      min_stock_alert: 50
+                      min_stock_alert: 50,
+                      serial_numbers: ''
                     });
                   }}
                   className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors"
@@ -666,7 +733,8 @@ export default function ProductCatalog() {
                     type: 'BULK',
                     category: 'Cableado',
                     description: '',
-                    min_stock_alert: 50
+                    min_stock_alert: 50,
+                    serial_numbers: ''
                   });
                 }}
                 className="text-zinc-400 hover:text-white transition-colors"
@@ -733,6 +801,25 @@ export default function ProductCatalog() {
                   <p className="text-xs text-zinc-500 mt-1">El tipo de producto no puede ser modificado</p>
                 </div>
 
+                {/* Serial Numbers (only for SERIALIZED type) */}
+                {formData.type === 'SERIALIZED' && (
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-300 mb-2">
+                      Números de Serie
+                    </label>
+                    <textarea
+                      value={formData.serial_numbers}
+                      onChange={(e) => setFormData({ ...formData, serial_numbers: e.target.value })}
+                      placeholder="Ingresá un serial por línea o separados por coma&#10;Ej: ONU-2024-001, ONU-2024-002, ONU-2024-003"
+                      rows="4"
+                      className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors resize-none"
+                    />
+                    <p className="text-xs text-zinc-500 mt-1">
+                      Se crearán items individuales con cada serial al guardar el producto
+                    </p>
+                  </div>
+                )}
+
                 {/* Category */}
                 <div>
                   <label className="block text-sm font-medium text-zinc-300 mb-2">
@@ -796,7 +883,8 @@ export default function ProductCatalog() {
                       type: 'BULK',
                       category: 'Cableado',
                       description: '',
-                      min_stock_alert: 50
+                      min_stock_alert: 50,
+                      serial_numbers: ''
                     });
                   }}
                   className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors"

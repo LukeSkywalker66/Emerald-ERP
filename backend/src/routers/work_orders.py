@@ -1081,6 +1081,7 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
         "ticket": ticket_dict,  # Diccionario simple
         "ot_type": wo.ot_type.value if wo.ot_type else "unknown",
         "status": wo.status.value if wo.status else WorkOrderStatus.pending_planning.value,
+        "priority": wo.priority.value if wo.priority else "medium",
         "client_name": client_name or "Sin cliente",
         "address": address or "-",
         "technician_name": wo.technician.full_name if wo.technician else None,
@@ -1089,6 +1090,9 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
         "team_name": wo.team.name if wo.team else None,
         "scheduled_start": wo.scheduled_start.isoformat() if wo.scheduled_start else None,
         "estimated_duration": wo.estimated_duration,
+        # CAMPOS DE UBICACIÓN
+        "latitude": float(wo.latitude) if wo.latitude is not None else None,
+        "longitude": float(wo.longitude) if wo.longitude is not None else None,
         # CAMPOS EXISTENTES
         "scheduled_at": wo.scheduled_at.isoformat() if wo.scheduled_at else None,
         "started_at": wo.started_at.isoformat() if wo.started_at else None,

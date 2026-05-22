@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import { X } from 'lucide-react';
 
 /**
  * Dialog - Componente modal estilo Shadcn para Emerald Orchestrator
- * Utiliza React Context + Portals para manejo de estado
+ * Utiliza React Context + Portals para manejo de estado.
+ * Renderiza mediante createPortal para evitar problemas de stacking context
+ * con otros componentes porteados (ej. Radix Sheet).
  */
 
 const DialogContext = React.createContext();
@@ -73,17 +76,19 @@ export function Dialog({ open = false, onOpenChange, children }) {
         setEscapeKeyHandler,
       }}
     >
-      {isOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm pointer-events-none">
-          <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-auto">
-            <div
-              onClick={handleOutsideClick}
-              className="absolute inset-0"
-            ></div>
-            {children}
-          </div>
-        </div>
-      )}
+      {isOpen &&
+        ReactDOM.createPortal(
+          <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm pointer-events-none">
+            <div className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-auto">
+              <div
+                onClick={handleOutsideClick}
+                className="absolute inset-0"
+              ></div>
+              {children}
+            </div>
+          </div>,
+          document.body
+        )}
     </DialogContext.Provider>
   );
 }
@@ -113,7 +118,7 @@ export function DialogContent({
   return (
     <div
       onClick={(e) => e.stopPropagation()}
-      className={`relative z-50 w-full max-w-lg rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-lg ${className}`}
+      className={`relative z-[60] w-full max-w-lg rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-lg ${className}`}
     >
       {children}
     </div>

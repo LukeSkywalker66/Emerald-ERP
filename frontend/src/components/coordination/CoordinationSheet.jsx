@@ -73,6 +73,9 @@ export default function CoordinationSheet({
   onClose,
   onDurationChange,
   onWorkOrderUpdated,
+  onOpenLocationModal,
+  refreshKey = 0,
+  locationModalOpen = false,
   workOrderTypes = [],
   workOrderTypeMap = {},
 }) {
@@ -157,6 +160,14 @@ export default function CoordinationSheet({
       loadContactAttempts();
     }
   }, [isOpen, workOrder?.id]);
+
+  /** Re-fetch data when refreshKey increments (e.g., location updated) */
+  useEffect(() => {
+    if (isOpen && workOrder?.id && refreshKey > 0) {
+      loadWorkOrderDetail();
+      loadTicketDetails();
+    }
+  }, [refreshKey]);
 
   useEffect(() => {
     setDuration((activeWorkOrder?.estimated_duration ?? workOrder?.estimated_duration) || 60);
@@ -425,7 +436,15 @@ export default function CoordinationSheet({
 
   return (
     <Sheet open={isOpen} onOpenChange={onClose}>
-      <SheetContent side="right" className="w-full sm:w-96 bg-zinc-900 border-l border-zinc-800 overflow-y-auto">
+      <SheetContent
+        side="right"
+        className="w-full sm:w-96 bg-zinc-900 border-l border-zinc-800 overflow-y-auto"
+        onInteractOutside={(e) => {
+          if (locationModalOpen) {
+            e.preventDefault();
+          }
+        }}
+      >
         {/* ========== HEADER ========== */}
         <SheetHeader className="border-b border-zinc-800 pb-4 -mx-6 px-6 pt-4">
           <div className="flex items-start justify-between gap-3">
@@ -922,6 +941,18 @@ export default function CoordinationSheet({
                     Mostrar Ubicación
                   </span>
                 )}
+
+                {/* Actualizar Ubicación — always visible */}
+                <button
+                  onClick={() => onOpenLocationModal?.()}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg
+                             bg-zinc-900 text-amber-400 border border-amber-500/50
+                             hover:shadow-[0_0_10px_rgba(251,191,36,0.3)]
+                             transition-all duration-200 text-xs w-full justify-center mt-2"
+                >
+                  <MapPin size={14} />
+                  Actualizar Ubicación
+                </button>
               </div>
             </div>
           </div>
@@ -1088,6 +1119,7 @@ export default function CoordinationSheet({
           onWorkOrderUpdated();
         }}
       />
+
     </Sheet>
   );
 }

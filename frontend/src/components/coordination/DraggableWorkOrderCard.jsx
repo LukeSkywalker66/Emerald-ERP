@@ -9,6 +9,7 @@
  */
 
 import React, { useState } from 'react';
+import UpdateLocationModal from '@/components/ui/UpdateLocationModal';
 import { formatDistanceToNow, differenceInDays, format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
@@ -22,6 +23,7 @@ import {
   Building2,
   User,
   MapPin,
+  MapPinOff,
   FileText,
   Clock,
   Tag,
@@ -95,11 +97,14 @@ export default function DraggableWorkOrderCard({
   workOrderTypeMap = {},
 }) {
   const [showCoordinationSheet, setShowCoordinationSheet] = useState(false);
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [locationRefreshKey, setLocationRefreshKey] = useState(0);
   const [duration, setDuration] = useState(workOrder?.estimated_duration || 60);
 
   // ========== DATOS DERIVADOS ==========
 
-  const priority = workOrder.ticket?.priority || 'low';
+  // Prioridad: usar la propia de la OT primero, fallback a la del ticket
+  const priority = workOrder.priority || workOrder.ticket?.priority || 'low';
   const priorityConfig = PRIORITY_CONFIG[priority] || PRIORITY_CONFIG.low;
 
   // Tipo de OT (icono) — desde DB si disponible, fallback a hardcode
@@ -206,12 +211,26 @@ export default function DraggableWorkOrderCard({
               {/* ========== CONTENIDO CENTRAL ========== */}
               <button
                 onClick={() => setShowCoordinationSheet(true)}
-                className="flex-1 text-left px-2.5 py-2 hover:bg-zinc-800/20 transition-colors flex flex-col justify-center gap-1 min-w-0"
+                className="flex-1 text-left px-2.5 py-1.5 hover:bg-zinc-800/20 transition-colors flex flex-col justify-center gap-0.5 min-w-0"
               >
-                {/* FILA SUPERIOR: Título (solo una línea, truncado) */}
-                <h3 className="font-bold text-xs text-gray-100 truncate leading-tight">
-                  {displayTitle}
-                </h3>
+                {/* FILA SUPERIOR: Nombre cliente + Título + warning ubicación */}
+                <div className="flex items-start gap-1 min-w-0">
+                  {(!workOrder.latitude || !workOrder.longitude) && (
+                    <MapPinOff
+                      size={10}
+                      className="flex-shrink-0 text-amber-400/90 mt-0.5"
+                      title="Sin ubicación cargada"
+                    />
+                  )}
+                  <div className="flex flex-col min-w-0 leading-tight">
+                    <span className="text-[10px] text-zinc-400 truncate leading-tight">
+                      {clientName}
+                    </span>
+                    <h3 className="font-bold text-xs text-gray-100 truncate leading-tight min-w-0">
+                      {displayTitle}
+                    </h3>
+                  </div>
+                </div>
 
                 {/* FILA INFERIOR: Tipo + Antigüedad + ID */}
                 <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 leading-none">
@@ -330,6 +349,20 @@ export default function DraggableWorkOrderCard({
         onClose={() => setShowCoordinationSheet(false)}
         onDurationChange={handleDurationChange}
         onWorkOrderUpdated={() => onQuickAction?.('work_order_updated', workOrder)}
+        onOpenLocationModal={() => setShowLocationModal(true)}
+        refreshKey={locationRefreshKey}
+        locationModalOpen={showLocationModal}
+      />
+
+      {/* ========== LOCATION UPDATE MODAL (rendered outside Sheet to avoid z-index conflict) ========== */}
+      <UpdateLocationModal
+        workOrderId={workOrder?.id}
+        isOpen={showLocationModal}
+        onClose={() => setShowLocationModal(false)}
+        onSaved={() => {
+          setLocationRefreshKey(k => k + 1);
+          setShowLocationModal(false);
+        }}
       />
     </>
   );

@@ -36,6 +36,7 @@ import * as inventoryService from '@/services/inventory.service';
 import { useAuth } from '@/context/AuthContext';
 import CloseWorkOrderDialog from '@/components/work-orders/CloseWorkOrderDialog';
 import WorkOrderCompletedSummary from '@/components/work-orders/WorkOrderCompletedSummary';
+import UpdateLocationModal from '@/components/ui/UpdateLocationModal';
 
 // Mapeo de tipos de OT
 const OT_TYPE_ICONS = {
@@ -131,6 +132,7 @@ export default function WorkOrderExecutionPage() {
   // Dialogs
   const [showMaterialDialog, setShowMaterialDialog] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
+  const [showLocationModal, setShowLocationModal] = useState(false);
 
   // Warehouse (inventario del técnico)
   const [currentWarehouse, setCurrentWarehouse] = useState(null);
@@ -394,6 +396,11 @@ export default function WorkOrderExecutionPage() {
     }
   };
 
+  const handleLocationSaved = async () => {
+    await loadWorkOrder();
+    setShowLocationModal(false);
+  };
+
   const handleCloseWorkOrder = async () => {
     try {
       setIsSubmitting(true);
@@ -626,6 +633,18 @@ export default function WorkOrderExecutionPage() {
                     Abrir en Google Maps
                   </span>
                 )}
+
+                {/* Actualizar Ubicación — always visible */}
+                <button
+                  onClick={() => setShowLocationModal(true)}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg
+                             bg-zinc-900 text-amber-400 border border-amber-500/50
+                             hover:shadow-[0_0_10px_rgba(251,191,36,0.3)]
+                             transition-all duration-200 text-xs ml-2"
+                >
+                  <MapPin size={14} />
+                  Actualizar Ubicación
+                </button>
               </div>
 
               {workOrder?.ticket_info?.contact_phone && (
@@ -1051,6 +1070,14 @@ export default function WorkOrderExecutionPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Location Update Modal */}
+      <UpdateLocationModal
+        workOrderId={workOrder?.id}
+        isOpen={showLocationModal}
+        onClose={() => setShowLocationModal(false)}
+        onSaved={handleLocationSaved}
+      />
 
       {/* Completion Dialog */}
       {/* Close Work Order Dialog (Wizard de 3 pasos) */}
