@@ -367,7 +367,7 @@ export function AppSidebar() {
     >
       {/* Header con Logo */}
       <SidebarHeader className="border-b border-zinc-800/50 px-4 py-4 bg-gradient-to-r from-zinc-950/50 to-transparent">
-        <Link to="/app" className={`flex items-center gap-3 group ${isCollapsed ? 'justify-center' : ''}`}>
+        <Link to="/app" className={`flex items-center group ${isCollapsed ? 'gap-0 justify-center' : 'gap-3'}`}>
           <div className="relative shrink-0">
             <div className="absolute inset-0 bg-emerald-500/20 blur-md rounded-lg group-hover:bg-emerald-500/30 transition-all" />
             <EmeraldLogo className="scale-75 relative" withText={false} />
@@ -504,7 +504,7 @@ export function AppSidebar() {
                             to={item.href}
                             title={isCollapsed ? item.title : item.description}
                             className={`
-                              relative group flex items-center gap-3 px-3 py-2.5 rounded-lg
+                              relative group flex items-center px-3 py-2.5 rounded-lg ${isCollapsed ? 'gap-0' : 'gap-3'}
                               transition-all duration-200 cursor-pointer
                               ${section.collapsible ? (isCollapsed ? 'pl-2.5 justify-center' : 'pl-6') : (isCollapsed ? 'pl-2.5 justify-center' : 'pl-3')}
                               ${
@@ -533,9 +533,9 @@ export function AppSidebar() {
                             {/* Título — oculto en modo colapsado */}
                             <span
                               className={`
-                                text-sm font-medium flex-1 group-hover:text-zinc-50 transition-all duration-300 ease-in-out
+                                text-sm font-medium group-hover:text-zinc-50 transition-all duration-300 ease-in-out
                                 ${active ? 'font-semibold' : ''}
-                                ${isCollapsed ? 'w-0 opacity-0 overflow-hidden' : 'w-auto opacity-100'}
+                                ${isCollapsed ? 'w-0 opacity-0 overflow-hidden shrink-0' : 'flex-1 w-auto opacity-100'}
                               `}
                             >
                               {item.title}

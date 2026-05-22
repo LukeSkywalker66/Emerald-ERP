@@ -17,7 +17,7 @@ export default function DashboardLayout() {
   return (
     <div className="flex h-screen bg-zinc-950">
       {/* Sidebar - Solo visible en desktop (md+) */}
-      <div className="hidden md:flex">
+      <div className="hidden md:flex shrink-0">
         <AppSidebar />
       </div>
 
