@@ -1,15 +1,16 @@
 /**
  * AppSidebar - Navegación principal con estructura acordeón
- * 
+ *
  * Características:
  * - Secciones colapsables para reducir ruido visual
  * - Operaciones expandidas por defecto (uso diario)
  * - Inventario e Ingeniería colapsados (uso ocasional)
  * - Animaciones suaves y estado persistente en localStorage
  * - Auto-expansión cuando se navega a un item dentro de una sección colapsada
+ * - Pin para fijar/colapsar la sidebar: colapsada muestra solo íconos, se expande al hover
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { hasPermission } from '@/utils/permissions';
@@ -33,6 +34,8 @@ import {
   ChevronDown,
   ChevronRight,
   Shield,
+  Pin,
+  PinOff,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -47,8 +50,9 @@ import {
 } from './ui/sidebar';
 import { EmeraldLogo } from './ui/EmeraldLogo';
 
-// Clave para localStorage
+// Claves para localStorage
 const SIDEBAR_STATE_KEY = 'emerald-sidebar-expanded-sections';
+const SIDEBAR_PINNED_KEY = 'emerald-sidebar-pinned';
 
 // 🎯 Configuración de menú con estructura jerárquica
 const MENU_ITEMS = [
@@ -242,6 +246,45 @@ export function AppSidebar() {
   const { pathname } = useLocation();
   const { user } = useAuth(); // ← RBAC: Obtener usuario para filtrar items
 
+  // Estado: sidebar pinned (fijada = siempre expandida)
+  const [isPinned, setIsPinned] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SIDEBAR_PINNED_KEY);
+      return saved === 'true';
+    } catch {
+      return true; // Default: pinned (comportamiento actual)
+    }
+  });
+
+  // Estado: hover sobre la sidebar (para expandir al pasar el mouse cuando no está fijada)
+  const [isHovering, setIsHovering] = useState(false);
+
+  // Colapsada solo cuando NO está fijada Y NO estamos haciendo hover
+  const isCollapsed = !isPinned && !isHovering;
+
+  // Persistir estado de pin
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_PINNED_KEY, JSON.stringify(isPinned));
+    } catch (error) {
+      console.warn('Error saving sidebar pin state to localStorage:', error);
+    }
+  }, [isPinned]);
+
+  // Toggle pin
+  const togglePin = useCallback(() => {
+    setIsPinned((prev) => !prev);
+  }, []);
+
+  // Handlers para hover expand en modo colapsado
+  const handleMouseEnter = useCallback(() => {
+    if (!isPinned) setIsHovering(true);
+  }, [isPinned]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (!isPinned) setIsHovering(false);
+  }, [isPinned]);
+
   // Estado para manejar qué secciones están expandidas (con persistencia)
   const [expandedSections, setExpandedSections] = useState(() => {
     try {
@@ -310,19 +353,33 @@ export function AppSidebar() {
   };
 
   return (
-    <Sidebar className="bg-gradient-to-b from-zinc-950 to-zinc-900/80 w-64">
+    <Sidebar
+      className={`
+        bg-gradient-to-b from-zinc-950 to-zinc-900/80
+        transition-all duration-300 ease-in-out
+        ${isCollapsed ? 'w-16' : 'w-64'}
+      `}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
       {/* Header con Logo */}
       <SidebarHeader className="border-b border-zinc-800/50 px-4 py-4 bg-gradient-to-r from-zinc-950/50 to-transparent">
-        <Link to="/app" className="flex items-center gap-3 group">
-          <div className="relative">
+        <Link to="/app" className={`flex items-center gap-3 group ${isCollapsed ? 'justify-center' : ''}`}>
+          <div className="relative shrink-0">
             <div className="absolute inset-0 bg-emerald-500/20 blur-md rounded-lg group-hover:bg-emerald-500/30 transition-all" />
             <EmeraldLogo className="scale-75 relative" withText={false} />
           </div>
-          <div className="flex flex-col">
-            <span className="text-sm font-bold text-white tracking-tight group-hover:text-emerald-400 transition-colors">
+          {/* Texto del logo — oculto en modo colapsado */}
+          <div
+            className={`
+              flex flex-col overflow-hidden transition-all duration-300 ease-in-out
+              ${isCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}
+            `}
+          >
+            <span className="text-sm font-bold text-white tracking-tight whitespace-nowrap group-hover:text-emerald-400 transition-colors">
               Emerald
             </span>
-            <span className="text-xs text-emerald-400/70 font-semibold group-hover:text-emerald-400 transition-colors">
+            <span className="text-xs text-emerald-400/70 font-semibold whitespace-nowrap group-hover:text-emerald-400 transition-colors">
               ERP v2.1
             </span>
           </div>
@@ -331,6 +388,12 @@ export function AppSidebar() {
 
       {/* Main Navigation con Acordeón */}
       <SidebarContent className="px-3 py-4 space-y-2">
+        {/* Hint visual en modo colapsado: indica que se expande al hover */}
+        {isCollapsed && (
+          <div className="flex justify-center mb-1">
+            <div className="w-1 h-8 rounded-full bg-zinc-800 animate-pulse" />
+          </div>
+        )}
         {MENU_ITEMS.map((section) => {
           const isExpanded = expandedSections[section.id];
           const hasActiveChild = isSectionActive(section);
@@ -343,25 +406,30 @@ export function AppSidebar() {
                 <button
                   onClick={() => toggleSection(section.id)}
                   className={`
-                    w-full flex items-center justify-between px-3 py-2 rounded-lg
+                    w-full flex items-center rounded-lg
                     transition-all duration-200 group
+                    ${isCollapsed ? 'justify-center px-2 py-2' : 'justify-between px-3 py-2'}
                     ${
                       hasActiveChild
                         ? 'bg-emerald-500/10 border border-emerald-500/30'
                         : 'hover:bg-zinc-800/50'
                     }
                   `}
+                  title={isCollapsed ? section.label : undefined}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-2'}`}>
                     {SectionIcon && (
                       <SectionIcon
-                        size={14}
-                        className={hasActiveChild ? 'text-emerald-400' : 'text-zinc-500'}
+                        size={isCollapsed ? 18 : 14}
+                        className={`shrink-0 ${hasActiveChild ? 'text-emerald-400' : 'text-zinc-500'}`}
                       />
                     )}
+                    {/* Label oculto en modo colapsado */}
                     <SidebarGroupLabel
                       className={`
                         text-xs font-semibold uppercase tracking-widest
+                        overflow-hidden transition-all duration-300 ease-in-out
+                        ${isCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}
                         ${
                           hasActiveChild
                             ? 'text-emerald-400'
@@ -373,22 +441,38 @@ export function AppSidebar() {
                     </SidebarGroupLabel>
                   </div>
 
-                  {isExpanded ? (
-                    <ChevronDown
-                      size={14}
-                      className={hasActiveChild ? 'text-emerald-400' : 'text-zinc-600'}
-                    />
-                  ) : (
-                    <ChevronRight
-                      size={14}
-                      className={hasActiveChild ? 'text-emerald-400' : 'text-zinc-600'}
-                    />
-                  )}
+                  {/* Chevron oculto en modo colapsado */}
+                  <div
+                    className={`
+                      shrink-0 transition-all duration-300 ease-in-out
+                      ${isCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}
+                    `}
+                  >
+                    {isExpanded ? (
+                      <ChevronDown
+                        size={14}
+                        className={hasActiveChild ? 'text-emerald-400' : 'text-zinc-600'}
+                      />
+                    ) : (
+                      <ChevronRight
+                        size={14}
+                        className={hasActiveChild ? 'text-emerald-400' : 'text-zinc-600'}
+                      />
+                    )}
+                  </div>
                 </button>
               ) : (
-                <SidebarGroupLabel className="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-3 px-3 opacity-70">
-                  {section.label}
-                </SidebarGroupLabel>
+                /* Non-collapsible sections — label oculto en modo colapsado */
+                <div
+                  className={`
+                    overflow-hidden transition-all duration-300 ease-in-out
+                    ${isCollapsed ? 'max-h-0 opacity-0' : 'max-h-8 opacity-100'}
+                  `}
+                >
+                  <SidebarGroupLabel className="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-3 px-3 opacity-70">
+                    {section.label}
+                  </SidebarGroupLabel>
+                </div>
               )}
 
               {/* Items de la sección (con animación de colapso) */}
@@ -415,11 +499,11 @@ export function AppSidebar() {
                         <SidebarMenuButton asChild>
                           <Link
                             to={item.href}
-                            title={item.description}
+                            title={isCollapsed ? item.title : item.description}
                             className={`
                               relative group flex items-center gap-3 px-3 py-2.5 rounded-lg
                               transition-all duration-200 cursor-pointer
-                              ${section.collapsible ? 'pl-6' : 'pl-3'}
+                              ${section.collapsible ? (isCollapsed ? 'pl-2.5 justify-center' : 'pl-6') : (isCollapsed ? 'pl-2.5 justify-center' : 'pl-3')}
                               ${
                                 active
                                   ? 'bg-emerald-500/15 text-emerald-300 before:content-[""] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:bg-gradient-to-b before:from-emerald-400 before:to-emerald-500 before:rounded-r-sm'
@@ -429,13 +513,13 @@ export function AppSidebar() {
                           >
                             {/* Icono */}
                             <div
-                              className={`relative transition-all ${
+                              className={`relative shrink-0 transition-all ${
                                 active
                                   ? 'text-emerald-400'
                                   : 'text-zinc-500 group-hover:text-zinc-300'
                               }`}
                             >
-                              <Icon size={18} />
+                              <Icon size={isCollapsed ? 20 : 18} />
 
                               {/* Badge especial para Alertas */}
                               {item.badge === 'hot' && (
@@ -443,18 +527,26 @@ export function AppSidebar() {
                               )}
                             </div>
 
-                            {/* Título */}
+                            {/* Título — oculto en modo colapsado */}
                             <span
-                              className={`text-sm font-medium flex-1 group-hover:text-zinc-50 transition-colors ${
-                                active ? 'font-semibold' : ''
-                              }`}
+                              className={`
+                                text-sm font-medium flex-1 group-hover:text-zinc-50 transition-all duration-300 ease-in-out
+                                ${active ? 'font-semibold' : ''}
+                                ${isCollapsed ? 'w-0 opacity-0 overflow-hidden' : 'w-auto opacity-100'}
+                              `}
                             >
                               {item.title}
                             </span>
 
-                            {/* Indicador activo */}
+                            {/* Indicador activo — oculto en modo colapsado */}
                             {active && (
-                              <div className="w-1 h-1 rounded-full bg-emerald-400 ml-auto" />
+                              <div
+                                className={`
+                                  w-1 h-1 rounded-full bg-emerald-400 ml-auto shrink-0
+                                  transition-all duration-300 ease-in-out
+                                  ${isCollapsed ? 'w-0 opacity-0' : 'w-1 opacity-100'}
+                                `}
+                              />
                             )}
                           </Link>
                         </SidebarMenuButton>
@@ -468,11 +560,40 @@ export function AppSidebar() {
         })}
       </SidebarContent>
 
-      {/* Footer con info de versión */}
+      {/* Footer con pin toggle + info de versión */}
       <SidebarFooter className="border-t border-zinc-800/50 px-4 py-3 bg-gradient-to-r from-transparent to-emerald-500/5">
-        <div className="text-xs text-zinc-500">
-          <p className="font-mono text-zinc-600">v2.1.0</p>
-          <p className="text-zinc-600/70 mt-0.5 text-xs">Build 2026.01.16</p>
+        <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
+          {/* Pin toggle button — siempre visible */}
+          <button
+            onClick={togglePin}
+            title={isPinned ? 'Sidebar fijada — haz clic para colapsar' : 'Sidebar colapsable — haz clic para fijar'}
+            className={`
+              flex items-center justify-center p-1.5 rounded-md
+              transition-all duration-200
+              ${
+                isPinned
+                  ? 'text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10'
+                  : 'text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800/50'
+              }
+            `}
+          >
+            {isPinned ? (
+              <Pin size={14} className="fill-emerald-400" />
+            ) : (
+              <PinOff size={14} />
+            )}
+          </button>
+
+          {/* Versión — oculta en modo colapsado */}
+          <div
+            className={`
+              text-xs text-zinc-500 overflow-hidden transition-all duration-300 ease-in-out
+              ${isCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}
+            `}
+          >
+            <p className="font-mono text-zinc-600 whitespace-nowrap">v2.1.0</p>
+            <p className="text-zinc-600/70 mt-0.5 text-xs whitespace-nowrap">Build 2026.01.16</p>
+          </div>
         </div>
       </SidebarFooter>
     </Sidebar>
