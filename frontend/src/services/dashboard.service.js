@@ -5,7 +5,7 @@
  */
 import api from '@/api/client';
 
-const BASE_URL = '/api/v2/dashboard';
+const BASE_URL = '/v2/dashboard';
 
 /**
  * Obtener métricas agregadas del dashboard.
