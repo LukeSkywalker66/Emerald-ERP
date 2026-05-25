@@ -14,7 +14,6 @@ import NodesPage from './pages/NodesPage';
 import CustomersPage from './pages/CustomersPage';
 import ClientesPage from './pages/ClientesPage';
 import InventarioPage from './pages/InventarioPage';
-import UsersPage from './pages/UsersPage';
 import SettingsPage from './pages/SettingsPage';
 import NotFoundPage from './pages/NotFoundPage';
 import LoadingScreen from './components/ui/LoadingScreen';
@@ -89,7 +88,6 @@ const AppRoutes = () => (
         <Route path="inventory/movements" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><MovementsHistory /></RoleGuard>} />
         <Route path="inventory/alerts" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><StockAlerts /></RoleGuard>} />
         
-        <Route path="users" element={<RoleGuard resource="users"><UsersPage /></RoleGuard>} />
         <Route path="settings" element={<RoleGuard resource="settings"><SettingsPage /></RoleGuard>} />
         
         {/* Audit Module Routes (Admin Only) */}

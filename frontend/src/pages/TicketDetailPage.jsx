@@ -48,6 +48,7 @@ import WorkOrderCompletedSummary from '@/components/work-orders/WorkOrderComplet
 import CreateEngineeringTaskDialog from '@/components/engineering/CreateEngineeringTaskDialog';
 import { useAuth } from '@/context/AuthContext';
 import { hasPermission } from '@/utils/permissions';
+import ImageViewer from '@/components/ui/ImageViewer';
 import Can from '@/components/auth/Can';
 
 const statusConfig = {
@@ -57,6 +58,7 @@ const statusConfig = {
   pending_infra: { label: 'Pendiente Infra', tone: 'text-purple-300', chip: 'bg-purple-500/10 border-purple-500/50' },
   resolved: { label: 'Resuelto', tone: 'text-emerald-300', chip: 'bg-emerald-500/10 border-emerald-500/50' },
   closed: { label: 'Cerrado', tone: 'text-zinc-300', chip: 'bg-zinc-500/10 border-zinc-700' },
+  cancelled: { label: 'Cancelado', tone: 'text-red-400', chip: 'bg-red-500/10 border-red-500/50' },
 };
 
 const priorityConfig = {
@@ -244,6 +246,11 @@ function WorkOrderCard({ workOrder }) {
 }
 
 function TimelineItem({ event, index }) {
+  // Hooks deben ir antes de cualquier early return (Rules of Hooks)
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const navigate = useNavigate();
+
   // Card unificada para tareas NOC/ingeniería y OT
   const isNocTask = event.event_type === 'alert' && event.meta_data && typeof event.meta_data.engineering_task_id !== 'undefined';
   const isOtTask = event.event_type === 'ot_event' && event.meta_data && typeof event.meta_data.work_order_id !== 'undefined';
@@ -340,9 +347,6 @@ function TimelineItem({ event, index }) {
   }
     // DEBUG: Mostrar el evento completo en consola para inspección
     console.log('DEBUG TIMELINE EVENT', event);
-  const [showImageModal, setShowImageModal] = useState(false);
-  const [selectedImage, setSelectedImage] = useState(null);
-  const navigate = useNavigate();
   
   const eventIcons = {
     note: { icon: MessageSquare, color: 'text-blue-400' },
@@ -489,11 +493,19 @@ function TimelineItem({ event, index }) {
             <div className="mt-3">
               {isImageFile ? (
                 <div className="space-y-2">
-                  <img 
+                  <img
                     src={filePath}
                     alt={fileName}
                     className="max-w-xs max-h-48 rounded-lg border border-zinc-700 cursor-pointer hover:border-emerald-500 transition-colors"
-                    onClick={() => setShowImageModal(true)}
+                    onClick={() => {
+                      setSelectedImage({
+                        url: filePath,
+                        name: fileName,
+                        size: fileSize,
+                        type: event.meta_data?.content_type,
+                      });
+                      setShowImageModal(true);
+                    }}
                   />
                   <p className="text-xs text-zinc-500">{fileName} ({formatFileSize(fileSize)})</p>
                 </div>
@@ -519,56 +531,20 @@ function TimelineItem({ event, index }) {
         </div>
       </div>
 
-      {/* Modal para ver imagen en tamaño completo */}
+      {/* Visor de imagen mejorado con zoom, paneo y pantalla completa */}
       {showImageModal && selectedImage && (
-        <div
-          className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center p-4 overflow-auto"
-          onClick={() => setShowImageModal(false)}
-        >
-          <div
-            className="relative max-w-2xl max-h-[90vh] bg-zinc-900 rounded-lg overflow-hidden flex flex-col"
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Header con botón cerrar */}
-            <div className="flex items-center justify-between p-3 border-b border-zinc-800">
-              <p className="text-sm text-zinc-300 truncate flex-1 pr-4">
-                {selectedImage.name || fileName}
-              </p>
-              <button
-                onClick={() => setShowImageModal(false)}
-                className="shrink-0 p-1 rounded hover:bg-zinc-800 text-zinc-300 hover:text-white transition"
-                title="Cerrar (ESC)"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* Imagen */}
-            <div className="flex-1 overflow-auto flex items-center justify-center min-h-0 bg-black/50">
-              <img
-                src={selectedImage.url || filePath}
-                alt={selectedImage.name || fileName}
-                className="max-w-full max-h-full object-contain"
-              />
-            </div>
-
-            {/* Footer con descarga */}
-            <div className="p-3 border-t border-zinc-800 flex items-center justify-between bg-zinc-950">
-              <span className="text-xs text-zinc-400">
-                {formatFileSize(selectedImage.size)}
-              </span>
-              <a
-                href={selectedImage.url || filePath}
-                download={selectedImage.name || fileName}
-                className="flex items-center gap-2 px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-sm transition"
-                title="Descargar imagen"
-              >
-                <Download size={16} />
-                Descargar
-              </a>
-            </div>
-          </div>
-        </div>
+        <ImageViewer
+          image={{
+            url: selectedImage.url || filePath,
+            name: selectedImage.name || fileName,
+            size: selectedImage.size,
+            type: event?.meta_data?.content_type,
+          }}
+          onClose={() => {
+            setSelectedImage(null);
+            setShowImageModal(false);
+          }}
+        />
       )}
     </>
   );
@@ -666,6 +642,10 @@ export default function TicketDetailPage() {
   const [engineeringTasks, setEngineeringTasks] = useState([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(false);
   const [showEngineeringDialog, setShowEngineeringDialog] = useState(false);
+  const [showRollbackConfirmDialog, setShowRollbackConfirmDialog] = useState(false);
+  const [pendingRollbackStatus, setPendingRollbackStatus] = useState(null);
+  const [pendingNote, setPendingNote] = useState('');
+  const [rollbackValidations, setRollbackValidations] = useState(null);
   const cameFromCoordination = location.state?.from === 'coordination';
 
   const handleBackNavigation = () => {
@@ -863,6 +843,21 @@ export default function TicketDetailPage() {
   const performStatusChange = async (newStatus, note) => {
     try {
       setIsSaving(true);
+      // Si es instalación y se está cerrando/cancelando, verificar rollback
+      if ((newStatus === 'closed' || newStatus === 'cancelled') && ticket?.ticket_type === 'installation') {
+        try {
+          const validations = await ticketsService.getCloseValidations(ticket.id);
+          if (validations.will_cleanup) {
+            setRollbackValidations(validations);
+            setPendingRollbackStatus(newStatus);
+            setPendingNote(note || ''); // Preservar nota para cuando se confirme
+            setShowRollbackConfirmDialog(true);
+            return; // No ejecutar aún, esperar confirmación
+          }
+        } catch (err) {
+          console.error('Error checking close validations:', err);
+        }
+      }
       await ticketsService.updateTicket(id, { status: newStatus });
       if (note && note.trim()) {
         await ticketsService.addNote(id, note.trim());
@@ -873,6 +868,32 @@ export default function TicketDetailPage() {
       console.error('Status change error:', err);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const confirmRollbackStatusChange = async () => {
+    const status = pendingRollbackStatus;
+    const note = pendingNote;
+    if (!status) return;
+    try {
+      setIsSaving(true);
+      setShowRollbackConfirmDialog(false);
+      await ticketsService.updateTicket(id, { status });
+      if (note && note.trim()) {
+        await ticketsService.addNote(id, note.trim());
+      }
+      await loadTicket();
+      // Limpiar el close dialog si se abrió desde ahí
+      setCloseNote('');
+      setShowCloseDialog(false);
+    } catch (err) {
+      setError(err.message || 'Error al actualizar estado');
+      console.error('Confirmed rollback error:', err);
+    } finally {
+      setIsSaving(false);
+      setPendingRollbackStatus(null);
+      setRollbackValidations(null);
+      setPendingNote('');
     }
   };
 
@@ -1032,7 +1053,7 @@ export default function TicketDetailPage() {
 
   const isInSupport = ['open', 'in_progress', 'pending'].includes(ticket.status);
   const isInInfra = ticket.status === 'pending_infra';
-  const isClosed = ['resolved', 'closed'].includes(ticket.status);
+  const isClosed = ['resolved', 'closed', 'cancelled'].includes(ticket.status);
   const canEditTicket = hasPermission(user?.role, 'tickets', 'edit');
   const canCommentTicket = hasPermission(user?.role, 'tickets', 'comment');
   const canCreateWorkOrder = hasPermission(user?.role, 'work_orders', 'create');
@@ -1080,7 +1101,25 @@ export default function TicketDetailPage() {
                 display={statusConfig[ticket.status]?.label || 'Estado' }
                 value={ticket.status}
                 options={Object.entries(statusConfig).map(([value, cfg]) => ({ value, label: cfg.label }))}
-                onSave={(val) => handleQuickUpdate({ status: val })}
+                onSave={async (val) => {
+                  // Si se cambia a cerrado/cancelado en un ticket de instalación,
+                  // verificar si hay rollback de datos sincronizados
+                  if ((val === 'closed' || val === 'cancelled') && ticket.ticket_type === 'installation') {
+                    try {
+                      const validations = await ticketsService.getCloseValidations(ticket.id);
+                      if (validations.will_cleanup) {
+                        setRollbackValidations(validations);
+                        setPendingRollbackStatus(val);
+                        setShowRollbackConfirmDialog(true);
+                        return; // No ejecutar aún el cambio
+                      }
+                    } catch (err) {
+                      console.error('Error checking close validations:', err);
+                    }
+                  }
+                  // Caso normal: ejecutar cambio directamente
+                  await handleQuickUpdate({ status: val });
+                }}
                 disabled={isClosed || isSaving || !canEditTicket}
                 loading={isSaving}
               />
@@ -1613,6 +1652,60 @@ export default function TicketDetailPage() {
             <Button variant="ghost" onClick={() => setShowCloseDialog(false)}>Cancelar</Button>
             <Button onClick={async () => { await performStatusChange('closed', closeNote); setShowCloseDialog(false); setCloseNote(''); }} disabled={isSaving}>
               {isSaving ? 'Cerrando...' : 'Cerrar ticket'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de confirmación de rollback para instalaciones */}
+      <Dialog open={showRollbackConfirmDialog} onOpenChange={(open) => {
+        if (!open) {
+          setPendingRollbackStatus(null);
+          setRollbackValidations(null);
+          setPendingNote('');
+        }
+        setShowRollbackConfirmDialog(open);
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar cambio de estado</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 p-4 rounded-lg border border-amber-900/50 bg-amber-950/30">
+              <AlertTriangle size={20} className="text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-amber-300">
+                  {pendingRollbackStatus === 'cancelled' ? 'Cancelar ticket de instalación' : 'Cerrar ticket de instalación'}
+                </p>
+                <p className="text-sm text-amber-200/80">
+                  Al {pendingRollbackStatus === 'cancelled' ? 'cancelar' : 'cerrar'} este ticket se eliminarán los datos
+                  sincronizados de ISPCube (conexión, cliente si queda huérfano) y se cancelarán las OT pendientes.
+                  Esto permitirá que un nuevo ticket pueda usar el mismo número de conexión.
+                </p>
+              </div>
+            </div>
+            {rollbackValidations?.has_unfinished_work_orders && (
+              <div className="flex items-start gap-3 p-4 rounded-lg border border-ruby-900/50 bg-ruby-950/30">
+                <AlertCircle size={20} className="text-ruby-400 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-ruby-200/80">
+                  Hay órdenes de trabajo pendientes. Serán marcadas como <strong>fallidas</strong>.
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => {
+              setShowRollbackConfirmDialog(false);
+              setPendingRollbackStatus(null);
+              setRollbackValidations(null);
+              setPendingNote('');
+            }}>
+              Cancelar
+            </Button>
+            <Button onClick={confirmRollbackStatusChange} disabled={isSaving}>
+              {isSaving ? 'Procesando...' : (
+                pendingRollbackStatus === 'cancelled' ? 'Sí, cancelar ticket' : 'Sí, cerrar ticket'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

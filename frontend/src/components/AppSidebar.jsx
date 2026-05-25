@@ -225,13 +225,6 @@ const MENU_ITEMS = [
         resource: 'settings', // ← RBAC: Oculto para técnicos
       },
       {
-        title: 'Usuarios',
-        icon: UserCog,
-        href: '/app/users',
-        description: 'Gestión de cuentas',
-        resource: 'users', // ← RBAC: Oculto para técnicos
-      },
-      {
         title: 'Auditoría',
         icon: Shield,
         href: '/app/audit',

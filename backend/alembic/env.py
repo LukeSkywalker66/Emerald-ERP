@@ -19,6 +19,14 @@ from src.database.base import Base as NewBase
 from src.models.user import Role, User  # Modelos nuevos
 from src.models.inventory import *  # Modelos de Inventory
 from src.models.work_order_types import WorkOrderTypeConfig  # WorkOrderType configuration
+from src.models.settings import (
+    SystemConfig,
+    ServiceMonitor,
+    MonitorType,
+    CriticalityIndex,
+    MonitorStatus,
+)
+from src.models.scheduled_task import ScheduledTask  # Scheduled Tasks V2
 try:
     from src.models.tickets import *  # Modelos de Tickets (nueva arquitectura)
 except ImportError:

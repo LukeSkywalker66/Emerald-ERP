@@ -1,8 +1,8 @@
 /**
  * ImprovedCoordinationGrid.jsx
- * Grid de coordinación: Eje X = Tiempo (4-5 horas), Eje Y = Equipos (variable)
+ * Grid de coordinación: Eje X = Tiempo (configurable), Eje Y = Equipos (variable)
  * Drag & drop fluido + redimensionamiento horizontal
- * 4 de febrero de 2026
+ * Los horarios de turnos se leen desde SystemConfig (work_hours)
  */
 
 import React, { useState, useMemo, useRef } from 'react';
@@ -13,8 +13,34 @@ import { Badge } from '@/components/ui/badge';
 import api from '@/api/client';
 import './ImprovedCoordinationGrid.css';
 
-const MORNING_SLOTS = ['08:00', '09:00', '10:00', '11:00', '12:00'];
-const AFTERNOON_SLOTS = ['13:00', '14:00', '15:00', '16:00', '17:00'];
+// ── Default work hours (fallback si no hay config) ──────────────────
+const DEFAULT_WORK_HOURS = {
+  morning_start: '08:00',
+  morning_end: '13:00',
+  afternoon_start: '15:00',
+  afternoon_end: '19:00',
+};
+
+// ── Generar slots horarios a partir de un rango ─────────────────────
+function generateHourlySlots(startTime, endTime) {
+  const startHour = parseInt(startTime.split(':')[0], 10);
+  const endHour = parseInt(endTime.split(':')[0], 10);
+  const slots = [];
+  for (let h = startHour; h < endHour; h++) {
+    slots.push(`${String(h).padStart(2, '0')}:00`);
+  }
+  return slots;
+}
+
+function parseWorkHours(value) {
+  if (!value || typeof value !== 'object') return { ...DEFAULT_WORK_HOURS };
+  return {
+    morning_start: value.morning_start || DEFAULT_WORK_HOURS.morning_start,
+    morning_end: value.morning_end || DEFAULT_WORK_HOURS.morning_end,
+    afternoon_start: value.afternoon_start || DEFAULT_WORK_HOURS.afternoon_start,
+    afternoon_end: value.afternoon_end || DEFAULT_WORK_HOURS.afternoon_end,
+  };
+}
 
 // Convertir slot HH:MM a minutos desde las 00:00
 function timeToMinutes(timeStr) {
@@ -128,7 +154,14 @@ export default function ImprovedCoordinationGrid({
   // DB-driven WorkOrderType config
   workOrderTypes = [],
   workOrderTypeMap = {},
+  // Horario de visitas técnicas (desde SystemConfig)
+  workHours: workHoursProp,
 }) {
+  const wh = parseWorkHours(workHoursProp);
+  const MORNING_SLOTS = generateHourlySlots(wh.morning_start, wh.morning_end);
+  const AFTERNOON_SLOTS = generateHourlySlots(wh.afternoon_start, wh.afternoon_end);
+  const MORNING_END_MIN = timeToMinutes(wh.morning_end);
+  const AFTERNOON_END_MIN = timeToMinutes(wh.afternoon_end);
   const [draggedItem, setDraggedItem] = useState(null);
   const [isResizing, setIsResizing] = useState(null);
   const [isAssigning, setIsAssigning] = useState(false);

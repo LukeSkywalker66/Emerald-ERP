@@ -81,6 +81,7 @@ class TicketStatus(StrEnum):
     attention_required = "attention_required"  # Ingeniería completó, requiere atención
     resolved = "resolved"
     closed = "closed"
+    cancelled = "cancelled"  # Cancelado sin ejecución de OTs
 
 
 class TicketPriority(StrEnum):

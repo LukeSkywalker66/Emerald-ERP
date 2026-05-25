@@ -22,6 +22,7 @@ import CoordinationSheet from '@/components/coordination/CoordinationSheet';
 import ImprovedCoordinationGrid from '@/components/coordination/ImprovedCoordinationGrid';
 import { useCoordinationSync } from '@/components/coordination/hooks';
 import { getWorkOrderTypes, buildTypeMap } from '@/services/workOrderTypes.service';
+import { getAllSettings, settingsToMap } from '@/services/settings.service';
 
 
 // ========== PÁGINA PRINCIPAL ==========
@@ -68,6 +69,9 @@ export default function CoordinationGridPage() {
   const [workOrderTypeMap, setWorkOrderTypeMap] = useState({});
   const workOrderTypesRetryRef = useRef(0);
 
+  // Work hours from SystemConfig (horario de visitas técnicas)
+  const [workHours, setWorkHours] = useState(null);
+
   useEffect(() => {
     let cancelled = false;
     const MAX_RETRIES = 3;
@@ -98,6 +102,20 @@ export default function CoordinationGridPage() {
 
     attemptFetch();
     return () => { cancelled = true; };
+  }, []);
+
+  // Fetch work_hours from SystemConfig (horario de visitas técnicas)
+  useEffect(() => {
+    getAllSettings()
+      .then((settings) => {
+        const map = settingsToMap(settings);
+        if (map.work_hours) {
+          setWorkHours(map.work_hours);
+        }
+      })
+      .catch((err) => {
+        console.warn('⚠️ No se pudieron cargar horarios de trabajo:', err);
+      });
   }, []);
 
   // Sincronización automática con BD (polling 5s)
@@ -345,7 +363,7 @@ export default function CoordinationGridPage() {
                   : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
               }`}
             >
-              🌅 Mañana (08:00-12:00)
+              🌅 Mañana ({workHours?.morning_start || '08:00'}-{workHours?.morning_end || '13:00'})
             </button>
             <button
               onClick={() => setActiveTimeBlockState('afternoon')}
@@ -355,7 +373,7 @@ export default function CoordinationGridPage() {
                   : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
               }`}
             >
-              ☀️ Tarde (13:00-17:00)
+              ☀️ Tarde ({workHours?.afternoon_start || '15:00'}-{workHours?.afternoon_end || '19:00'})
             </button>
           </div>
 
@@ -399,6 +417,7 @@ export default function CoordinationGridPage() {
                 onRollbackResize={handleRollbackResize}
                 workOrderTypes={workOrderTypes}
                 workOrderTypeMap={workOrderTypeMap}
+                workHours={workHours}
               />
             )}
           </div>

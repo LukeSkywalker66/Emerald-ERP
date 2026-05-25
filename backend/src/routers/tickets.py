@@ -96,6 +96,7 @@ STATUS_LABELS = {
     "pending_infra": "Pendiente Infra",
     "resolved": "Resuelto",
     "closed": "Cerrado",
+    "cancelled": "Cancelado",
 }
 
 PRIORITY_LABELS = {
@@ -612,6 +613,24 @@ def create_ticket(
     db.add(ticket)
     db.flush()
     
+    # Para instalaciones, propagar datos sincronizados de ISPCube al ticket.
+    # Esto asegura que connection_id y connection_details estén disponibles
+    # para la resolución del nombre del cliente en _wo_to_list_response()
+    # y para el eventual rollback en caso de cancelación.
+    if installation_sync_result:
+        ticket.connection_id = installation_sync_result.get("connection_id")
+        meta = installation_sync_result.get("timeline_event", {}).get("meta_data", {})
+        ticket.connection_details = {
+            "client_name": meta.get("customer_name"),
+            "address": meta.get("connection_direction"),
+            "pppoe_username": meta.get("pppoe_username"),
+            "customer_dni": meta.get("customer_dni"),
+            # Metadata para rollback: IDs de los registros creados en sync
+            "_sync_customer_id": installation_sync_result.get("customer_id"),
+            "_sync_connection_id": str(installation_sync_result.get("connection_id")),
+            "_synced_at": datetime.utcnow().isoformat(),
+        }
+    
     # Crear evento de timeline para creación del ticket
     ticket_created_event = TicketTimeline(
         ticket_id=ticket.id,
@@ -881,6 +900,39 @@ def create_work_order(
     return _workorder_to_response(work_order)
 
 
+@router.get("/{ticket_id}/close-validations")
+def get_close_validations(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Retorna validaciones a mostrar antes de cerrar/cancelar un ticket.
+    Útil para que el frontend muestre confirmación si hay OTs sin finalizar
+    o si se va a ejecutar rollback de datos sincronizados.
+    """
+    ticket = db.get(Ticket, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
+
+    from src.services.installation_rollback import has_executed_work_orders
+
+    unfinished_wo = any(
+        wo.status.value not in {"completed", "failed"}
+        for wo in ticket.work_orders
+    )
+
+    return {
+        "has_unfinished_work_orders": unfinished_wo,
+        "is_installation": ticket.ticket_type == TicketType.installation,
+        "will_cleanup": (
+            ticket.ticket_type == TicketType.installation
+            and ticket.connection_details is not None
+            and "_sync_connection_id" in (ticket.connection_details or {})
+            and not has_executed_work_orders(ticket)
+        ),
+    }
+
+
 @router.patch("/{ticket_id}/", response_model=TicketResponse)
 @router.patch("/{ticket_id}", response_model=TicketResponse)
 def update_ticket(
@@ -915,6 +967,36 @@ def update_ticket(
         new_label = STATUS_LABELS.get(payload.status.value, payload.status.value)
         ticket.status = payload.status
         changes.append(f"Estado cambiado de {old_label} a {new_label}")
+
+        # === ROLLBACK: Si se cierra/cancela un ticket de instalación sin OTs ejecutadas ===
+        if payload.status in (TicketStatus.closed, TicketStatus.cancelled):
+            if ticket.ticket_type == TicketType.installation:
+                from src.services.installation_rollback import (
+                    has_executed_work_orders,
+                    rollback_installation_sync,
+                )
+
+                if not has_executed_work_orders(ticket):
+                    # Ejecutar rollback (elimina connection, cliente huérfano, cancela OTs)
+                    rollback_result = rollback_installation_sync(db, ticket)
+
+                    if (
+                        rollback_result.get("connection_deleted")
+                        or rollback_result.get("cliente_deleted")
+                        or rollback_result.get("work_orders_cancelled", 0) > 0
+                    ):
+                        parts = []
+                        if rollback_result["connection_deleted"]:
+                            parts.append("conexión eliminada")
+                        if rollback_result["cliente_deleted"]:
+                            parts.append("cliente eliminado")
+                        if rollback_result["work_orders_cancelled"]:
+                            parts.append(
+                                f"{rollback_result['work_orders_cancelled']} OT(s) cancelada(s)"
+                            )
+                        changes.append(
+                            f"🧹 Rollback instalación: {', '.join(parts)}"
+                        )
     
     if payload.assigned_to_id is not None:
         old_user = ticket.assigned_to

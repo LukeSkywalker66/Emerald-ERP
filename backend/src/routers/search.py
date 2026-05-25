@@ -140,17 +140,20 @@ def external_customer_lookup_new_connections(
     customer = data.get("customer", {})
     all_connections = data.get("connections") or []
 
-    # Obtener IDs de conexiones que ya existen en Emerald
-    existing_ids = set()
+    # Determinar qué connection_ids ya existen en Emerald.
+    # Se valida contra la tabla connections (mirror de ISPCube) para evitar
+    # duplicados y mantener integridad. El rollback se maneja al cancelar
+    # el ticket de instalación, no debilitando esta validación.
+    used_connection_ids: set[str] = set()
     try:
         existing_conns = db.execute(
             select(Connection.connection_id)
         ).scalars().all()
-        existing_ids = {str(conn_id) for conn_id in existing_conns if conn_id}
+        used_connection_ids = {str(cid) for cid in existing_conns if cid}
     except Exception:
-        pass  # Si falla, devolver todas (fallback graceful)
+        pass
 
-    # Filtrar solo conexiones nuevas (no existen en Emerald)
+    # Filtrar solo conexiones nuevas (no existe ticket que referencie ese connection_id)
     new_connections = [
         {
             **conn,
@@ -162,7 +165,7 @@ def external_customer_lookup_new_connections(
             "status": conn.get("status") or conn.get("state") or "unknown",
         }
         for conn in all_connections
-        if str(conn.get("id") or conn.get("external_id")) not in existing_ids
+        if str(conn.get("id") or conn.get("external_id")) not in used_connection_ids
     ]
 
     return {

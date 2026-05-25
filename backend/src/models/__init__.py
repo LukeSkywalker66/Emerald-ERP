@@ -67,6 +67,19 @@ from .beholder import (
 	APIKey,
 	APIKeyAudit,
 )
+from .settings import (
+	# Settings Module - Configuración General
+	SystemConfig,
+	ServiceMonitor,
+	MonitorType,
+	CriticalityIndex,
+	MonitorStatus,
+	MonitorCheckHistory,
+)
+from .scheduled_task import (
+	# Scheduled Tasks V2 - Configuración persistente de tareas programadas
+	ScheduledTask,
+)
 from .locations import City, Neighborhood
 
 __all__ = [
@@ -134,4 +147,12 @@ __all__ = [
 	# API Keys
 	"APIKey",
 	"APIKeyAudit",
+	# Settings Module
+	"SystemConfig",
+	"ServiceMonitor",
+	"MonitorType",
+	"CriticalityIndex",
+	"MonitorStatus",
+	# Scheduled Tasks
+	"ScheduledTask",
 ]

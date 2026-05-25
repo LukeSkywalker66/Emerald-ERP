@@ -1,5 +1,6 @@
 import React from 'react';
 import { Activity, Wifi, Users, Zap, ArrowUpRight, TrendingUp, AlertTriangle, CheckCircle } from 'lucide-react';
+import MonitorWidget from '../components/dashboard/MonitorWidget';
 
 const metrics = [
   { 
@@ -146,6 +147,9 @@ export default function DashboardPage() {
           );
         })}
       </div>
+
+      {/* Monitor Widget - Ancho completo */}
+      <MonitorWidget />
 
       {/* Tabla de Integraciones - Ancho completo */}
       <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 shadow-xl shadow-black/20 overflow-hidden">

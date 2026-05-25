@@ -59,13 +59,22 @@ export default {
       animation: {
         'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
         'loading': 'loading 1.5s ease-in-out infinite',
+        'blink-slow': 'blink 3s ease-in-out infinite',
       },
       keyframes: {
         loading: {
           '0%': { transform: 'translateX(-100%)' },
           '50%': { transform: 'translateX(100%)' },
           '100%': { transform: 'translateX(-100%)' },
-        }
+        },
+        blink: {
+          '0%, 100%': { opacity: '1', filter: 'brightness(1) drop-shadow(0 0 6px rgba(245,158,11,0.5))' },
+          '50%': { opacity: '0.25', filter: 'brightness(0.4) drop-shadow(0 0 2px rgba(245,158,11,0.1))' },
+        },
+        'blink-ping': {
+          '0%, 100%': { transform: 'scale(1)', opacity: '0.6' },
+          '50%': { transform: 'scale(2.5)', opacity: '0' },
+        },
       }
     },
   },

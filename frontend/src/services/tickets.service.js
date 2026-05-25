@@ -284,6 +284,20 @@ export const removeTagFromTicket = async (ticketId, tagId) => {
   }
 };
 
+/**
+ * Obtiene validaciones a mostrar antes de cerrar/cancelar un ticket.
+ * Útil para mostrar confirmación si hay OTs sin finalizar o rollback de datos.
+ */
+export const getCloseValidations = async (ticketId) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/${ticketId}/close-validations`);
+    return data;
+  } catch (error) {
+    console.error(`❌ Error fetching close validations for ticket ${ticketId}:`, error);
+    throw error;
+  }
+};
+
 export default {
   getAll,
   getById,
@@ -302,5 +316,7 @@ export default {
   createTag,
   assignTagToTicket,
   removeTagFromTicket,
+  // Close/Cancel validations
+  getCloseValidations,
 };
 

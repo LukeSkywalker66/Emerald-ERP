@@ -380,6 +380,34 @@ def nightly_sync_task(self):
         
         logger.info(f"⏱️  Duración total: {duration:.2f} segundos")
         logger.info(f"📅 Fin: {end_time.isoformat()}")
+        
+        # ── Registrar ejecución en Scheduled Task DB ───────────────────
+        try:
+            from src.services.scheduled_task_service import ScheduledTaskService
+            from src.database import SessionLocal as ScheduledSessionLocal
+            
+            _record_db = ScheduledSessionLocal()
+            try:
+                status = "success" if sync_stats.get("success") else "failed"
+                detail_parts = []
+                for key in ["nodes", "secrets", "onus", "plans", "connections", "clientes"]:
+                    val = sync_stats.get(key, 0)
+                    if val:
+                        detail_parts.append(f"{key}: {val}")
+                detail = ", ".join(detail_parts) if detail_parts else None
+                if sync_stats.get("error"):
+                    detail = f"ERROR: {sync_stats['error']}"
+                
+                ScheduledTaskService.record_execution(
+                    _record_db,
+                    task_name="src.jobs.sync.nightly_sync_task",
+                    status=status,
+                    detail=detail,
+                )
+            finally:
+                _record_db.close()
+        except Exception as record_err:
+            logger.warning(f"No se pudo registrar ejecución en scheduled_tasks: {record_err}")
 
 if __name__ == "__main__":
     try:

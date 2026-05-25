@@ -1,5 +1,9 @@
+import logging
+
 from celery import Celery
 from celery.schedules import crontab
+
+logger = logging.getLogger(__name__)
 
 # 1. Configuración de Celery
 # Usamos Redis como Broker (cola de mensajes) y Backend (resultados)
@@ -10,7 +14,8 @@ celery_app = Celery(
     include=[
         "src.jobs.sync",                      # Sync tasks
         "src.jobs.api_key_rotation",          # API Key rotation tasks
-        "src.jobs.work_order_cleanup"         # Work Order auto-cleanup (NASA-grade)
+        "src.jobs.work_order_cleanup",        # Work Order auto-cleanup (NASA-grade)
+        "src.jobs.monitoring",                # Internal monitoring engine (Strategy Pattern)
     ]
 )
 
@@ -20,8 +25,9 @@ celery_app.conf.update(
     enable_utc=True,
 )
 
-# 3. El Cronograma (Beat)
-celery_app.conf.beat_schedule = {
+# 3. El Cronograma (Beat) — Schedule estático como fallback
+# El schedule dinámico desde DB se aplica al final si está disponible.
+STATIC_BEAT_SCHEDULE = {
     "sync-nocturno-diario": {
         "task": "src.jobs.sync.nightly_sync_task",
         "schedule": crontab(hour=3, minute=0),  # A las 3:00 AM
@@ -30,7 +36,7 @@ celery_app.conf.beat_schedule = {
     # ════════════════════════════════════════════════════════════════════════════════
     # 🔐 API KEY ROTATION SCHEDULE - COMENTADO (PENDIENTE DE IMPLEMENTACIÓN)
     # ════════════════════════════════════════════════════════════════════════════════
-    # 
+    #
     # RAZÓN DEL COMENTARIO:
     # ====================
     # Las tablas 'api_keys' y 'api_key_audit' aún no existen en la BD porque:
@@ -60,7 +66,7 @@ celery_app.conf.beat_schedule = {
     # ════════════════════════════════════════════════════════════════════════════════
     
     # TAREAS COMENTADAS (Descomentar cuando APIKey esté disponible):
-    # 
+    #
     # "api-keys-rotate-expiring": {
     #     "task": "api_keys.rotate_expiring",
     #     "schedule": crontab(hour=2, minute=0),  # Cada día a las 2:00 AM
@@ -96,4 +102,108 @@ celery_app.conf.beat_schedule = {
         "task": "cleanup_abandoned_work_orders",
         "schedule": crontab(minute="*/30"),  # Cada 30 minutos
     },
+    
+    # ════════════════════════════════════════════════════════════════════════════════
+    # 📡 MONITORING ENGINE — Periodic Health Checks
+    # ════════════════════════════════════════════════════════════════════════════════
+    # Ejecuta verificaciones periódicas de todos los monitores activos
+    # (PING, HTTP, TCP, SSL) cuyo intervalo de check haya vencido.
+    #
+    # Frecuencia: cada 30 segundos para detectar cambios rápidamente.
+    # Cada monitor tiene su propio check_interval_seconds configurable.
+    # ════════════════════════════════════════════════════════════════════════════════
+    "monitor-periodic-check": {
+        "task": "monitoring.periodic_check",
+        "schedule": crontab(minute="*/1"),  # Cada 1 minuto (cada monitor tiene su propio intervalo)
+    },
 }
+
+celery_app.conf.beat_schedule = dict(STATIC_BEAT_SCHEDULE)
+
+
+# 4. Schedule Dinámico desde DB (Scheduled Tasks V2)
+# ────────────────────────────────────────────────────────────────
+# Al iniciar, intenta leer la tabla scheduled_tasks y sobreescribe
+# el beat_schedule estático con la configuración persistente.
+# Si falla (DB no disponible, tabla no existe), mantiene el estático.
+
+
+def build_beat_schedule_from_db() -> dict | None:
+    """Construye beat_schedule dinámicamente desde la tabla ScheduledTask.
+
+    Lee todas las tareas activas con cron_expression definido y construye
+    un dict compatible con Celery Beat schedule.
+
+    Returns:
+        Dict con schedule dinámico, o None si no se pudo leer de DB.
+    """
+    try:
+        from src.database import SessionLocal
+        from src.models.scheduled_task import ScheduledTask
+
+        db = SessionLocal()
+        try:
+            tasks = (
+                db.query(ScheduledTask)
+                .filter(
+                    ScheduledTask.is_active == True,  # noqa: E712
+                    ScheduledTask.cron_expression.isnot(None),
+                )
+                .all()
+            )
+        finally:
+            db.close()
+
+        if not tasks:
+            logger.info("No hay tareas activas en DB para beat_schedule")
+            return None
+
+        schedule: dict = {}
+        for task in tasks:
+            if not task.cron_expression:
+                continue
+
+            parts = task.cron_expression.strip().split()
+            if len(parts) != 5:
+                logger.warning(
+                    "Cron expression inválida para tarea '%s': %s",
+                    task.task_name, task.cron_expression,
+                )
+                continue
+
+            schedule[f"task-{task.id}-{task.task_name}"] = {
+                "task": task.celery_task_path,
+                "schedule": crontab(
+                    minute=parts[0],
+                    hour=parts[1],
+                    day_of_month=parts[2],
+                    month_of_year=parts[3],
+                    day_of_week=parts[4],
+                ),
+            }
+
+        logger.info(
+            "Beat schedule dinámico construido desde DB: %d tareas activas",
+            len(schedule),
+        )
+        return schedule
+
+    except Exception as e:
+        logger.warning(
+            "No se pudo construir beat_schedule desde DB: %s. "
+            "Usando schedule estático como fallback.",
+            str(e),
+        )
+        return None
+
+
+# Intentar aplicar schedule dinámico al cargar el módulo
+_dynamic_schedule = build_beat_schedule_from_db()
+if _dynamic_schedule:
+    celery_app.conf.beat_schedule = _dynamic_schedule
+    logger.info(
+        "✅ Beat schedule dinámico aplicado: %d tarea(s) desde DB",
+        len(_dynamic_schedule),
+    )
+else:
+    logger.info("📋 Usando beat_schedule estático como fallback")

@@ -105,6 +105,9 @@ def cleanup_abandoned_work_orders():
         
         logger.info(f"[BLOQUEO] ✅ {locked_count} OTs marcadas como 'pending_closure' → Agendas bloqueadas")
         
+        # ── Registrar ejecución exitosa ────────────────────────────────
+        _record_cleanup_execution("success", f"{locked_count} OTs bloqueadas de {len(abandoned_orders)} vencidas")
+        
         return {
             "status": "success",
             "overdue_count": len(abandoned_orders),
@@ -116,9 +119,36 @@ def cleanup_abandoned_work_orders():
     except Exception as e:
         db.rollback()
         logger.error(f"[BLOQUEO] ❌ Error en detección de OTs vencidas: {str(e)}", exc_info=True)
+        
+        # ── Registrar ejecución fallida ─────────────────────────────────
+        _record_cleanup_execution("failed", str(e))
+        
         return {
             "status": "error",
             "error": str(e)
         }
     finally:
         db.close()
+
+
+def _record_cleanup_execution(status: str, detail: str) -> None:
+    """Registra la ejecución del cleanup en la tabla scheduled_tasks."""
+    try:
+        from src.services.scheduled_task_service import ScheduledTaskService
+        from src.database import SessionLocal as ScheduledSessionLocal
+        
+        _db = ScheduledSessionLocal()
+        try:
+            ScheduledTaskService.record_execution(
+                _db,
+                task_name="cleanup_abandoned_work_orders",
+                status=status,
+                detail=detail,
+            )
+        finally:
+            _db.close()
+    except Exception as record_err:
+        import logging
+        logging.getLogger(__name__).warning(
+            f"No se pudo registrar ejecución en scheduled_tasks: {record_err}"
+        )
