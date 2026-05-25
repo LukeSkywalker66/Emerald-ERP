@@ -25,7 +25,7 @@ from src.routers.v1 import auth  # Removed old tickets router import
 from src.routers.v1 import admin  # Administración y desbloqueo
 from src.routers.v2 import users as users_v2
 from src.routers.v2 import roles as roles_v2
-from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet, installation_types, audit, work_order_types, utils
+from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet, installation_types, audit, work_order_types, utils, dashboard as dashboard_router
 from src.routers import settings as settings_router
 from src.routers.oraculo import router as oraculo_router
 
@@ -180,6 +180,13 @@ app.include_router(
     settings_router.router,
     prefix="/api/v2/settings",
     tags=["Settings"]
+)
+
+# Dashboard Module (Métricas Agregadas del Tablero Operativo)
+app.include_router(
+    dashboard_router.router,
+    prefix="/api/v2/dashboard",
+    tags=["Dashboard"]
 )
 
 @app.on_event("startup")
