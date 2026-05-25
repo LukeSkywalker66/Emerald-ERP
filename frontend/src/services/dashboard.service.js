@@ -3,7 +3,7 @@
  *
  * Endpoint: GET /api/v2/dashboard/summary
  */
-import api from './api';
+import api from '@/api/client';
 
 const BASE_URL = '/api/v2/dashboard';
 
