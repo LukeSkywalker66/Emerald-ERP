@@ -5,8 +5,9 @@ import path from 'path'
 // https://vite.dev/config/
 // Cambiamos a función para poder leer las variables de entorno (mode)
 export default defineConfig(({ mode }) => {
-  // Carga variables de entorno (como VITE_API_URL) del sistema o archivo .env
-  const env = loadEnv(mode, process.cwd(), '');
+  // Carga variables de entorno desde la raíz del proyecto (no desde frontend/)
+  // para que cada entorno tenga su propio .env con APP_ENV y VITE_APP_ENV.
+  const env = loadEnv(mode, path.resolve(__dirname, '..'), '');
 
   return {
     plugins: [react()],

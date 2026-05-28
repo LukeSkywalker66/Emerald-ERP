@@ -40,7 +40,7 @@ services:
 
   # 3. Frontend
   frontend:
-    build: 
+    build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: emerald_frontend
@@ -50,6 +50,8 @@ services:
       - ./frontend:/app
       - /app/node_modules
     environment:
+      # Inyecta VITE_APP_ENV desde el .env general (APP_ENV=development|staging|production)
+      - VITE_APP_ENV=${APP_ENV}
       # CAMBIO: Ahora sí lee del archivo .env
       # Si no encuentra la variable, usa '/api' por defecto.
       - VITE_API_URL=${VITE_API_URL:-/api}
