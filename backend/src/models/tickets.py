@@ -99,6 +99,7 @@ class TicketTimelineEventType(StrEnum):
     ot_event = "ot_event"  # Cambio de estado en OT
     status_change = "status_change"  # Cambio de estado del ticket
     file = "file"  # Archivo adjunto
+    legacy_import = "legacy_import"  # Importación desde sistema legacy (Hesk)
 
 
 class WorkOrderStatus(StrEnum):

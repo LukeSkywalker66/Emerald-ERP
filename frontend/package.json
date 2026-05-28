@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:staging": "vite --mode staging --host",
     "build": "vite build",
     "build:debug": "VITE_ENABLE_SOURCEMAPS=true vite build",
     "lint": "eslint .",

@@ -23,6 +23,30 @@ export default function DashboardLayout() {
 
       {/* Main content area */}
       <div className="flex flex-col flex-1">
+        {/* Environment Banner — Solo visible en staging/development */}
+        {(() => {
+          const env = import.meta.env.VITE_APP_ENV;
+          if (env === 'staging') {
+            return (
+              <div className="w-full bg-black px-4 py-2 text-center">
+                <span className="font-bold font-mono text-amber-500 text-sm tracking-wide">
+                  ⚠️ ENTORNO DE STAGING - DATOS DE PRUEBA ⚠️
+                </span>
+              </div>
+            );
+          }
+          if (env === 'development') {
+            return (
+              <div className="w-full bg-cyan-950/80 px-4 py-2 text-center border-b border-cyan-800">
+                <span className="font-bold font-mono text-cyan-400 text-sm tracking-wide">
+                  ⚙️ ENTORNO DE DESARROLLO (LOCAL)
+                </span>
+              </div>
+            );
+          }
+          return null;
+        })()}
+
         {/* Topbar - Solo visible en desktop */}
         <header className="hidden md:flex border-b border-zinc-800 bg-zinc-950/50 px-6 py-3 items-center justify-between">
           <div className="flex-1" />
