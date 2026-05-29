@@ -1,0 +1,174 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.layout {
+  display: flex;
+  min-height: 100vh;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f3f4f6;
+}
+
+/* --- SIDEBAR --- */
+.sidebar {
+  width: 400px; 
+  background-color: #f8f9fa;
+  padding: 2rem;
+  text-align: center;
+  box-shadow: 2px 0 10px rgba(0,0,0,0.05);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+}
+
+.logo-sidebar {
+  width: 200px;
+  height: auto;
+  margin: 0 auto 1.5rem auto;
+  display: block;
+}
+
+.sidebar h1 {
+  font-size: 2rem;
+  margin: 0.5rem 0;
+  color: #2c3e50;
+}
+
+.sidebar h2 {
+  font-size: 1rem;
+  color: #7f8c8d;
+  margin-bottom: 2rem;
+  font-weight: 400;
+}
+
+/* --- RESULTS AREA --- */
+.results {
+  flex: 1;
+  padding: 2rem;
+  background-color: #ffffff;
+  overflow-y: auto;
+}
+
+/* --- GRILLA RESPONSIVE (LA LÓGICA NUEVA) --- */
+.grid {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+  /* Móvil por defecto: 1 sola columna vertical */
+  grid-template-columns: 1fr;
+}
+
+/* Tablet / Laptops chicas (>= 768px): 2 columnas */
+@media (min-width: 768px) {
+  .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* PC Escritorio (>= 1200px): 4 columnas para aprovechar el ancho */
+@media (min-width: 1200px) {
+  .grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* --- CELDAS --- */
+.cell {
+  background-color: #f8f9fa;
+  padding: 1rem;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  border: 1px solid #e9ecef;
+  transition: transform 0.2s;
+  
+  /* Alineación interna: Etiqueta arriba, valor abajo */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.cell:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.cell strong {
+  display: block;
+  font-size: 0.75rem; /* Etiqueta un poco más chica */
+  text-transform: uppercase;
+  color: #6b7280;
+  margin-bottom: 0.25rem;
+  font-weight: 600;
+}
+
+/* --- CLASES DE ESPACIO (SPANS) --- */
+
+/* Por defecto (Móvil), el span no hace nada (todo es 1 col) */
+.cell.span-2 { grid-column: span 1; }
+
+/* En Tablet, span-2 ocupa todo el ancho de la tablet (2 cols) */
+@media (min-width: 768px) {
+  .cell.span-2 { grid-column: span 2; }
+}
+
+/* En PC, span-2 ocupa la mitad de la pantalla (2 de 4 columnas) */
+@media (min-width: 1200px) {
+  .cell.span-2 { grid-column: span 2; }
+}
+
+/* --- ESTADOS --- */
+.estado-ok {
+  background-color: #d4edda;
+  border-left: 5px solid #28a745;
+  color: #155724;
+}
+
+.estado-error {
+  background-color: #f8d7da;
+  border-left: 5px solid #dc3545;
+  color: #721c24;
+}
+
+/* --- HEADERS --- */
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #f1f1f1;
+}
+
+.diagnostic-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #34495e;
+  margin: 0;
+}
+
+/* --- MODO OSCURO --- */
+@media (prefers-color-scheme: dark) {
+  body, .layout { background-color: #1a1a1a; }
+  .sidebar { background-color: #252525; border-right: 1px solid #333; }
+  .sidebar h1 { color: #ecf0f1; }
+  .sidebar h2 { color: #bdc3c7; }
+  .results { background-color: #1a1a1a; }
+  
+  .cell { 
+    background-color: #333; 
+    border-color: #444; 
+    color: #e0e0e0; 
+  }
+  .cell strong { color: #9ca3af; }
+  .diagnostic-title { color: #ecf0f1; }
+
+  .estado-ok { background-color: #1b4d2e; border-left-color: #2ecc71; color: #d4edda; }
+  .estado-error { background-color: #63171b; border-left-color: #e74c3c; color: #f8d7da; }
+}
+
+/* --- MOBILE LAYOUT ADJUSTMENTS --- */
+@media (max-width: 768px) {
+  .layout { flex-direction: column; }
+  .sidebar { width: 100%; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+  .results { padding: 1rem; }
+}
