@@ -2,7 +2,6 @@ import sys
 import os
 from pathlib import Path
 from fastapi import FastAPI, Depends, HTTPException, Request
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -26,6 +25,7 @@ from src.routers.v1 import admin  # Administración y desbloqueo
 from src.routers.v2 import users as users_v2
 from src.routers.v2 import roles as roles_v2
 from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet, installation_types, audit, work_order_types, utils, dashboard as dashboard_router
+from src.routers.tickets_v2_attachment import router as attachment_router
 from src.routers import settings as settings_router
 from src.routers.oraculo import router as oraculo_router
 
@@ -55,13 +55,6 @@ app = FastAPI(
     title="Emerald ERP + Beholder",
     redirect_slashes=True,  # Redirigir automáticamente entre /endpoint y /endpoint/
 )
-
-# ✨ NUEVO: Configurar carpeta de medios para adjuntos
-MEDIA_DIR = Path(__file__).parent.parent / "media"
-MEDIA_DIR.mkdir(exist_ok=True)
-(MEDIA_DIR / "tickets").mkdir(exist_ok=True)
-
-app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
 # Incluir routers v1
 app.include_router(
@@ -102,6 +95,13 @@ app.include_router(
     installation_types.router,
     prefix="/api/v2/installation-types",
     tags=["Installation"]
+)
+
+# Tickets V2 Attachments (MinIO-backed)
+app.include_router(
+    attachment_router,
+    prefix="/api/v2/tickets",
+    tags=["Ticket Attachments"],
 )
 app.include_router(
     work_order_types.router,
@@ -198,7 +198,19 @@ def on_startup():
     
     log_configuration_summary()
     
-    # 2. Migraciones Alembic ya se ejecutaron en Docker
+    # 2. Inicializar storage (MinIO) — asegura que el bucket exista
+    try:
+        from src.services.storage_service import get_storage
+        storage = get_storage()
+        storage.ensure_bucket_exists()
+    except Exception as e:
+        import logging
+        logging.getLogger("Emerald").warning(
+            f"⚠️ No se pudo inicializar MinIO: {e}. "
+            f"La subida de adjuntos fallará hasta que MinIO esté disponible."
+        )
+    
+    # 3. Migraciones Alembic ya se ejecutaron en Docker
     # No ejecutar aquí para evitar cuelgues en desarrollo
 
 app.add_middleware(
