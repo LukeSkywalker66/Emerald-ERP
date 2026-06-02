@@ -5,16 +5,13 @@ Almacenamiento: MinIO (S3-compatible) vía StorageService.
 Reemplaza la escritura directa en backend/media/.
 """
 
-import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from src.database import get_db
-from src.models.ticket_attachments import TicketAttachment
-from src.models.tickets import Ticket
-from src.models.engineering import TicketTimeline, TicketTimelineEventType
+from src.models import Ticket, TicketAttachment, TicketTimeline, TicketTimelineEventType
 from src.routers.tickets import _safe_name, _timeline_to_response, get_user_id
 from src.services.storage_service import get_storage
 

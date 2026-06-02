@@ -30,6 +30,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       TZ: America/Argentina/Buenos_Aires  # Sincronizar logs con hora local
+      PYTHONDONTWRITEBYTECODE: 1
     depends_on:
       db:
         condition: service_healthy  # <--- LA CLAVE MÁGICA
@@ -151,6 +152,7 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - TZ=America/Argentina/Buenos_Aires
+      - PYTHONDONTWRITEBYTECODE=1
     depends_on:
       # 🚦 SEMÁFORO: No arranca hasta que los otros estén en verde (healthy)
       redis:
