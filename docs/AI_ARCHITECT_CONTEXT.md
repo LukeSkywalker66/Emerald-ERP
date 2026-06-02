@@ -1,6 +1,6 @@
 # 🤖 AI Architect Context - Emerald ERP
 
-**Versión:** 2026-03-09  
+**Versión:** 2026-06-02  
 **Audiencia:** IAs, LLMs, Agentes de Codificación  
 **Propósito:** Contexto completo para mantener arquitectura, tomar decisiones y contribuir
 
@@ -58,7 +58,52 @@ class Vehicle(Base):
 - ✅ Schema validación en `backend/src/schemas/{module}.py`
 - ❌ NO mezclar legacy (Beholder) con nuevos diseños
 
-### 5. Fuentes de Verdad
+### 5. Monitoreo de Servicios: Strategy Pattern (NEW 25/05/2026)
+**Decisión:** Monitoring Engine usa Strategy Pattern con checkers intercambiables  
+**Implementación:**
+- `BaseChecker` (abstracto) → `PingChecker | HttpChecker | TcpChecker | SslChecker`
+- `CheckerFactory` crea el checker según `monitor_type`
+- `MonitoringOrchestrator` orquesta ejecución y logging
+- **Implicaciones:**
+  - ✅ Fácil agregar nuevo checker (heredar BaseChecker)
+  - ✅ Cada checker tiene su propia lógica de timeout/error
+  - ✅ Resultados históricos en `monitor_check_history` (JSONB)
+  - ❌ No usar raw subprocess para checkers (siempre usar stdlib/httpx)
+
+### 6. Scheduled Tasks: Configuración Persistente (NEW 25/05/2026)
+**Decisión:** Celery Beat schedule se construye dinámicamente desde DB  
+**Implementación:**
+- Tabla `scheduled_tasks` con schedule_config (JSONB: cron o interval)
+- Al iniciar Celery, `beat_schedule` se genera desde DB
+- UI permite activar/desactivar y modificar schedules sin redeploy
+- **Implicaciones:**
+  - ✅ Sin hardcodeo de schedules en código
+  - ✅ Historial de ejecuciones visible desde UI
+  - ✅ Trigger manual disponible
+
+### 7. Multi-entorno Frontend (NEW 28/05/2026)
+**Decisión:** `VITE_APP_ENV` define el entorno en build-time  
+**Implementación:**
+- `VITE_APP_ENV=development|staging|production`
+- Docker Compose separados: `docker-compose.dev.yml`, `.staging.yml`
+- Nginx config por entorno
+- **Implicaciones:**
+  - ✅ Build único para cada entorno
+  - ✅ Variables de entorno en `.env` raíz
+  - ❌ No mezclar configs de distintos entornos
+
+### 8. Geolocalización: Server-side parsing (NEW 21/05/2026)
+**Decisión:** El parsing de URLs de Google Maps se hace en backend, no frontend  
+**Implementación:**
+- Endpoint `GET /api/v2/work-orders/parse-map-link?url=...`
+- Soportados: goo.gl, /maps/place/, /maps/search/, /maps/@lat,lng
+- HTML body fallback para short links
+- **Implicaciones:**
+  - ✅ Frontend simplificado (solo muestra resultado)
+  - ✅ URLs no canónicas se resuelven server-side
+  - ✅ Logging de fallos para debugging
+
+
 | Entidad | Fuente | Propietario |
 |---------|--------|------------|
 | Clientes, conexiones | ISPCube | Billing |
@@ -265,16 +310,30 @@ alembic upgrade head
 - [x] ✅ Migración de 1378 registros legacy
 - [x] ✅ Frontend monitor admin-only con JSON diff
 - [x] ✅ Auditoría en Inventory, Users, WorkOrders
-- [ ] Expandir a EngineeringTasks, Fleet, Teams
+- [x] ✅ Expandido a Coordination (teams) y Fleet (vehicles) — 20/05/2026
+- [x] ✅ Date filters con neon-calendar popover — 20/05/2026
 - [ ] Mantenimiento programado (status=MAINTENANCE con alertas)
-- [ ] Reportes de utilización de flota
 
-**Fase 8:**
+**Fase 8 (Completada 25/05/2026):**
+- [x] ✅ Dashboard refactor — datos reales de API
+- [x] ✅ Monitoring Engine — Ping/HTTP/TCP/SSL checkers
+- [x] ✅ Scheduled Tasks V2 — config persistente desde DB
+- [x] ✅ Settings Module — SystemConfig key-value + ServiceMonitor CRUD
+- [x] ✅ Sidebar pin/collapse con hover-expand
+
+**Fase 9 (Completada 21/05/2026):**
+- [x] ✅ Geolocalización Fase 5 — lat/lng en WorkOrders
+- [x] ✅ parse-map-link con Google Maps integration
+- [x] ✅ Botón 'Mostrar Ubicación' en CoordinationSheet
+
+**Fase 10 (Completada 28/05/2026):**
+- [x] ✅ Multi-entorno Frontend (VITE_APP_ENV)
+- [x] ✅ Docker Compose develop/staging separados
+- [x] ✅ Beholder Oracle migration (frontend integrado)
+
+**Próximas Fases:**
+- [ ] 🚧 MinIO — Migración de almacenamiento de archivos a S3 (WIP)
 - [ ] GPS real-time tracking de técnicos
-- [ ] Combustible tracking
-- [ ] Rutas optimizadas (TSP solver)
-
-**Fase 9:**
 - [ ] Mobile app (React Native) para técnicos
 - [ ] Offline-first sync
 - [ ] Push notifications
@@ -307,12 +366,12 @@ alembic upgrade head
 
 - **DB Schema:** [BASE_DATOS.md](BASE_DATOS.md)
 - **Fleet Específico:** [FLEET_MODULE.md](FLEET_MODULE.md)
-- **Auditoría:** [CHECKPOINT_2026-03-09_AUDIT_UNIVERSAL.md](../CHECKPOINT_2026-03-09_AUDIT_UNIVERSAL.md)
-- **Status Actual:** [CURRENT_STATUS_2026-03-02.md](CURRENT_STATUS_2026-03-02.md)
+- **Auditoría:** Ver [MASTER_CONTEXT.md](MASTER_CONTEXT.md) sección 4.8
+- **Status Actual:** [ESTADO_ACTUAL_2026_06_02.md](ESTADO_ACTUAL_2026_06_02.md)
 - **API Docs:** `http://localhost:8500/docs` (Swagger)
 
 ---
 
-**Última revisión:** 10 de marzo de 2026  
+**Última revisión:** 02 de junio de 2026  
 **Mantenedor:** LukeSkywalker66  
 **Retroalimentación:** Ver CONTRIBUTING.md (TBD)

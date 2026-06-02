@@ -1,6 +1,6 @@
 # Módulo de Inventario Operativo - Emerald ERP
 
-**Última actualización:** 14 de Enero de 2026  
+**Última actualización:** 14 de Enero de 2026 (revisado 02 Jun 2026)  
 **Estado:** ✅ **COMPLETO Y FUNCIONAL**
 
 ## Descripción General

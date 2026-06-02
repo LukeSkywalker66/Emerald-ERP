@@ -1,6 +1,23 @@
+# === DEPENDENCIAS ===
 node_modules/
-postgres_data/
 .venv/
 venv/
 __pycache__/
+*.pyc
+
+# === DATOS LOCALES ===
+postgres_data/
+.env
+
+# === BUILDS / ARTIFACTS ===
+dist/
+build/
+*.egg-info/
+
+# === GIT / IDE ===
 .git/
+.vscode/
+.idea/
+
+# === LEGACY (Documentación archivada que no aporta contexto actual) ===
+docs/_legacy/
