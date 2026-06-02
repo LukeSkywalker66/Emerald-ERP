@@ -22,6 +22,7 @@ services:
   backend:
     build: ./backend
     container_name: emerald_backend_dev
+    command: python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678 -m uvicorn src.main:app --host 0.0.0.0 --port 8500 --reload
     restart: always
     ports:
       - "5680:5678"

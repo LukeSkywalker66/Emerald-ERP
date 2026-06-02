@@ -1,5 +1,7 @@
 # 📚 Índice de Documentación Actualizado - Emerald ERP (21 Marzo 2026)
 
+> ⚠️ **Este índice está desactualizado.** Consulta el nuevo índice: [`INDICE_DOCUMENTACION_2026_06_02.md`](INDICE_DOCUMENTACION_2026_06_02.md)
+
 **Versión:** 2.0 (Actualizado Q2)  
 **Última actualización:** 21 de Marzo 2026
 
