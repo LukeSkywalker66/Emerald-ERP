@@ -16,6 +16,10 @@ export default defineConfig(({ mode }) => {
         '@': path.resolve(__dirname, './src'),
       },
     },
+    esbuild: {
+      drop: mode === 'production' ? ['console', 'debugger'] : [],
+    },
+       
     // 🛡️ Source maps controlados por entorno:
     //   - Por defecto (npm run build) → false (seguro para producción)
     //   - npm run build:debug → true (source maps para debugging)

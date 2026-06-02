@@ -39,7 +39,7 @@ export default function DashboardLayout() {
             return (
               <div className="w-full bg-cyan-950/80 px-4 py-2 text-center border-b border-cyan-800">
                 <span className="font-bold font-mono text-cyan-400 text-sm tracking-wide">
-                  ⚙️ ENTORNO DE DESARROLLO (LOCAL)
+                  ⚙️ ENTORNO DE DESARROLLO (DATOS MOCK)
                 </span>
               </div>
             );
