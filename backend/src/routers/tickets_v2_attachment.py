@@ -8,6 +8,7 @@ Reemplaza la escritura directa en backend/media/.
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from src.database import get_db
@@ -117,10 +118,7 @@ async def upload_ticket_attachment(
             detail=f"Error al guardar archivo en storage: {str(e)}",
         )
 
-    # 5. Generar URL pública
-    file_url = storage.get_file_url(object_name)
-
-    # 6. Crear registro en TicketAttachment
+    # 5. Crear registro en TicketAttachment (primero para tener attachment.id)
     attachment = TicketAttachment(
         ticket_id=ticket_id,
         uploader_id=user_id,
@@ -131,6 +129,9 @@ async def upload_ticket_attachment(
     )
     db.add(attachment)
     db.flush()  # obtener attachment.id
+
+    # 6. Generar URL pública (apunta al nuevo endpoint GET para servir el archivo)
+    file_url = f"/api/v2/tickets/{ticket_id}/attachments/{attachment.id}/file"
 
     # 7. Crear evento en timeline
     timeline_event = TicketTimeline(
@@ -164,3 +165,81 @@ async def upload_ticket_attachment(
         },
         "event": _timeline_to_response(timeline_event),
     }
+
+
+# ── Endpoint GET para servir archivos desde MinIO (con fallback a filesystem) ──
+
+# Ruta base para archivos legacy almacenados en filesystem
+MEDIA_DIR = Path(__file__).parent.parent.parent / "media"
+
+
+@router.get(
+    "/{ticket_id}/attachments/{attachment_id}/file",
+)
+async def get_attachment_file(
+    ticket_id: int,
+    attachment_id: int,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_user_id),
+):
+    """
+    Sirve un archivo adjunto.
+
+    Flujo:
+    1. Intenta leer desde MinIO (archivos nuevos posteriores a migración)
+    2. Si falla, intenta leer desde el filesystem (archivos legacy pre-migración)
+    3. Si no existe en ningún lado, devuelve 404
+    """
+    # 1. Verificar que el attachment existe y pertenece al ticket
+    attachment = db.get(TicketAttachment, attachment_id)
+    if not attachment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Attachment not found",
+        )
+    if attachment.ticket_id != ticket_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Attachment not found for this ticket",
+        )
+
+    file_content = None
+    content_type = attachment.content_type or "application/octet-stream"
+    filename = attachment.filename or "download"
+
+    # 2a. Intentar leer desde MinIO (archivos nuevos)
+    try:
+        storage = get_storage()
+        response = storage.client.get_object(
+            Bucket=storage.bucket_name,
+            Key=attachment.filepath,
+        )
+        file_content = response["Body"].read()
+    except Exception:
+        file_content = None  # No está en MinIO, probar filesystem
+
+    # 2b. Fallback: intentar leer desde el filesystem (archivos legacy)
+    if file_content is None:
+        legacy_path = MEDIA_DIR / attachment.filepath
+        if legacy_path.exists() and legacy_path.is_file():
+            try:
+                file_content = legacy_path.read_bytes()
+            except Exception:
+                file_content = None
+
+    # 3. Si no se encontró en ningún lado, devolver 404
+    if file_content is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Archivo no encontrado",
+        )
+
+    # 4. Devolver el archivo como streaming response
+    return StreamingResponse(
+        iter([file_content]),
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Content-Length": str(len(file_content)),
+        },
+    )

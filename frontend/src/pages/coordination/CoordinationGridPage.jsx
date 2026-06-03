@@ -39,6 +39,7 @@ export default function CoordinationGridPage() {
   });
   const [selectedWorkOrder, setSelectedWorkOrder] = useState(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [pendingRefreshKey, setPendingRefreshKey] = useState(0);
 
   // Filtros multicriterio - con sessionStorage para persistencia
   const [filters, setFilters] = useState(() => {
@@ -208,6 +209,8 @@ export default function CoordinationGridPage() {
   // Función para recargar manualmente
   const handleManualRefresh = () => {
     syncResult.refetch();
+    // Forzar refresco de las estadísticas de PendingClosureAlert en el sidebar
+    setPendingRefreshKey((k) => k + 1);
   };
 
   // ========== CALLBACKS: Optimistic Updates ==========
@@ -282,6 +285,7 @@ export default function CoordinationGridPage() {
           onSelectWorkOrder={handleEventClick}
           workOrderTypes={workOrderTypes}
           workOrderTypeMap={workOrderTypeMap}
+          pendingRefreshKey={pendingRefreshKey}
         />
       )}
 

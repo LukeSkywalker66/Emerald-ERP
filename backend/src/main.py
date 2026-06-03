@@ -233,21 +233,33 @@ async def security_middleware(request: Request, call_next):
     
     # Endpoints públicos (no requieren autenticación)
     whitelist = [
-        "/docs", 
-        "/redoc", 
-        "/openapi.json", 
+        "/docs",
+        "/redoc",
+        "/openapi.json",
         "/services_options",  # Demo pública
         # Beholder (legacy paths y prefijos /api)
-        "/search", "/diagnosis", "/live", 
+        "/search", "/diagnosis", "/live",
         "/api/search", "/api/diagnosis", "/api/live",
         # Health
         "/api/health", "/health",
         # Auth
         "/api/v1/auth/login", "/api/v1/auth/register",
+        # Media legacy (attachments pre-MinIO)
+        "/media",
     ]
     
+    # Endpoints públicos por patrón (attachment files desde MinIO)
+    # Ej: /api/v2/tickets/123/attachments/456/file
+    path: str = request.url.path
+    is_attachment_file = "/attachments/" in path and path.endswith("/file")
+    
     # Pasar libremente si es whitelist u OPTIONS
-    if request.method == "OPTIONS" or request.url.path == "/" or any(request.url.path.startswith(p) for p in whitelist):
+    if (
+        request.method == "OPTIONS"
+        or path == "/"
+        or any(path.startswith(p) for p in whitelist)
+        or is_attachment_file
+    ):
         return await call_next(request)
     
     # Endpoints que requieren autenticación
@@ -361,6 +373,51 @@ from src.database import SessionLocal
 # ==========================
 
 app.include_router(oraculo_router)
+
+# ==========================
+# 📁 SERVIDOR DE ARCHIVOS LEGACY (Compatibilidad)
+# ==========================
+# Sirve archivos del antiguo sistema de almacenamiento en filesystem
+# para mantener compatibilidad con attachments subidos antes de la
+# migración a MinIO. URLs: /media/tickets/{ticket_id}/{filename}
+
+import os
+from fastapi.responses import FileResponse
+from pathlib import Path
+
+BACKEND_MEDIA_DIR = Path(__file__).parent.parent / "media"
+
+
+@app.get("/media/{path:path}")
+async def serve_legacy_media(path: str):
+    """
+    Sirve archivos legacy desde el filesystem.
+
+    Ruta de ejemplo: /media/tickets/96/imagen.jpg
+    → Lee de: /app/media/tickets/96/imagen.jpg
+    
+    Esto permite que attachments viejos (pre-MinIO) sigan siendo accesibles
+    mientras se migran progresivamente a MinIO.
+    """
+    full_path = BACKEND_MEDIA_DIR / path
+
+    # Seguridad: evitar path traversal
+    try:
+        full_path = full_path.resolve()
+        if not str(full_path).startswith(str(BACKEND_MEDIA_DIR.resolve())):
+            raise HTTPException(status_code=403, detail="Acceso denegado")
+    except (ValueError, OSError):
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+
+    if not full_path.exists() or not full_path.is_file():
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+
+    return FileResponse(
+        path=str(full_path),
+        headers={
+            "Content-Disposition": f'inline; filename="{full_path.name}"',
+        },
+    )
 
 @app.get("/health")
 def health():
