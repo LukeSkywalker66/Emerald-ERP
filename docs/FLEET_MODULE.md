@@ -1,6 +1,6 @@
 # 🚛 Módulo de Flota (Fleet) - Arquitectura y Documentación
 
-**Fecha**: 2 de marzo de 2026  
+**Fecha**: 2 de junio de 2026 (revisado)  
 **Estado**: ✅ Completo y funcional
 
 ---

@@ -2,7 +2,6 @@ import sys
 import os
 from pathlib import Path
 from fastapi import FastAPI, Depends, HTTPException, Request
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -26,6 +25,7 @@ from src.routers.v1 import admin  # Administración y desbloqueo
 from src.routers.v2 import users as users_v2
 from src.routers.v2 import roles as roles_v2
 from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet, installation_types, audit, work_order_types, utils, dashboard as dashboard_router
+from src.routers.tickets_v2_attachment import router as attachment_router
 from src.routers import settings as settings_router
 from src.routers.oraculo import router as oraculo_router
 
@@ -55,13 +55,6 @@ app = FastAPI(
     title="Emerald ERP + Beholder",
     redirect_slashes=True,  # Redirigir automáticamente entre /endpoint y /endpoint/
 )
-
-# ✨ NUEVO: Configurar carpeta de medios para adjuntos
-MEDIA_DIR = Path(__file__).parent.parent / "media"
-MEDIA_DIR.mkdir(exist_ok=True)
-(MEDIA_DIR / "tickets").mkdir(exist_ok=True)
-
-app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
 # Incluir routers v1
 app.include_router(
@@ -102,6 +95,13 @@ app.include_router(
     installation_types.router,
     prefix="/api/v2/installation-types",
     tags=["Installation"]
+)
+
+# Tickets V2 Attachments (MinIO-backed)
+app.include_router(
+    attachment_router,
+    prefix="/api/v2/tickets",
+    tags=["Ticket Attachments"],
 )
 app.include_router(
     work_order_types.router,
@@ -198,7 +198,19 @@ def on_startup():
     
     log_configuration_summary()
     
-    # 2. Migraciones Alembic ya se ejecutaron en Docker
+    # 2. Inicializar storage (MinIO) — asegura que el bucket exista
+    try:
+        from src.services.storage_service import get_storage
+        storage = get_storage()
+        storage.ensure_bucket_exists()
+    except Exception as e:
+        import logging
+        logging.getLogger("Emerald").warning(
+            f"⚠️ No se pudo inicializar MinIO: {e}. "
+            f"La subida de adjuntos fallará hasta que MinIO esté disponible."
+        )
+    
+    # 3. Migraciones Alembic ya se ejecutaron en Docker
     # No ejecutar aquí para evitar cuelgues en desarrollo
 
 app.add_middleware(
@@ -221,21 +233,33 @@ async def security_middleware(request: Request, call_next):
     
     # Endpoints públicos (no requieren autenticación)
     whitelist = [
-        "/docs", 
-        "/redoc", 
-        "/openapi.json", 
+        "/docs",
+        "/redoc",
+        "/openapi.json",
         "/services_options",  # Demo pública
         # Beholder (legacy paths y prefijos /api)
-        "/search", "/diagnosis", "/live", 
+        "/search", "/diagnosis", "/live",
         "/api/search", "/api/diagnosis", "/api/live",
         # Health
         "/api/health", "/health",
         # Auth
         "/api/v1/auth/login", "/api/v1/auth/register",
+        # Media legacy (attachments pre-MinIO)
+        "/media",
     ]
     
+    # Endpoints públicos por patrón (attachment files desde MinIO)
+    # Ej: /api/v2/tickets/123/attachments/456/file
+    path: str = request.url.path
+    is_attachment_file = "/attachments/" in path and path.endswith("/file")
+    
     # Pasar libremente si es whitelist u OPTIONS
-    if request.method == "OPTIONS" or request.url.path == "/" or any(request.url.path.startswith(p) for p in whitelist):
+    if (
+        request.method == "OPTIONS"
+        or path == "/"
+        or any(path.startswith(p) for p in whitelist)
+        or is_attachment_file
+    ):
         return await call_next(request)
     
     # Endpoints que requieren autenticación
@@ -349,6 +373,51 @@ from src.database import SessionLocal
 # ==========================
 
 app.include_router(oraculo_router)
+
+# ==========================
+# 📁 SERVIDOR DE ARCHIVOS LEGACY (Compatibilidad)
+# ==========================
+# Sirve archivos del antiguo sistema de almacenamiento en filesystem
+# para mantener compatibilidad con attachments subidos antes de la
+# migración a MinIO. URLs: /media/tickets/{ticket_id}/{filename}
+
+import os
+from fastapi.responses import FileResponse
+from pathlib import Path
+
+BACKEND_MEDIA_DIR = Path(__file__).parent.parent / "media"
+
+
+@app.get("/media/{path:path}")
+async def serve_legacy_media(path: str):
+    """
+    Sirve archivos legacy desde el filesystem.
+
+    Ruta de ejemplo: /media/tickets/96/imagen.jpg
+    → Lee de: /app/media/tickets/96/imagen.jpg
+    
+    Esto permite que attachments viejos (pre-MinIO) sigan siendo accesibles
+    mientras se migran progresivamente a MinIO.
+    """
+    full_path = BACKEND_MEDIA_DIR / path
+
+    # Seguridad: evitar path traversal
+    try:
+        full_path = full_path.resolve()
+        if not str(full_path).startswith(str(BACKEND_MEDIA_DIR.resolve())):
+            raise HTTPException(status_code=403, detail="Acceso denegado")
+    except (ValueError, OSError):
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+
+    if not full_path.exists() or not full_path.is_file():
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+
+    return FileResponse(
+        path=str(full_path),
+        headers={
+            "Content-Disposition": f'inline; filename="{full_path.name}"',
+        },
+    )
 
 @app.get("/health")
 def health():

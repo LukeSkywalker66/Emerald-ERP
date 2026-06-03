@@ -40,7 +40,7 @@ Emerald ERP utiliza un modelo de seguridad por capas:
 
 ## 1. Autenticación de API
 
-### Sistema de API Keys (NUEVO - 30/12/2025)
+### Sistema de API Keys (NUEVO - 30/12/2025 (revisado 02 Jun 2026))
 
 Emerald ERP ahora usa un sistema profesional de API Keys con:
 - ✅ Hash bcrypt (nunca en texto plano)

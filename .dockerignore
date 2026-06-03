@@ -1,0 +1,32 @@
+# ── Datos de usuario / runtime que NO deben copiarse al build ──
+backend/media/
+backend/data/logs/
+backend/celerybeat-schedule
+backend/celerybeat-schedule.*
+backend/*.pid
+backend/*.db
+
+# ── PostgreSQL data volumes ──
+postgres_data/
+postgres_data_dev/
+postgres_data_staging/
+
+# ── Dependencias y build ──
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+env/
+
+# ── Secretos ──
+.env
+
+# ── IDEs y OS ──
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ── Certbot / Nginx runtime ──
+data/certbot/

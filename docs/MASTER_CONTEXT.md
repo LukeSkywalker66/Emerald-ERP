@@ -1,7 +1,7 @@
 # 📘 Master Context - Emerald ERP
 
-**Versión:** 2026-03-09 (Comprehensive Reference)  
-**Propósito:** Documentación completa para cualquiera que necesite entender el sistema  
+**Versión:** 2026-06-02 (Comprehensive Reference)
+**Propósito:** Documentación completa para cualquiera que necesite entender el sistema
 **Audiencia:** Architects, Developers, DevOps, Product Managers
 
 ---
@@ -16,10 +16,15 @@
 - **Inventario** centralizado + mobile
 - **Ingeniería/NOC** con tablero Kanban
 - **Auditoría Universal** (Ojo de Dios) admin-only con JSONB diff tracking
+- **Dashboard** con datos reales y monitores de servicio
+- **Settings Module** con monitoreo de servicios (Ping/HTTP/TCP/SSL)
+- **Scheduled Tasks V2** con configuración persistente desde DB
+- **Geolocalización** con parse-map-link y Google Maps integration
+- **Beholder Oracle** sistema de consultas histórico
 - **Integraciones** con ISPCube, Mikrotik, SmartOLT
 
-**Estado:** ✅ Production Ready (all modules)  
-**Última actualización:** 9 de marzo de 2026
+**Estado:** ✅ Production Ready (all modules)
+**Última actualización:** 2 de junio de 2026
 
 ---
 
@@ -73,6 +78,10 @@ PostgreSQL 15 Alpine
 
 ```
 emerald-erp/
+├── .clineignore                  # Ignora docs/_legacy/ para ahorrar tokens
+├── docker-compose.dev.yml        # Entorno de desarrollo
+├── docker-compose.staging.yml    # Entorno de staging
+├── docker-compose.yml            # Entorno de producción/master
 │
 ├── backend/
 │   ├── src/
@@ -100,17 +109,29 @@ emerald-erp/
 │   │   ├── routers/                    # API endpoints
 │   │   │   ├── v1/
 │   │   │   │   └── auth.py             # Login, token
-│   │   │   ├── tickets_v2.py           # /api/v2/tickets
-│   │   │   ├── work_orders_v2.py       # /api/v2/work-orders
+│   │   │   ├── tickets.py              # /api/v2/tickets
+│   │   │   ├── work_orders.py          # /api/v2/work-orders
 │   │   │   ├── coordination.py         # /api/v2/teams
-│   │   │   ├── fleet.py                # /api/v2/vehicles (NEW)
+│   │   │   ├── fleet.py                # /api/v2/vehicles
 │   │   │   ├── inventory.py            # /api/v2/warehouses
-│   │   │   └── engineering.py          # /api/v2/engineering
+│   │   │   ├── engineering.py          # /api/v2/engineering
+│   │   │   ├── settings.py             # /api/v2/settings (NEW May 2026)
+│   │   │   │   # SystemConfig, ServiceMonitor, ScheduledTasks
+│   │   │   ├── dashboard.py            # /api/v2/dashboard (NEW May 2026)
+│   │   │   ├── audit.py                # /api/v2/audit-logs
+│   │   │   ├── oraculo.py              # /api/v2/oraculo (Beholder)
+│   │   │   ├── search.py               # Búsqueda global
+│   │   │   ├── tags.py                 # Sistema de tags
+│   │   │   └── installation_types.py   # Tipos de instalación
 │   │   │
 │   │   ├── services/                   # Business logic
 │   │   │   ├── auth_service.py
 │   │   │   ├── ticket_service.py
 │   │   │   ├── work_order_service.py
+│   │   │   ├── monitoring_engine.py    # 814 líneas — Ping/HTTP/TCP/SSL (NEW)
+│   │   │   ├── settings_service.py     # SystemConfig + ServiceMonitor (NEW)
+│   │   │   ├── scheduled_task_service.py # Scheduled Tasks V2 (NEW)
+│   │   │   ├── dashboard_service.py    # Dashboard API data (NEW)
 │   │   │   └── ...
 │   │   │
 │   │   ├── clients/                    # External API clients
@@ -118,15 +139,39 @@ emerald-erp/
 │   │   │   ├── mikrotik.py             # Router PPPoE
 │   │   │   └── smartolt.py             # ONU/Fibra
 │   │   │
+│   │   ├── models/
+│   │   │   ├── user.py                 # Users, roles
+│   │   │   ├── tickets.py              # Tickets, timeline
+│   │   │   ├── work_orders.py          # OT, items
+│   │   │   ├── coordination.py         # Teams, members
+│   │   │   ├── fleet.py                # Vehicles
+│   │   │   ├── inventory.py            # Warehouses, stock
+│   │   │   ├── engineering.py          # Tasks, timeline
+│   │   │   ├── locations.py            # Geolocation
+│   │   │   ├── settings.py             # SystemConfig, ServiceMonitor (NEW)
+│   │   │   ├── scheduled_task.py       # Scheduled Tasks V2 (NEW)
+│   │   │   ├── audit.py                # AuditLog (NEW)
+│   │   │   ├── beholder.py             # Beholder Oracle (NEW)
+│   │   │   ├── contact_attempts.py     # Contact attempts (NEW)
+│   │   │   ├── work_order_types.py     # OT types with colors (NEW)
+│   │   │   └── installation.py         # Installation types (NEW)
+│   │   │
 │   │   └── utils/
 │   │       ├── security.py             # JWT, Argon2
-│   │       └── ...
+│   │       ├── audit.py                # log_create/update/delete (NEW)
+│   │       └── schedule_parser.py      # Cron expression parser (NEW)
 │   │
 │   ├── alembic/
 │   │   └── versions/
-│   │       ├── e531d3d1fe20_fleet_refactor_vehicle_model.py  (NEW)
-│   │       ├── 2026_02_02_001_coordination.py
-│   │       └── ... (40+ migrations)
+│   │       ├── ... (50+ migrations)
+│   │       │
+│   │       # Últimas (Mayo 2026):
+│   │       ├── 2026_05_23_001_add_scheduled_tasks_table.py
+│   │       ├── 2026_05_23_002_add_schedule_config_column.py
+│   │       ├── 2026_05_23_003_add_monitor_check_history.py
+│   │       ├── 2026_05_21_001_add_lat_lng_to_connections_and_work_orders.py
+│   │       ├── 2026_05_20_001_create_work_order_types_table.py
+│   │       └── 2026_05_20_002_create_product_categories_table.py
 │   │
 │   ├── Dockerfile
 │   ├── requirements.txt
@@ -168,12 +213,18 @@ emerald-erp/
 │   │   ├── services/
 │   │   │   ├── api/
 │   │   │   │   └── client.js           # Axios instance
-│   │   │   ├── fleet.service.js        # Vehicle API calls (NEW)
+│   │   │   ├── fleet.service.js        # Vehicle API calls
 │   │   │   ├── tickets.service.js
 │   │   │   ├── coordination.service.js
+│   │   │   ├── dashboard.service.js    # Dashboard API (NEW May 2026)
+│   │   │   ├── settings.service.js     # Settings + Monitors (NEW)
+│   │   │   ├── inventory.service.js
+│   │   │   ├── engineering.service.js
+│   │   │   ├── beholder.service.js     # Beholder Oracle (NEW)
 │   │   │   └── ...
 │   │   │
 │   │   ├── hooks/
+│   │   │   ├── useCoordinationSync.js
 │   │   │   ├── useOptimisticUpdates.js
 │   │   │   └── ...
 │   │   │
@@ -184,14 +235,29 @@ emerald-erp/
 │   ├── vite.config.js
 │   └── tailwind.config.js
 │
-├── docker-compose.yml
-├── init-letsencrypt.sh
-├── README.md                           # Start here
-├── BASE_DATOS.md                       # DB schema
-├── FLEET_MODULE.md                     # Fleet docs (NEW)
-├── AI_ARCHITECT_CONTEXT.md             # Para IAs
-└── CURRENT_STATUS_2026-03-02.md        # Session snapshot
-```
+├── beholder_frontend/                 # Beholder Oracle UI (integrated)
+│   └── src/
+│       ├── App.tsx
+│       ├── components/
+│       │   ├── BeholderHistory.tsx
+│       │   ├── SearchBox.tsx
+│       │   └── OutputBox.tsx
+│       └── ...
+│
+├── docker-compose.dev.yml             # Desarrollo
+├── docker-compose.staging.yml         # Staging
+├── docker-compose.yml                 # Producción
+│
+└── docs/
+    ├── LEER_PRIMERO_ACTUAL.md         # ⭐ Start here
+    ├── MASTER_CONTEXT.md              # Este archivo
+    ├── MODULO_INVENTARIO.md           # Inventory integrator
+    ├── FLEET_MODULE.md                # Fleet integrator
+    ├── MODULO_ENGINEERING.md          # Engineering integrator
+    ├── MODULO_SINCRONIZACION_NOCTURNA.md
+    ├── AI_ARCHITECT_CONTEXT.md        # Para IAs
+    ├── ESTADO_ACTUAL_2026_06_02.md    # Status snapshot
+    └── _legacy/                       # Ignorado por .clineignore
 
 ---
 
@@ -353,6 +419,102 @@ class AuditAction(Enum):
 ```
 
 **Endpoints auditados (13 totales):**
+### 4.9 Settings & System Config (NEW 25/05/2026) ⚙️
+```python
+class SystemConfig(Base):
+    """Configuración key-value del sistema"""
+    id: int (PK)
+    key: str (UNIQUE)  # company_name, work_hours, logo_url, timezone
+    value: JSONB (nullable)  # cualquier tipo de dato
+    description: str (nullable)
+    created_at, updated_at
+
+class ServiceMonitor(Base):
+    """Monitor de servicio externo"""
+    id: int (PK)
+    name: str, description: str (nullable)
+    monitor_type: MonitorType (HTTP/PING/TCP/SSL)
+    target: str  # URL, IP, host:port
+    criticality: CriticalityIndex (1-5)
+    check_interval_sec: int (default: 300)
+    timeout_sec: int (default: 15)
+    status: MonitorStatus (UP/DOWN/UNKNOWN/DEGRADED)
+    is_active: bool
+    last_check_at: datetime (nullable)
+    last_check_result: JSONB (nullable)
+    created_at, updated_at
+
+class MonitorCheckHistory(Base):
+    """Historial de checks de monitores"""
+    id: int (PK)
+    monitor_id: int (FK→ServiceMonitor)
+    status: MonitorStatus
+    response_time_ms: float (nullable)
+    status_code: int (nullable)  # HTTP status
+    error_message: str (nullable)
+    checked_at: datetime
+```
+
+### 4.10 Scheduled Tasks V2 (NEW 25/05/2026) 📅
+```python
+class ScheduledTask(Base):
+    """Tarea programada persistente (Celery Beat from DB)"""
+    id: int (PK)
+    task_name: str (UNIQUE)  # nightly_sync_task
+    celery_task_path: str  # src.jobs.sync.nightly_sync_task
+    display_name: str
+    description: str (nullable)
+    category: str  # sync, maintenance, api_keys, general
+    is_active: bool (default: True)
+    is_system_task: bool (default: False)
+    schedule_config: JSONB  # cron: {minute, hour, ...} o interval: {every, period}
+    max_executions: int (nullable, -1 = unlimited)
+    run_count: int (default: 0)
+    last_run_at: datetime (nullable)
+    last_run_status: str (nullable)  # success, failure
+    last_run_error: str (nullable)
+    created_at, updated_at
+```
+
+### 4.11 Geolocalización (NEW 21/05/2026) 📍
+```python
+# Campos agregados a modelos existentes:
+# WorkOrder: latitude (Float, nullable), longitude (Float, nullable)
+# Connection: latitude (Float, nullable), longitude (Float, nullable)
+
+# parse-map-link feature:
+# Extrae coordenadas desde URLs de Google Maps:
+# - goo.gl short links (con HTML body fallback)
+# - /maps/place/ pattern
+# - /maps/search/ pattern  
+# - /maps/@lat,lng pattern
+# Endpoint: GET /api/v2/work-orders/parse-map-link?url=...
+```
+
+### 4.12 Work Order Types (NEW 20/05/2026) 🎨
+```python
+class WorkOrderType(Base):
+    """Tipos de OT con colores desde DB"""
+    id: int (PK)
+    name: str (UNIQUE)  # repair, install, pickup, infrastructure
+    display_name: str
+    color: str  # Hex color #FF6B6B
+    description: str (nullable)
+    is_active: bool (default: True)
+    created_at, updated_at
+```
+
+### 4.13 Product Categories (NEW 20/05/2026) 📦
+```python
+class ProductCategory(Base):
+    """Categorías de producto desde DB"""
+    id: int (PK)
+    name: str (UNIQUE)
+    description: str (nullable)
+    is_active: bool (default: True)
+    created_at, updated_at
+```
+
 - **Inventory (6)**: Products CRUD, Warehouses CRUD, Stock Transfers
 - **Users (4)**: CREATE, Role change, Status toggle, DELETE
 - **WorkOrders (3)**: CREATE, UPDATE, Team assignment
@@ -462,6 +624,58 @@ GET    /api/v2/warehouses/{id}/stock # Stock actual
 POST   /api/v2/transfers             # Mover entre warehouses
 ```
 
+### 5.6 Settings & Monitors (NEW 25/05/2026)
+```
+# System Config
+GET    /api/v2/settings              # Listar configuraciones
+POST   /api/v2/settings              # Crear configuración
+PUT    /api/v2/settings/{key}        # Actualizar configuración
+DELETE /api/v2/settings/{key}        # Eliminar configuración
+
+# Service Monitors
+GET    /api/v2/settings/monitors                  # Listar monitores
+POST   /api/v2/settings/monitors                  # Crear monitor
+PUT    /api/v2/settings/monitors/{id}             # Actualizar monitor
+DELETE /api/v2/settings/monitors/{id}             # Eliminar monitor
+POST   /api/v2/settings/monitors/{id}/check       # Ejecutar check manual
+GET    /api/v2/settings/monitors/{id}/history     # Historial de checks
+
+# Scheduled Tasks
+GET    /api/v2/settings/sync-tasks                # Listar tareas programadas
+PUT    /api/v2/settings/sync-tasks/{id}           # Actualizar tarea
+POST   /api/v2/settings/sync-tasks/{id}/trigger   # Ejecutar manualmente
+GET    /api/v2/settings/sync-tasks/{id}/logs      # Logs de ejecución
+POST   /api/v2/settings/sync-tasks/sync           # Sincronizar desde Celery Beat
+```
+
+### 5.7 Dashboard (NEW 25/05/2026)
+```
+GET    /api/v2/dashboard/stats       # KPIs generales
+GET    /api/v2/dashboard/monitors    # Estado de monitores
+```
+
+### 5.8 Geolocalización (NEW 21/05/2026)
+```
+GET    /api/v2/work-orders/parse-map-link?url=...  # Extraer coordenadas de URL
+GET    /api/v2/work-orders/{id}                    # Incluye lat/lng en response
+```
+
+### 5.9 Product Categories (NEW 20/05/2026)
+```
+GET    /api/v2/product-categories    # Listar categorías
+POST   /api/v2/product-categories    # Crear categoría
+PUT    /api/v2/product-categories/{id}  # Actualizar
+DELETE /api/v2/product-categories/{id}  # Eliminar
+```
+
+### 5.10 Work Order Types (NEW 20/05/2026)
+```
+GET    /api/v2/work-order-types       # Listar tipos de OT (incluye color)
+POST   /api/v2/work-order-types       # Crear tipo
+PUT    /api/v2/work-order-types/{id}  # Actualizar
+DELETE /api/v2/work-order-types/{id}  # Eliminar
+```
+
 ---
 
 ## 6️⃣ Enumeraciones (Enums)
@@ -474,7 +688,12 @@ TicketType: technical, installation, withdrawal, relocation, administrative
 
 # WorkOrders
 WorkOrderStatus: pending_planning, coordinated, scheduled, in_progress, completed
-WorkOrderType: repair, install, pickup, infrastructure
+WorkOrderType: repair, install, pickup, infrastructure (colors from DB)
+
+# Settings & Monitoring (NEW 25/05/2026)
+MonitorType: HTTP, PING, TCP, SSL
+MonitorStatus: UP, DOWN, UNKNOWN, DEGRADED
+CriticalityIndex: LOW(1), MEDIUM(2), HIGH(3), CRITICAL(4), MISSION_CRITICAL(5)
 
 # Coordinación
 TeamRole: leader, technician
@@ -711,10 +930,14 @@ UPDATE ppp_secrets WHERE ...
 
 ## 📚 Documentación Adicional
 
-- **[BASE_DATOS.md](BASE_DATOS.md)** - Esquema detallado, índices, constraints
-- **[FLEET_MODULE.md](FLEET_MODULE.md)** - Fleet specific (flows, testing)
+- **[LEER_PRIMERO_ACTUAL.md](LEER_PRIMERO_ACTUAL.md)** - ⭐ Entry point principal
+- **[ESTADO_ACTUAL_2026_06_02.md](ESTADO_ACTUAL_2026_06_02.md)** - Status snapshot actual
 - **[AI_ARCHITECT_CONTEXT.md](AI_ARCHITECT_CONTEXT.md)** - Para IAs/agents
-- **[CURRENT_STATUS_2026-03-02.md](CURRENT_STATUS_2026-03-02.md)** - Snapshot sesión
+- **[MODULO_INVENTARIO.md](MODULO_INVENTARIO.md)** - Módulo inventario integrador
+- **[FLEET_MODULE.md](FLEET_MODULE.md)** - Fleet specific (flows, testing)
+- **[MODULO_ENGINEERING.md](MODULO_ENGINEERING.md)** - Engineering/NOC tasks
+- **[MODULO_SINCRONIZACION_NOCTURNA.md](MODULO_SINCRONIZACION_NOCTURNA.md)** - Nightly sync
+- **[BASE_DATOS.md](BASE_DATOS.md)** - Esquema detallado, índices, constraints
 - **[API Docs Live](http://localhost:8500/docs)** - Swagger interactivo
 
 ---
@@ -723,18 +946,20 @@ UPDATE ppp_secrets WHERE ...
 
 | Pregunta | Respuesta |
 |----------|-----------|
-| ¿Dónde empezar? | [README.md](README.md) (2 min) |
+| ¿Dónde empezar? | [LEER_PRIMERO_ACTUAL.md](LEER_PRIMERO_ACTUAL.md) (2 min) |
 | ¿Cuál es el stack? | Sección 2 arriba |
 | ¿Cómo crear vehículo? | POST `/api/v2/vehicles`, autom warehouse MOBILE |
+| ¿Cómo configurar monitor? | Settings UI o POST `/api/v2/settings/monitors` |
 | ¿Dónde están modelos? | `backend/src/models/` |
 | ¿Dónde están endpoints? | `backend/src/routers/` |
+| ¿Dónde está el motor de monitoreo? | `backend/src/services/monitoring_engine.py` |
 | ¿Dónde están componentes? | `frontend/src/components/` |
 | ¿Cómo migrar BD? | `alembic revision --autogenerate` |
 | ¿Error 500? | `docker logs emerald_backend \| tail -20` |
-| ¿Next features? | Auditoría vehicle, mantenimiento, tracking |
+| ¿Next features? | MinIO storage, GPS tracking, Mobile app |
 
 ---
 
-**Versión:** 2026-03-10  
+**Versión:** 2026-06-02  
 **Mantenedor:** LukeSkywalker66  
-**Actualización Última:** Auditoría universal + inspecciones pre-trip + action block de ejecución
+**Actualización Última:** Settings Module, Monitoring Engine, Scheduled Tasks V2, Geolocalización Fase 5, Dashboard refactor, Multi-entorno, Coordinación optimizada, Auditoría expandida

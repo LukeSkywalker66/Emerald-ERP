@@ -11,7 +11,7 @@ import { X } from 'lucide-react';
 
 const DialogContext = React.createContext();
 
-export function Dialog({ open = false, onOpenChange, children }) {
+export function Dialog({ open = false, onOpenChange, children, portal = true }) {
   const [isOpen, setIsOpen] = useState(open);
   const [interactOutsideHandler, setInteractOutsideHandler] = useState(null);
   const [escapeKeyHandler, setEscapeKeyHandler] = useState(null);
@@ -76,18 +76,35 @@ export function Dialog({ open = false, onOpenChange, children }) {
         setEscapeKeyHandler,
       }}
     >
+      {/*
+        portal=true (default): render via createPortal to document.body
+        portal=false: render in-place with z-[100] (for use inside Radix Sheet)
+      */}
       {isOpen &&
-        ReactDOM.createPortal(
-          <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm pointer-events-none">
-            <div className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-auto">
-              <div
-                onClick={handleOutsideClick}
-                className="absolute inset-0"
-              ></div>
-              {children}
-            </div>
-          </div>,
-          document.body
+        (portal
+          ? ReactDOM.createPortal(
+              <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm pointer-events-none">
+                <div className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-auto">
+                  <div
+                    onClick={handleOutsideClick}
+                    className="absolute inset-0"
+                  ></div>
+                  {children}
+                </div>
+              </div>,
+              document.body
+            )
+          : (
+              <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm pointer-events-none">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center pointer-events-auto">
+                  <div
+                    onClick={handleOutsideClick}
+                    className="absolute inset-0"
+                  ></div>
+                  {children}
+                </div>
+              </div>
+            )
         )}
     </DialogContext.Provider>
   );

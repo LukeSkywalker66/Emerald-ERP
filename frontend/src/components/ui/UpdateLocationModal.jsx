@@ -28,6 +28,7 @@ export default function UpdateLocationModal({
   onClose,
   onSaved,
   contentClassName = '',
+  portal = true,
 }) {
   const [mapsLink, setMapsLink] = useState('');
   const [isParsing, setIsParsing] = useState(false);
@@ -87,7 +88,7 @@ export default function UpdateLocationModal({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
+    <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()} portal={portal}>
       <DialogContent className={`bg-zinc-950 border border-zinc-800 text-white max-w-md ${contentClassName}`}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-emerald-400">

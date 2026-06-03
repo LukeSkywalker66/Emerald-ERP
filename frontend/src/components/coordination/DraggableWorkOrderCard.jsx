@@ -9,7 +9,6 @@
  */
 
 import React, { useState } from 'react';
-import UpdateLocationModal from '@/components/ui/UpdateLocationModal';
 import { formatDistanceToNow, differenceInDays, format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
@@ -350,19 +349,13 @@ export default function DraggableWorkOrderCard({
         onDurationChange={handleDurationChange}
         onWorkOrderUpdated={() => onQuickAction?.('work_order_updated', workOrder)}
         onOpenLocationModal={() => setShowLocationModal(true)}
-        refreshKey={locationRefreshKey}
-        locationModalOpen={showLocationModal}
-      />
-
-      {/* ========== LOCATION UPDATE MODAL (rendered outside Sheet to avoid z-index conflict) ========== */}
-      <UpdateLocationModal
-        workOrderId={workOrder?.id}
-        isOpen={showLocationModal}
-        onClose={() => setShowLocationModal(false)}
-        onSaved={() => {
+        onCloseLocationModal={() => setShowLocationModal(false)}
+        onLocationSaved={() => {
           setLocationRefreshKey(k => k + 1);
           setShowLocationModal(false);
         }}
+        refreshKey={locationRefreshKey}
+        locationModalOpen={showLocationModal}
       />
     </>
   );

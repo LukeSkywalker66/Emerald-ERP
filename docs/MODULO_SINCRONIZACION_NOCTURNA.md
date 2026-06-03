@@ -531,5 +531,5 @@ ORDER BY period DESC;
 
 ---
 
-**Última actualización:** 9 de febrero de 2026  
+**Última actualización:** 9 de febrero de 2026 (revisado 02 Jun 2026)  
 **Responsable:** Equipo Backend Emerald ERP
