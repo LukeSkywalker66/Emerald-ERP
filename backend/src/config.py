@@ -88,21 +88,16 @@ MK_ENABLE_SSL = os.getenv("MK_ENABLE_SSL", "false").lower() == "true"
 MK_TIMEOUT = int(os.getenv("MK_TIMEOUT", "10"))
 
 def _validate_mikrotik_config():
-    """Validar configuración de Mikrotik"""
-    errors = []
-    
+    """
+    Validar configuración de Mikrotik.
+    Si falta configuración, solo advierte (no bloquea el inicio).
+    """
     if not MK_HOST:
-        errors.append("MK_HOST no configurado")
+        logger.warning("⚠️ MK_HOST no configurado. Servicios de integración Mikrotik desactivados.")
     if not MK_USER:
-        errors.append("MK_USER no configurado")
+        logger.warning("⚠️ MK_USER no configurado. Servicios de integración Mikrotik desactivados.")
     if not MK_PASS:
-        errors.append("MK_PASS no configurado")
-    
-    if errors:
-        logger = logging.getLogger("Emerald.Config")
-        for error in errors:
-            logger.error(f"❌ {error}")
-        raise ValueError(f"Configuración Mikrotik incompleta: {', '.join(errors)}")
+        logger.warning("⚠️ MK_PASS no configurado. Servicios de integración Mikrotik desactivados.")
 
 # --- ISPCube CONFIGURATION ---
 # Soportar nombres legacy: ISPCUBE_BASEURL / ISPCUBE_APIKEY
