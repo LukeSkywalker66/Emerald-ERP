@@ -30,6 +30,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       TZ: America/Argentina/Buenos_Aires  # Sincronizar logs con hora local
+      PYTHONDONTWRITEBYTECODE: 1
     depends_on:
       db:
         condition: service_healthy  # <--- LA CLAVE MÁGICA
@@ -100,7 +101,27 @@ services:
     depends_on:
       - backend
 
-# 6. CELERY + REDIS (El Obrero Nocturno)
+  # 7. MINIO (Almacenamiento de Objetos Local)
+  minio:
+    image: minio/minio
+    container_name: emerald_minio
+    restart: always
+    command: server /data --console-address ":9001"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 6. CELERY + REDIS (El Obrero Nocturno)
   # 1. REDIS (El mensajero)
   redis:
     image: redis:alpine
@@ -131,6 +152,7 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - TZ=America/Argentina/Buenos_Aires
+      - PYTHONDONTWRITEBYTECODE=1
     depends_on:
       # 🚦 SEMÁFORO: No arranca hasta que los otros estén en verde (healthy)
       redis:
@@ -147,3 +169,4 @@ networks:
 
 volumes:
   postgres_data:
+  minio_data:

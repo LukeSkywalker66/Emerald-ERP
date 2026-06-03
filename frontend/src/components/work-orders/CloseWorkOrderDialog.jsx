@@ -24,6 +24,7 @@ export default function CloseWorkOrderDialog({
   onClose,
   onComplete,
   onMaterialsUpdated,
+  portal = true,
 }) {
   const { user } = useAuth();
   const [step, setStep] = useState(1);
@@ -328,12 +329,17 @@ export default function CloseWorkOrderDialog({
     e.target.value = ''; // Reset input
   };
 
+  // Detectar si es "No Realizada"
+  const isIncomplete = selectedCategory === 'incomplete';
+
   // Validaciones por paso
   const isStep1Valid = selectedCategory && resolutionNotes.length >= 10;
   const isStep2Valid = true; // Opcional
   const requiresPhotoEvidence =
-    workOrder?.status === 'pending_closure' ||
-    (workOrder?.ot_type !== 'pickup' && workOrder?.ot_type !== 'pending_planning');
+    !isIncomplete && (
+      workOrder?.status === 'pending_closure' ||
+      (workOrder?.ot_type !== 'pickup' && workOrder?.ot_type !== 'pending_planning')
+    );
 
   const isStep3Valid = requiresPhotoEvidence ? uploadedPhotos.length > 0 : true;
 
@@ -350,17 +356,20 @@ export default function CloseWorkOrderDialog({
     }
   };
 
-  // Completar OT
+  // Completar / Cerrar OT (soporta "No Realizada")
   const handleComplete = async () => {
     if (!isStep3Valid) {
-      setUploadError('Debes adjuntar al menos una foto para esta resolución');
+      const msg = isIncomplete
+        ? 'Debes escribir el motivo por el que no se realizó la OT.'
+        : 'Debes adjuntar al menos una foto para esta resolución';
+      setUploadError(msg);
       return;
     }
 
     try {
       setUploading(true);
       const payload = {
-        status: 'completed',
+        status: isIncomplete ? 'failed' : 'completed',
         completed_at: new Date().toISOString(),
         resolution_category: selectedCategory,
         resolution_notes: resolutionNotes,
@@ -378,11 +387,23 @@ export default function CloseWorkOrderDialog({
     } catch (err) {
       console.error('[ERROR] Failed to close WO:', err);
       const isTimeout = err.code === 'ECONNABORTED' || /timeout/i.test(err.message || '');
-      setUploadError(
-        isTimeout
-          ? 'Tiempo de espera excedido al completar. Intenta nuevamente.'
-          : (err.response?.data?.detail || 'Error al completar la OT')
-      );
+      
+      // Extraer mensaje de error correctamente (FastAPI 422 devuelve array de objetos)
+      let errorMsg = 'Error al completar la OT';
+      if (isTimeout) {
+        errorMsg = 'Tiempo de espera excedido al completar. Intenta nuevamente.';
+      } else if (err.response?.data?.detail) {
+        const detail = err.response.data.detail;
+        if (Array.isArray(detail)) {
+          // FastAPI validation error: array of {loc, msg, type}
+          errorMsg = detail.map(e => e.msg || String(e)).join('; ');
+        } else if (typeof detail === 'string') {
+          errorMsg = detail;
+        } else {
+          errorMsg = String(detail);
+        }
+      }
+      setUploadError(errorMsg);
     } finally {
       setUploading(false);
     }
@@ -413,6 +434,12 @@ export default function CloseWorkOrderDialog({
       desc: 'Otra categoría',
       color: 'bg-amber-600',
     },
+    {
+      value: 'incomplete',
+      label: 'No Realizada',
+      desc: 'No se pudo completar (cliente ausente, equipo dañado, etc.)',
+      color: 'bg-rose-600',
+    },
   ];
 
   return (
@@ -423,6 +450,7 @@ export default function CloseWorkOrderDialog({
           onClose?.();
         }
       }}
+      portal={portal}
     >
       <DialogContent
         className="max-w-3xl bg-zinc-900 border-zinc-800 p-0"
@@ -432,11 +460,14 @@ export default function CloseWorkOrderDialog({
         <div className="w-full bg-zinc-900 rounded-lg p-6 space-y-6">
         {/* Header */}
         <div className="mb-2 flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-bold text-white mb-2">Completar Orden de Trabajo</h2>
-            <p className="text-sm text-zinc-400">
-              Paso {step} de 3: {step === 1 ? 'Resolución' : step === 2 ? 'Materiales' : 'Evidencia'}
-            </p>
+        <div>
+          <h2 className="text-xl font-bold text-white mb-2">
+            {isIncomplete ? 'Cerrar OT - No Realizada' : 'Completar Orden de Trabajo'}
+          </h2>
+          <p className="text-sm text-zinc-400">
+            Paso {step} de 3: {step === 1 ? 'Resolución' : step === 2 ? 'Materiales' : 'Evidencia'}
+            {isIncomplete && step === 3 && ' (opcional)'}
+          </p>
           </div>
           <Button
             type="button"

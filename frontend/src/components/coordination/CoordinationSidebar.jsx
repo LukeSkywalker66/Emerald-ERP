@@ -36,6 +36,7 @@ export default function CoordinationSidebar({
   defaultCity = null,
   workOrderTypes = [],
   workOrderTypeMap = {},
+  pendingRefreshKey = 0,
 }) {
   // ========== HOOKS DE FILTROS ==========
   const { filters, updateFilter, toggleCity, toggleType, clearFilters } = useTicketFilters();
@@ -76,6 +77,15 @@ export default function CoordinationSidebar({
       }
     };
   }, [workOrders.length]);
+
+  // ========== REFRESCAR STATS CUANDO EL PADRE LO SOLICITA ==========
+  // Cuando se cierra una OT desde CoordinationSheet, el padre incrementa
+  // pendingRefreshKey para forzar la recarga de pendingClosureStats.
+  useEffect(() => {
+    if (pendingRefreshKey > 0) {
+      loadPendingClosureStats();
+    }
+  }, [pendingRefreshKey]);
 
   const loadPendingClosureStats = async () => {
     try {

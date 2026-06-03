@@ -158,6 +158,7 @@ class ResolutionCategory(StrEnum):
     infrastructure = "infrastructure"  # Infraestructura (fibra, nodos, torres)
     equipment = "equipment"  # Equipamiento (routers, ONUs, antenas)
     configuration = "configuration"  # Configuración (software, parámetros)
+    incomplete = "incomplete"  # No realizada (cliente ausente, equipo dañado, etc.)
     other = "other"  # Otra categoría
 
 

@@ -167,6 +167,15 @@ ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 REFRESH_TOKEN_EXPIRE_MINUTES = int(os.getenv("REFRESH_TOKEN_EXPIRE_MINUTES", str(60 * 24 * 7)))
 
+# --- MINIO / OBJECT STORAGE CONFIGURATION ---
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+MINIO_BUCKET_NAME = os.getenv("MINIO_BUCKET_NAME", "emerald-attachments")
+MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
+MINIO_REGION = os.getenv("MINIO_REGION", "us-east-1")
+MINIO_PUBLIC_ENDPOINT = os.getenv("MINIO_PUBLIC_ENDPOINT", MINIO_ENDPOINT)
+
 # --- RATE LIMITING CONFIGURATION ---
 # Umbrales de protección contra brute-force attacks
 RATE_LIMIT_MAX_ATTEMPTS_PER_USER = int(os.getenv("RATE_LIMIT_MAX_ATTEMPTS_PER_USER", "3"))
@@ -233,6 +242,8 @@ def validate_configuration():
 # Mostrar configuración en startup (sin exponer secretos)
 def log_configuration_summary():
     """Log de resumen de configuración (sin exponer secretos)"""
+    logger.info(f"MinIO Endpoint: {MINIO_ENDPOINT}")
+    logger.info(f"MinIO Bucket: {MINIO_BUCKET_NAME}")
     logger.info(f"Entorno: {ENVIRONMENT}")
     logger.info(f"Debug mode: {DEBUG}")
     logger.info(f"Base de datos: {POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}")

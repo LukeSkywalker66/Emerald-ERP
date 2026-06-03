@@ -15,5 +15,6 @@ celery
 redis
 python-jose[cryptography]
 python-multipart
+boto3==1.35.81
 influxdb-client==1.46.0
 httpx

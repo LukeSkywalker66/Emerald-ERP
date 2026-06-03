@@ -268,7 +268,18 @@ export default function WorkOrderExecutionPage() {
       });
       setWorkOrder(updated);
     } catch (err) {
-      alert('Error al iniciar trabajo: ' + err.message);
+      if (err.response?.status === 423) {
+        const reason = err.response?.headers?.['x-locked-reason'];
+        if (reason === 'LOCKED_PAST_DATE') {
+          alert('⛔ OT vencida. No se puede iniciar.\n\nUse el botón "Cerrar OT" para completarla o marcarla como no realizada.');
+        } else if (reason === 'LOCKED_COMPLETED') {
+          alert('🔒 OT ya completada. No se puede modificar.');
+        } else {
+          alert('🔒 OT bloqueada: ' + (err.response?.data?.detail || err.message));
+        }
+      } else {
+        alert('Error al iniciar trabajo: ' + err.message);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -478,6 +489,15 @@ export default function WorkOrderExecutionPage() {
 
   const isActive = workOrder?.started_at && !workOrder?.completed_at;
   const isCompleted = !!workOrder?.completed_at;
+
+  // OT vencida: scheduled_start superó el grace period de 5 minutos
+  const isExpired = (() => {
+    if (!workOrder?.scheduled_start) return false;
+    if (isActive || isCompleted) return false;
+    const scheduledDate = new Date(workOrder.scheduled_start);
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+    return scheduledDate < fiveMinAgo;
+  })();
   const typeConfig = OT_TYPE_ICONS[workOrder?.ot_type] || OT_TYPE_ICONS.repair;
   const TypeIcon = typeConfig.icon;
   const rawPriority =
@@ -533,17 +553,47 @@ export default function WorkOrderExecutionPage() {
           <div className="flex items-center gap-2">
             {isActive && <Timer startedAt={workOrder.started_at} />}
 
+            {/* Badge: OT Vencida */}
+            {isExpired && (
+              <Badge variant="outline" className="bg-rose-500/15 border-rose-500/40 text-rose-300 h-9 px-3 gap-1.5">
+                <AlertCircle size={14} />
+                Vencida
+              </Badge>
+            )}
+
+            {/* OT no iniciada ni completada: botón Iniciar + Cerrar OT si vencida */}
             {!isActive && !isCompleted && (
-              <Button
-                size="sm"
-                onClick={handleStartWork}
-                disabled={isSubmitting || needsInspection}
-                title={needsInspection ? inspectionBlockMessage : 'Iniciar trabajo'}
-                className="bg-emerald-600 hover:bg-emerald-700 h-9"
-              >
-                <Play size={14} className="mr-1" />
-                Iniciar
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  onClick={handleStartWork}
+                  disabled={isSubmitting || needsInspection || isExpired}
+                  title={
+                    needsInspection
+                      ? inspectionBlockMessage
+                      : isExpired
+                        ? 'OT vencida. Use "Cerrar OT" para completarla o marcarla como no realizada.'
+                        : 'Iniciar trabajo'
+                  }
+                  className={`h-9 ${isExpired ? 'bg-zinc-700 opacity-50 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                >
+                  <Play size={14} className="mr-1" />
+                  Iniciar
+                </Button>
+
+                {isExpired && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowCloseDialog(true)}
+                    className="h-9 border-emerald-700/50 text-emerald-300 hover:bg-emerald-950/30"
+                    title="Abre el wizard de cierre (permite completar o marcar como no realizada)"
+                  >
+                    <CheckCircle2 size={14} className="mr-1" />
+                    Cerrar OT
+                  </Button>
+                )}
+              </>
             )}
 
             {isActive && (

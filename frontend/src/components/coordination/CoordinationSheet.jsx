@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import api from '@/api/client';
 import CloseWorkOrderDialog from '@/components/work-orders/CloseWorkOrderDialog';
+import UpdateLocationModal from '@/components/ui/UpdateLocationModal';
 import {
   Accordion,
   AccordionContent,
@@ -74,6 +75,8 @@ export default function CoordinationSheet({
   onDurationChange,
   onWorkOrderUpdated,
   onOpenLocationModal,
+  onCloseLocationModal,
+  onLocationSaved,
   refreshKey = 0,
   locationModalOpen = false,
   workOrderTypes = [],
@@ -423,24 +426,30 @@ export default function CoordinationSheet({
     });
   };
 
-  // DEBUG: Ver qué datos tenemos
-  console.log('🔍 CoordinationSheet Debug:', {
-    workOrder_id: activeWorkOrder.id,
-    ticket_id: ticket?.id,
-    has_ticket: !!ticket,
-    contact_info: ticket?.contact_info,
-    clientPhone,
-    clientName,
-    full_ticket: ticket,
-  });
-
   return (
     <Sheet open={isOpen} onOpenChange={onClose}>
       <SheetContent
         side="right"
         className="w-full sm:w-96 bg-zinc-900 border-l border-zinc-800 overflow-y-auto"
         onInteractOutside={(e) => {
-          if (locationModalOpen) {
+          // No cerrar el Sheet si hay un modal hijo abierto (LocationModal o CloseWorkOrderDialog)
+          if (locationModalOpen || showCloseDialog) {
+            e.preventDefault();
+          }
+        }}
+        onFocusOutside={(e) => {
+          // 🎯 CRÍTICO: Evitar que Radix UI robe el foco cuando el usuario hace click
+          // en inputs de modales hijo (CloseWorkOrderDialog o UpdateLocationModal).
+          // Estos modales se renderizan mediante portal (fuera del SheetContent),
+          // por lo que Radix detecta el focusout como si el foco se hubiera ido del
+          // Sheet y trata de devolverlo, impidiendo que el input reciba el foco.
+          if (showCloseDialog || locationModalOpen) {
+            e.preventDefault();
+          }
+        }}
+        onEscapeKeyDown={(e) => {
+          // No cerrar el Sheet si el CloseWorkOrderDialog está abierto
+          if (showCloseDialog) {
             e.preventDefault();
           }
         }}
@@ -1027,6 +1036,34 @@ export default function CoordinationSheet({
           </div>
         )}
 
+        <CloseWorkOrderDialog
+          workOrder={workOrder}
+          isOpen={showCloseDialog}
+          onClose={() => setShowCloseDialog(false)}
+          onComplete={() => {
+            setShowCloseDialog(false);
+            // 🔴 IMPORTANTE: Primero refrescar datos, luego cerrar el sheet.
+            // Si se invierte el orden (onClose antes de onWorkOrderUpdated),
+            // el Sheet se desmonta y onWorkOrderUpdated nunca se ejecuta.
+            if (typeof onWorkOrderUpdated === 'function') {
+              onWorkOrderUpdated();
+            } else {
+              console.error('❌ [ARQUITECTURA] CoordinationSheet.CloseWorkOrderDialog.onComplete: callback onWorkOrderUpdated no existe. Contrato arquitectónico roto.');
+            }
+            onClose();
+          }}
+          portal={false}
+        />
+
+        {/* ========== LOCATION UPDATE MODAL (inside SheetContent to avoid Radix focus conflict) ========== */}
+        <UpdateLocationModal
+          workOrderId={workOrder?.id}
+          isOpen={locationModalOpen}
+          onClose={() => onCloseLocationModal?.()}
+          onSaved={(lat, lng) => onLocationSaved?.(lat, lng)}
+          portal={false}
+        />
+
         {/* ========== FOOTER ========== */}
         <SheetFooter className="border-t border-zinc-800 pt-4 mt-6">
           <Button
@@ -1104,21 +1141,6 @@ export default function CoordinationSheet({
           </SheetFooter>
         </SheetContent>
       </Sheet>
-
-      <CloseWorkOrderDialog
-        workOrder={workOrder}
-        isOpen={showCloseDialog}
-        onClose={() => setShowCloseDialog(false)}
-        onComplete={() => {
-          setShowCloseDialog(false);
-          onClose();
-          if (typeof onWorkOrderUpdated !== 'function') {
-            console.error('❌ [ARQUITECTURA] CoordinationSheet.CloseWorkOrderDialog.onComplete: callback onWorkOrderUpdated no existe. Contrato arquitectónico roto.');
-            return;
-          }
-          onWorkOrderUpdated();
-        }}
-      />
 
     </Sheet>
   );
