@@ -79,30 +79,13 @@ if not API_KEY:
     logger = logging.getLogger("Emerald.Config")
     logger.warning("⚠️ API_KEY no configurada. Endpoints protegidos no funcionarán.")
 
-# --- MIKROTIK CONFIGURATION (CRÍTICO) ---
+# --- MIKROTIK CONFIGURATION (OPCIONAL) ---
 MK_HOST = os.getenv("MK_HOST")
 MK_USER = os.getenv("MK_USER")
 MK_PASS = os.getenv("MK_PASS")
 MK_PORT = int(os.getenv("MK_PORT", "8728"))
 MK_ENABLE_SSL = os.getenv("MK_ENABLE_SSL", "false").lower() == "true"
 MK_TIMEOUT = int(os.getenv("MK_TIMEOUT", "10"))
-
-def _validate_mikrotik_config():
-    """Validar configuración de Mikrotik"""
-    errors = []
-    
-    if not MK_HOST:
-        errors.append("MK_HOST no configurado")
-    if not MK_USER:
-        errors.append("MK_USER no configurado")
-    if not MK_PASS:
-        errors.append("MK_PASS no configurado")
-    
-    if errors:
-        logger = logging.getLogger("Emerald.Config")
-        for error in errors:
-            logger.error(f"❌ {error}")
-        raise ValueError(f"Configuración Mikrotik incompleta: {', '.join(errors)}")
 
 # --- ISPCube CONFIGURATION ---
 # Soportar nombres legacy: ISPCUBE_BASEURL / ISPCUBE_APIKEY
@@ -226,13 +209,14 @@ def validate_configuration():
     logger.info("🔍 Validando configuración de Emerald ERP...")
     
     try:
-        # Validaciones críticas
+        # Validaciones críticas (solo DB es realmente crítica)
         _validate_db_config()
-        _validate_mikrotik_config()
         
         logger.info("✅ Configuración válida. Sistema listo.")
         
         # Warnings para configuración recomendada
+        if not MK_HOST or not MK_USER or not MK_PASS:
+            logger.warning("⚠️ Mikrotik no configurado. Diagnóstico y funciones de router desactivadas.")
         if not ISPCUBE_API_KEY:
             logger.warning("⚠️ ISPCUBE_API_KEY no configurado. Sincronización de ISPCube desactivada.")
         if not SMARTOLT_API_KEY:
