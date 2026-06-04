@@ -49,6 +49,16 @@ const usersService = {
   },
 
   /**
+   * Actualizar datos de un usuario (email, username, full_name, role, etc.)
+   * @param {number} userId - ID del usuario
+   * @param {Object} data - Datos a actualizar (email, username, full_name, role_id, is_active)
+   */
+  async updateUser(userId, data) {
+    const response = await api.patch(`/v2/users/${userId}`, data);
+    return response.data;
+  },
+
+  /**
    * Eliminar permanentemente un usuario (solo sin historial)
    */
   async deleteUser(userId) {

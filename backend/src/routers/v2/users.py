@@ -1,8 +1,8 @@
 """
 Router de administración de usuarios (v2)
 
-Endpoints protegidos para gestión de usuarios: crear, resetear contraseña,
-cambiar rol, activar/desactivar. Requiere superusuario.
+Endpoints protegidos para gestión de usuarios: crear, actualizar, resetear contraseña,
+cambiar rol, activar/desactivar. Requiere permisos de administración.
 """
 import secrets
 import string
@@ -13,10 +13,11 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 
 from src.database import get_db
-from src.core.security import get_current_active_superuser, get_password_hash
+from src.core.security import require_admin, get_password_hash
 from src.repositories.user_repository import UserRepository, RoleRepository
 from src.schemas.user_schemas import (
     UserCreate,
+    UserUpdate,
     UserResponse,
     PasswordResetRequest,
     PasswordResetResponse,
@@ -55,9 +56,9 @@ def list_users(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    _admin = Depends(get_current_active_superuser),
+    _admin = Depends(require_admin),
 ):
-    """Lista todos los usuarios del sistema (solo superusuarios)."""
+    """Lista todos los usuarios del sistema (solo administradores)."""
     user_repo = UserRepository(db)
     users = user_repo.get_all(skip=skip, limit=limit)
     return users
@@ -68,9 +69,9 @@ def create_user_admin(
     data: UserCreate,
     request: Request,
     db: Session = Depends(get_db),
-    _admin = Depends(get_current_active_superuser),
+    _admin = Depends(require_admin),
 ):
-    """Crea un usuario (solo superusuarios)."""
+    """Crea un usuario (solo administradores)."""
     user_repo = UserRepository(db)
 
     # Unicidad de email/username
@@ -115,10 +116,10 @@ def reset_password_admin(
     payload: Optional[PasswordResetRequest] = None,
     request: Request = None,
     db: Session = Depends(get_db),
-    current_admin = Depends(get_current_active_superuser),
+    current_admin = Depends(require_admin),
 ):
     """
-    Resetea contraseña de un usuario (solo admin).
+    Resetea contraseña de un usuario (solo administradores).
     
     Si se proporciona new_password en el payload, se usa esa.
     Si no, se autogenera una contraseña temporal robusta.
@@ -164,9 +165,9 @@ def change_user_role(
     payload: RoleChangeRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_admin = Depends(get_current_active_superuser),
+    current_admin = Depends(require_admin),
 ):
-    """Cambia el rol de un usuario (solo admin)."""
+    """Cambia el rol de un usuario (solo administradores)."""
     user_repo = UserRepository(db)
     role_repo = RoleRepository(db)
 
@@ -209,9 +210,9 @@ def update_user_status(
     payload: StatusUpdateRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_admin = Depends(get_current_active_superuser),
+    current_admin = Depends(require_admin),
 ):
-    """Activa o desactiva un usuario (solo admin)."""
+    """Activa o desactiva un usuario (solo administradores)."""
     user_repo = UserRepository(db)
     user = user_repo.get(user_id)
     if not user:
@@ -242,15 +243,88 @@ def update_user_status(
     return updated
 
 
+@router.patch("/{user_id}", response_model=UserResponse)
+def update_user(
+    user_id: int,
+    data: UserUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_admin = Depends(require_admin),
+):
+    """
+    Actualiza los datos de un usuario (solo administradores).
+
+    Permite modificar: email, username, full_name, role_id, is_active, is_superuser.
+    No permite cambiar la contraseña (usar reset-password para eso).
+    """
+    user_repo = UserRepository(db)
+    user = user_repo.get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # No permitir que un admin se modifique a sí mismo el rol o superuser
+    if user.id == current_admin.id:
+        if data.role_id is not None or data.is_superuser is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="No puedes modificar tu propio rol o permisos de superusuario"
+            )
+
+    # Verificar unicidad de email si cambió
+    if data.email is not None and data.email != user.email:
+        if user_repo.get_by_email(data.email):
+            raise HTTPException(status_code=400, detail="Email ya registrado")
+        user.email = data.email
+
+    # Verificar unicidad de username si cambió
+    if data.username is not None and data.username != user.username:
+        if user_repo.get_by_username(data.username):
+            raise HTTPException(status_code=400, detail="Username ya en uso")
+        user.username = data.username
+
+    # Capturar valores anteriores para auditoría
+    old_values = get_entity_dict(user)
+
+    if data.full_name is not None:
+        user.full_name = data.full_name
+    if data.is_active is not None:
+        user.is_active = data.is_active
+    if data.is_superuser is not None:
+        user.is_superuser = data.is_superuser
+    if data.role_id is not None:
+        role_repo = RoleRepository(db)
+        role = role_repo.get(data.role_id)
+        if not role:
+            raise HTTPException(status_code=404, detail="Rol no encontrado")
+        user.role_id = role.id
+
+    updated = user_repo.update(user)
+
+    # 🔒 AUDIT LOG: Registrar actualización de usuario
+    try:
+        log_update(
+            db=db,
+            user_id=current_admin.id,
+            entity_name="users",
+            entity_id=user.id,
+            old_values=old_values,
+            new_values=get_entity_dict(updated)
+        )
+    except Exception as audit_error:
+        logger.error(f"❌ [AUDIT] Error al registrar actualización de usuario {user.id}: {audit_error}")
+
+    return updated
+
+
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user_permanently(
     user_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_admin = Depends(get_current_active_superuser),
+    current_admin = Depends(require_admin),
 ):
     """
-    Elimina permanentemente un usuario (solo admin).
+    Elimina permanentemente un usuario (solo administradores).
     
     SOLO permite eliminar usuarios SIN datos históricos:
     - Sin membresías en equipos (team_memberships)

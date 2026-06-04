@@ -1,7 +1,10 @@
 /**
  * UsersTab.jsx
  * Gestión de Usuarios embebida en SettingsPage
- * Reutiliza la lógica de UsersPage pero adaptada al layout de Settings
+ *
+ * Comportamiento según rol:
+ *  - Admin/Superuser: CRUD completo sobre todos los usuarios
+ *  - Otros roles: Solo ven su propio usuario + cambio de contraseña
  */
 import { useState, useEffect } from 'react';
 import {
@@ -14,6 +17,12 @@ import {
   AlertTriangle,
   Trash2,
   Search,
+  Pencil,
+  Lock,
+  Save,
+  X,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import {
   Card,
@@ -43,19 +52,40 @@ import {
 import usersService from '@/services/users.service';
 import rolesService from '@/services/roles.service';
 import { formatTimeAgo, isUserOnline } from '@/utils/time';
+import { useAuth } from '@/context/AuthContext';
 
 export default function UsersTab() {
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // ── Determinar si el usuario actual es administrador ──
+  const isAdmin =
+    currentUser?.is_superuser ||
+    currentUser?.role === 'admin' ||
+    currentUser?.role === 'superadmin';
+
   // Dialog states
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [editUser, setEditUser] = useState(null);
+
+  // Password change (non-admin) state
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [passwordFormErrors, setPasswordFormErrors] = useState({});
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   const [resetUserId, setResetUserId] = useState(null);
   const [resetPasswordMode, setResetPasswordMode] = useState('auto');
@@ -68,10 +98,21 @@ export default function UsersTab() {
     username: '',
     full_name: '',
     password: '',
+    confirmPassword: '',
     role_id: null,
   });
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+
+  // Edit form state
+  const [editFormData, setEditFormData] = useState({
+    email: '',
+    username: '',
+    full_name: '',
+    role_id: null,
+  });
+  const [editFormErrors, setEditFormErrors] = useState({});
+  const [editSubmitting, setEditSubmitting] = useState(false);
 
   useEffect(() => {
     loadUsers();
@@ -139,12 +180,15 @@ export default function UsersTab() {
 
   // ── Handlers ─────────────────────────────────────────────────────────
 
+  // ── Create user handlers ───────────────────────────────────────────
+
   const handleOpenCreateDialog = () => {
     setFormData({
       email: '',
       username: '',
       full_name: '',
       password: generatePassword(),
+      confirmPassword: '',
       role_id: roles.find((r) => r.name === 'tecnico')?.id || roles[0]?.id || null,
     });
     setFormErrors({});
@@ -167,6 +211,12 @@ export default function UsersTab() {
     if (!formData.username.trim()) errors.username = 'El username es obligatorio';
     const pwdError = validatePassword(formData.password);
     if (pwdError) errors.password = pwdError;
+    // Validar confirmación de contraseña
+    if (!formData.confirmPassword) {
+      errors.confirmPassword = 'Debes confirmar la contraseña';
+    } else if (formData.password !== formData.confirmPassword) {
+      errors.confirmPassword = 'Las contraseñas no coinciden';
+    }
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -196,6 +246,68 @@ export default function UsersTab() {
       setSubmitting(false);
     }
   };
+
+  // ── Edit user handlers ────────────────────────────────────────────
+
+  const handleOpenEditDialog = (user) => {
+    setEditUser(user);
+    setEditFormData({
+      email: user.email || '',
+      username: user.username || '',
+      full_name: user.full_name || '',
+      role_id: user.role_id || null,
+    });
+    setEditFormErrors({});
+    setEditDialogOpen(true);
+  };
+
+  const handleEditInputChange = (field, value) => {
+    setEditFormData((prev) => ({ ...prev, [field]: value }));
+    if (editFormErrors[field]) {
+      setEditFormErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
+  };
+
+  const validateEditForm = () => {
+    const errors = {};
+    if (!editFormData.email.trim()) errors.email = 'El email es obligatorio';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editFormData.email)) {
+      errors.email = 'Email inválido';
+    }
+    if (!editFormData.username.trim()) errors.username = 'El username es obligatorio';
+    setEditFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleEditUser = async () => {
+    if (!validateEditForm() || !editUser) return;
+    setEditSubmitting(true);
+    try {
+      const payload = {
+        email: editFormData.email.trim(),
+        username: editFormData.username.trim(),
+        full_name: editFormData.full_name.trim() || undefined,
+        role_id: editFormData.role_id || undefined,
+      };
+      await usersService.updateUser(editUser.id, payload);
+      setEditDialogOpen(false);
+      setEditUser(null);
+      await loadUsers();
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      if (typeof detail === 'object' && detail?.message) {
+        alert(`Error: ${detail.message}`);
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        alert(`Error de validación: ${detail[0].msg}`);
+      } else {
+        alert(`Error: ${error.response?.data?.detail || error.message}`);
+      }
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  // ── Password reset (admin) ────────────────────────────────────────
 
   const handleResetPassword = (userId) => {
     setResetUserId(userId);
@@ -228,6 +340,8 @@ export default function UsersTab() {
     }
   };
 
+  // ── Toggle status & delete ────────────────────────────────────────
+
   const handleToggleStatus = async (user) => {
     try {
       await usersService.updateStatus(user.id, !user.is_active);
@@ -257,6 +371,44 @@ export default function UsersTab() {
     }
   };
 
+  // ── Password change (non-admin) ────────────────────────────────────
+
+  const handleOpenChangePassword = () => {
+    setPasswordForm({ newPassword: '', confirmPassword: '' });
+    setPasswordFormErrors({});
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+    setChangePasswordOpen(true);
+  };
+
+  const validatePasswordForm = () => {
+    const errors = {};
+    const pwdError = validatePassword(passwordForm.newPassword);
+    if (pwdError) errors.newPassword = pwdError;
+    if (!passwordForm.confirmPassword) {
+      errors.confirmPassword = 'Debes confirmar la contraseña';
+    } else if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      errors.confirmPassword = 'Las contraseñas no coinciden';
+    }
+    setPasswordFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleChangePassword = async () => {
+    if (!validatePasswordForm()) return;
+    setChangingPassword(true);
+    try {
+      // Usar el endpoint de reset-password con el propio usuario
+      await usersService.resetPassword(currentUser.id, passwordForm.newPassword);
+      alert('✅ Contraseña actualizada correctamente.');
+      setChangePasswordOpen(false);
+    } catch (error) {
+      alert(`Error al cambiar contraseña: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   // ── Filtered users ───────────────────────────────────────────────────
 
   const filteredUsers = users.filter((user) => {
@@ -269,7 +421,169 @@ export default function UsersTab() {
     );
   });
 
-  // ── Render ───────────────────────────────────────────────────────────
+  // ── Render: Non-admin view (solo su usuario + cambiar contraseña) ────
+
+  if (!isAdmin) {
+    const myUser = users.find((u) => u.id === currentUser?.id);
+
+    return (
+      <div className="space-y-4">
+        <Card className="bg-zinc-900/50 border-zinc-800">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-zinc-100 text-base flex items-center gap-2">
+              <Users className="h-4 w-4 text-emerald-500" />
+              Mi Usuario
+            </CardTitle>
+            <CardDescription className="text-zinc-500 text-xs">
+              Información de tu cuenta
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="text-center py-8 text-zinc-400 text-sm">Cargando información...</div>
+            ) : myUser ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
+                    <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Usuario</p>
+                    <p className="text-sm text-zinc-100 font-medium">{myUser.username}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
+                    <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Email</p>
+                    <p className="text-sm text-zinc-100">{myUser.email}</p>
+                  </div>
+                  {myUser.full_name && (
+                    <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
+                      <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Nombre Completo</p>
+                      <p className="text-sm text-zinc-100">{myUser.full_name}</p>
+                    </div>
+                  )}
+                  <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
+                    <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Rol</p>
+                    <p className="text-sm text-zinc-100 capitalize">{myUser.role?.name || 'Sin rol'}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
+                    <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Estado</p>
+                    <Badge
+                      className={`text-xs ${
+                        myUser.is_active
+                          ? 'bg-emerald-600/20 text-emerald-400 border-emerald-600'
+                          : 'bg-red-600/20 text-red-400 border-red-600'
+                      }`}
+                    >
+                      {myUser.is_active ? 'Activo' : 'Inactivo'}
+                    </Badge>
+                  </div>
+                  <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
+                    <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Último Acceso</p>
+                    <p className="text-sm text-zinc-100">{formatTimeAgo(myUser.last_login)}</p>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-zinc-800">
+                  <Button
+                    onClick={handleOpenChangePassword}
+                    className="bg-amber-600 hover:bg-amber-700"
+                    size="sm"
+                  >
+                    <Lock className="mr-2 h-4 w-4" />
+                    Cambiar mi contraseña
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-6 text-zinc-500 text-sm">
+                No se pudo cargar la información del usuario.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ═══ Dialog: Cambiar Contraseña (non-admin) ═══ */}
+        <Dialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-base">
+                <Lock className="h-5 w-5 text-amber-500" />
+                Cambiar mi Contraseña
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {/* Nueva Contraseña */}
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                  Nueva Contraseña *
+                </label>
+                <div className="relative">
+                  <Input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Mín. 8 caracteres, 1 mayúscula, 1 minúscula, 1 número"
+                    value={passwordForm.newPassword}
+                    onChange={(e) => {
+                      setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }));
+                      setPasswordFormErrors((prev) => ({ ...prev, newPassword: undefined }));
+                    }}
+                    className={`pr-10 ${passwordFormErrors.newPassword ? 'border-red-500' : ''}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                {passwordFormErrors.newPassword && (
+                  <p className="text-xs text-red-400 mt-1">{passwordFormErrors.newPassword}</p>
+                )}
+              </div>
+
+              {/* Confirmar Contraseña */}
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                  Confirmar Contraseña *
+                </label>
+                <div className="relative">
+                  <Input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    placeholder="Repite la contraseña"
+                    value={passwordForm.confirmPassword}
+                    onChange={(e) => {
+                      setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }));
+                      setPasswordFormErrors((prev) => ({ ...prev, confirmPassword: undefined }));
+                    }}
+                    className={`pr-10 ${passwordFormErrors.confirmPassword ? 'border-red-500' : ''}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
+                  >
+                    {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                {passwordFormErrors.confirmPassword && (
+                  <p className="text-xs text-red-400 mt-1">{passwordFormErrors.confirmPassword}</p>
+                )}
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setChangePasswordOpen(false)} disabled={changingPassword}>
+                Cancelar
+              </Button>
+              <Button onClick={handleChangePassword} disabled={changingPassword} className="bg-amber-600 hover:bg-amber-700">
+                {changingPassword ? 'Guardando...' : 'Cambiar Contraseña'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
+
+  // ── Render: Admin view (CRUD completo) ─────────────────────────────
 
   return (
     <div className="space-y-4">
@@ -387,6 +701,17 @@ export default function UsersTab() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {/* ✏️ Editar */}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleOpenEditDialog(user)}
+                            className="h-8 w-8 p-0 text-zinc-400 hover:text-zinc-100"
+                            title="Editar usuario"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          {/* 🔑 Resetear contraseña */}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -396,6 +721,7 @@ export default function UsersTab() {
                           >
                             <Key className="h-4 w-4" />
                           </Button>
+                          {/* Activar / Desactivar */}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -409,6 +735,7 @@ export default function UsersTab() {
                           >
                             {user.is_active ? <Ban className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
                           </Button>
+                          {/* 🗑️ Eliminar */}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -507,6 +834,21 @@ export default function UsersTab() {
               )}
             </div>
 
+            {/* Confirmar Contraseña */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">Confirmar Contraseña *</label>
+              <Input
+                type="password"
+                placeholder="Repite la contraseña"
+                value={formData.confirmPassword}
+                onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                className={formErrors.confirmPassword ? 'border-red-500' : ''}
+              />
+              {formErrors.confirmPassword && (
+                <p className="text-xs text-red-400 mt-1">{formErrors.confirmPassword}</p>
+              )}
+            </div>
+
             {/* Rol */}
             <div>
               <label className="block text-sm font-medium text-zinc-300 mb-1.5">Rol</label>
@@ -531,6 +873,88 @@ export default function UsersTab() {
             </Button>
             <Button onClick={handleCreateUser} disabled={submitting} className="bg-emerald-600 hover:bg-emerald-700">
               {submitting ? 'Creando...' : 'Crear Usuario'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══ Dialog: Editar Usuario ═══ */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Pencil className="h-5 w-5 text-blue-500" />
+              Editar Usuario: {editUser?.username}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Email */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">Email *</label>
+              <Input
+                type="email"
+                placeholder="usuario@emerald.com"
+                value={editFormData.email}
+                onChange={(e) => handleEditInputChange('email', e.target.value)}
+                className={editFormErrors.email ? 'border-red-500' : ''}
+              />
+              {editFormErrors.email && <p className="text-xs text-red-400 mt-1">{editFormErrors.email}</p>}
+            </div>
+
+            {/* Username */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">Username *</label>
+              <Input
+                type="text"
+                placeholder="usuario123"
+                value={editFormData.username}
+                onChange={(e) => handleEditInputChange('username', e.target.value)}
+                className={editFormErrors.username ? 'border-red-500' : ''}
+              />
+              {editFormErrors.username && <p className="text-xs text-red-400 mt-1">{editFormErrors.username}</p>}
+            </div>
+
+            {/* Nombre Completo */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">Nombre Completo</label>
+              <Input
+                type="text"
+                placeholder="Juan Pérez"
+                value={editFormData.full_name}
+                onChange={(e) => handleEditInputChange('full_name', e.target.value)}
+              />
+            </div>
+
+            {/* Rol */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">Rol</label>
+              <select
+                value={editFormData.role_id || ''}
+                onChange={(e) => handleEditInputChange('role_id', parseInt(e.target.value))}
+                className="flex h-10 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500"
+              >
+                {roles.length === 0 && <option value="">Cargando roles...</option>}
+                {roles.map((role) => (
+                  <option key={role.id} value={role.id}>
+                    {role.name.charAt(0).toUpperCase() + role.name.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEditDialogOpen(false)} disabled={editSubmitting}>
+              Cancelar
+            </Button>
+            <Button onClick={handleEditUser} disabled={editSubmitting} className="bg-blue-600 hover:bg-blue-700">
+              {editSubmitting ? 'Guardando...' : (
+                <>
+                  <Save className="mr-2 h-4 w-4" />
+                  Guardar Cambios
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
