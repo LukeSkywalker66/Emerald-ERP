@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from src.database import get_db
 from src.services.team_service import TeamService
+from src.services.audit_service import get_client_ip
 from src.core.security import get_current_user
 from src.models.coordination import Team, TeamMember, TeamRole
 from src.models.user import User
@@ -104,7 +105,7 @@ def create_team(
                 entity_name="teams",
                 entity_id=team.id,
                 new_values={"name": team.name, "vehicle_id": team.vehicle_id, "is_active": team.is_active},
-                ip_address=request.client.host if request.client else None,
+                ip_address=get_client_ip(request),
             )
         except Exception:
             pass
@@ -157,7 +158,7 @@ def update_team(
                 entity_id=team_id,
                 old_values=old_values,
                 new_values={"name": updated.name, "vehicle_id": updated.vehicle_id, "is_active": updated.is_active},
-                ip_address=request.client.host if request.client else None,
+                ip_address=get_client_ip(request),
             )
         except Exception:
             pass
@@ -211,7 +212,7 @@ def delete_team(
                 entity_name="teams",
                 entity_id=team_id,
                 old_values=old_values,
-                ip_address=request.client.host if request.client else None,
+                ip_address=get_client_ip(request),
             )
         except Exception:
             pass
@@ -268,7 +269,7 @@ def add_team_member(
                     "role": payload.role,
                     "user_name": member.user_name,
                 },
-                ip_address=request.client.host if request.client else None,
+                ip_address=get_client_ip(request),
             )
         except Exception:
             pass
@@ -330,7 +331,7 @@ def remove_team_member(
                     "user_id": user_id,
                     "role": old_member.role if old_member else None,
                 },
-                ip_address=request.client.host if request.client else None,
+                ip_address=get_client_ip(request),
             )
         except Exception:
             pass
@@ -390,7 +391,7 @@ def update_member_role(
                 entity_id=updated.id,
                 old_values={"team_id": team_id, "user_id": user_id, "role": old_role},
                 new_values={"team_id": team_id, "user_id": user_id, "role": role},
-                ip_address=request.client.host if request.client else None,
+                ip_address=get_client_ip(request),
             )
         except Exception:
             pass

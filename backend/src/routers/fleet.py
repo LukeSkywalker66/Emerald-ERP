@@ -7,7 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from src.database import get_db
-from src.core.security import get_current_user
+from src.core.security import get_current_user, require_admin
+from src.services.audit_service import get_client_ip
 from src.models.fleet import Vehicle, VehicleStatus, VehicleInspection
 from src.models.inventory import Warehouse, WarehouseType
 from src.models.coordination import Team
@@ -36,15 +37,6 @@ def _inspection_status_label(status_value: str) -> str:
     return labels.get(status_value, status_value)
 
 
-def _require_admin_or_operator(current_user: User = Depends(get_current_user)) -> User:
-    """Permite acceso solo a roles admin u operador."""
-    user_role = (current_user.role_name or "").lower()
-    if user_role not in {"admin", "operador", "operator"}:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Acceso denegado: se requiere rol admin u operador",
-        )
-    return current_user
 
 
 def _create_mobile_warehouse(db: Session, vehicle_name: str) -> Warehouse:
@@ -143,7 +135,7 @@ def create_vehicle(
                 "status": vehicle.status,
                 "warehouse_id": vehicle.warehouse_id,
             },
-            ip_address=request.client.host if request.client else None,
+            ip_address=get_client_ip(request),
         )
     except Exception:
         pass
@@ -320,7 +312,7 @@ def update_vehicle(
                 "name", "license_plate", "vehicle_brand", "vehicle_model",
                 "vehicle_year", "status",
             ]),
-            ip_address=request.client.host if request.client else None,
+            ip_address=get_client_ip(request),
         )
     except Exception:
         pass
@@ -377,7 +369,7 @@ def delete_vehicle(
             entity_name="vehicles",
             entity_id=vehicle_id,
             old_values=old_values,
-            ip_address=request.client.host if request.client else None,
+            ip_address=get_client_ip(request),
         )
     except Exception:
         pass
@@ -392,6 +384,7 @@ def delete_vehicle(
 )
 def create_vehicle_inspection(
     payload: VehicleInspectionCreate,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -517,58 +510,12 @@ def create_vehicle_inspection(
                 "damage_notes": inspection.damage_notes,
                 "status": inspection.status,
             },
+            ip_address=get_client_ip(request),
         )
     except Exception:
         pass
 
-    return VehicleInspectionResponse(
-        id=inspection.id,
-        vehicle_id=inspection.vehicle_id,
-        vehicle_name=vehicle.name,
-        technician_id=inspection.technician_id,
-        technician_name=(current_user.full_name or current_user.username),
-        inspection_date=inspection.inspection_date,
-        km_actual=inspection.km_actual,
-        mechanical_conditions=inspection.mechanical_conditions,
-        oil_level=inspection.oil_level,
-        water_level=inspection.water_level,
-        fuel_level=inspection.fuel_level,
-        brake_fluid_level=inspection.brake_fluid_level,
-        has_hydraulic_leaks=inspection.has_hydraulic_leaks,
-        pulls_to_one_side=inspection.pulls_to_one_side,
-        oil_leaks=inspection.oil_leaks,
-        hose_leaks=inspection.hose_leaks,
-        radiator_leaks=inspection.radiator_leaks,
-        low_beam_lights_ok=inspection.low_beam_lights_ok,
-        high_beam_lights_ok=inspection.high_beam_lights_ok,
-        hazard_lights_ok=inspection.hazard_lights_ok,
-        brake_lights_ok=inspection.brake_lights_ok,
-        position_lights_ok=inspection.position_lights_ok,
-        reverse_lights_ok=inspection.reverse_lights_ok,
-        fog_lights_ok=inspection.fog_lights_ok,
-        dashboard_indicators_on=inspection.dashboard_indicators_on,
-        reverse_alarm_ok=inspection.reverse_alarm_ok,
-        tires_cuts_or_bulges=inspection.tires_cuts_or_bulges,
-        has_spare_tire=inspection.has_spare_tire,
-        has_lug_wrench=inspection.has_lug_wrench,
-        has_jack=inspection.has_jack,
-        tires_pressure_ok_30psi=inspection.tires_pressure_ok_30psi,
-        seatbelts_all_ok=inspection.seatbelts_all_ok,
-        horn_ok=inspection.horn_ok,
-        mirrors_ok=inspection.mirrors_ok,
-        has_two_safety_cones=inspection.has_two_safety_cones,
-        fire_extinguisher_ok=inspection.fire_extinguisher_ok,
-        wipers_ok=inspection.wipers_ok,
-        water_level_ok=inspection.water_level_ok,
-        oil_level_ok=inspection.oil_level_ok,
-        tires_ok=inspection.tires_ok,
-        lights_ok=inspection.lights_ok,
-        cleanliness_ok=inspection.cleanliness_ok,
-        damage_notes=inspection.damage_notes,
-        status=inspection.status,
-        status_label=_inspection_status_label(inspection.status),
-        created_at=inspection.created_at,
-    )
+    return _build_inspection_response(inspection, vehicle_name=vehicle.name, technician_name=current_user.full_name or current_user.username)
 
 
 @inspection_router.get(
@@ -604,56 +551,7 @@ def get_today_vehicle_inspection(
             detail="No existe inspección para hoy",
         )
 
-    return VehicleInspectionResponse(
-        id=inspection.id,
-        vehicle_id=inspection.vehicle_id,
-        vehicle_name=vehicle.name,
-        technician_id=inspection.technician_id,
-        technician_name=(inspection.technician.full_name or inspection.technician.username)
-        if inspection.technician
-        else None,
-        inspection_date=inspection.inspection_date,
-        km_actual=inspection.km_actual,
-        mechanical_conditions=inspection.mechanical_conditions,
-        oil_level=inspection.oil_level,
-        water_level=inspection.water_level,
-        fuel_level=inspection.fuel_level,
-        brake_fluid_level=inspection.brake_fluid_level,
-        has_hydraulic_leaks=inspection.has_hydraulic_leaks,
-        pulls_to_one_side=inspection.pulls_to_one_side,
-        oil_leaks=inspection.oil_leaks,
-        hose_leaks=inspection.hose_leaks,
-        radiator_leaks=inspection.radiator_leaks,
-        low_beam_lights_ok=inspection.low_beam_lights_ok,
-        high_beam_lights_ok=inspection.high_beam_lights_ok,
-        hazard_lights_ok=inspection.hazard_lights_ok,
-        brake_lights_ok=inspection.brake_lights_ok,
-        position_lights_ok=inspection.position_lights_ok,
-        reverse_lights_ok=inspection.reverse_lights_ok,
-        fog_lights_ok=inspection.fog_lights_ok,
-        dashboard_indicators_on=inspection.dashboard_indicators_on,
-        reverse_alarm_ok=inspection.reverse_alarm_ok,
-        tires_cuts_or_bulges=inspection.tires_cuts_or_bulges,
-        has_spare_tire=inspection.has_spare_tire,
-        has_lug_wrench=inspection.has_lug_wrench,
-        has_jack=inspection.has_jack,
-        tires_pressure_ok_30psi=inspection.tires_pressure_ok_30psi,
-        seatbelts_all_ok=inspection.seatbelts_all_ok,
-        horn_ok=inspection.horn_ok,
-        mirrors_ok=inspection.mirrors_ok,
-        has_two_safety_cones=inspection.has_two_safety_cones,
-        fire_extinguisher_ok=inspection.fire_extinguisher_ok,
-        wipers_ok=inspection.wipers_ok,
-        water_level_ok=inspection.water_level_ok,
-        oil_level_ok=inspection.oil_level_ok,
-        tires_ok=inspection.tires_ok,
-        lights_ok=inspection.lights_ok,
-        cleanliness_ok=inspection.cleanliness_ok,
-        damage_notes=inspection.damage_notes,
-        status=inspection.status,
-        status_label=_inspection_status_label(inspection.status),
-        created_at=inspection.created_at,
-    )
+    return _build_inspection_response(inspection, vehicle_name=vehicle.name)
 
 
 @inspection_router.get(
@@ -663,7 +561,7 @@ def get_today_vehicle_inspection(
 def list_vehicle_inspections(
     vehicle_id: int | None = Query(default=None),
     inspection_date: date | None = Query(default=None),
-    authorized_user: User = Depends(_require_admin_or_operator),
+    authorized_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """Histórico de planillas de inspección (solo admin/operador)."""
@@ -679,56 +577,4 @@ def list_vehicle_inspections(
 
     inspections = db.execute(stmt).scalars().all()
 
-    return [
-        VehicleInspectionResponse(
-            id=item.id,
-            vehicle_id=item.vehicle_id,
-            vehicle_name=item.vehicle.name if item.vehicle else None,
-            technician_id=item.technician_id,
-            technician_name=(item.technician.full_name or item.technician.username)
-            if item.technician
-            else None,
-            inspection_date=item.inspection_date,
-            km_actual=item.km_actual,
-            mechanical_conditions=item.mechanical_conditions,
-            oil_level=item.oil_level,
-            water_level=item.water_level,
-            fuel_level=item.fuel_level,
-            brake_fluid_level=item.brake_fluid_level,
-            has_hydraulic_leaks=item.has_hydraulic_leaks,
-            pulls_to_one_side=item.pulls_to_one_side,
-            oil_leaks=item.oil_leaks,
-            hose_leaks=item.hose_leaks,
-            radiator_leaks=item.radiator_leaks,
-            low_beam_lights_ok=item.low_beam_lights_ok,
-            high_beam_lights_ok=item.high_beam_lights_ok,
-            hazard_lights_ok=item.hazard_lights_ok,
-            brake_lights_ok=item.brake_lights_ok,
-            position_lights_ok=item.position_lights_ok,
-            reverse_lights_ok=item.reverse_lights_ok,
-            fog_lights_ok=item.fog_lights_ok,
-            dashboard_indicators_on=item.dashboard_indicators_on,
-            reverse_alarm_ok=item.reverse_alarm_ok,
-            tires_cuts_or_bulges=item.tires_cuts_or_bulges,
-            has_spare_tire=item.has_spare_tire,
-            has_lug_wrench=item.has_lug_wrench,
-            has_jack=item.has_jack,
-            tires_pressure_ok_30psi=item.tires_pressure_ok_30psi,
-            seatbelts_all_ok=item.seatbelts_all_ok,
-            horn_ok=item.horn_ok,
-            mirrors_ok=item.mirrors_ok,
-            has_two_safety_cones=item.has_two_safety_cones,
-            fire_extinguisher_ok=item.fire_extinguisher_ok,
-            wipers_ok=item.wipers_ok,
-            water_level_ok=item.water_level_ok,
-            oil_level_ok=item.oil_level_ok,
-            tires_ok=item.tires_ok,
-            lights_ok=item.lights_ok,
-            cleanliness_ok=item.cleanliness_ok,
-            damage_notes=item.damage_notes,
-            status=item.status,
-            status_label=_inspection_status_label(item.status),
-            created_at=item.created_at,
-        )
-        for item in inspections
-    ]
+    return [_build_inspection_response(item) for item in inspections]

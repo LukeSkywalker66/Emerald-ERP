@@ -35,6 +35,7 @@ const CuadrillasPage = () => {
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [vehicles, setVehicles] = useState([]);
+  const [loadingVehicles, setLoadingVehicles] = useState(false);
 
   // ========== EFFECTS ==========
 
@@ -163,6 +164,7 @@ const CuadrillasPage = () => {
    */
   const loadVehicles = async () => {
     try {
+      setLoadingVehicles(true);
       const data = await fleetService.getVehicles({ status: 'ACTIVE' });
       const list = Array.isArray(data) ? data.map(v => ({
         id: v.id,
@@ -181,6 +183,8 @@ const CuadrillasPage = () => {
       setVehicles(list);
     } catch (err) {
       console.error('Error loading vehicles:', err);
+    } finally {
+      setLoadingVehicles(false);
     }
   };
 
