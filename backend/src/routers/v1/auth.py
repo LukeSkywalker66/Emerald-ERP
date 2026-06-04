@@ -232,8 +232,10 @@ def get_current_user_info(
 def change_password(
     old_password: str,
     new_password: str,
+    request: Request,
     current_user: User = Depends(get_current_user),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
+    db: Session = Depends(get_db),
 ):
     """Endpoint para cambiar el password del usuario actual."""
     try:
@@ -242,6 +244,26 @@ def change_password(
             old_password=old_password,
             new_password=new_password
         )
+
+        # 🔒 AUDIT LOG: Registrar cambio de contraseña (self-service)
+        try:
+            from src.utils.audit import log_update
+            from src.services.audit_service import get_client_ip
+            log_update(
+                db=db,
+                user_id=current_user.id,
+                entity_name="users",
+                entity_id=current_user.id,
+                old_values={"password": "***"},
+                new_values={
+                    "password_changed": True,
+                    "method": "self_service",
+                    "ip_address": get_client_ip(request),
+                }
+            )
+        except Exception as audit_error:
+            logger.error(f"❌ [AUDIT] Error al registrar cambio de contraseña del usuario {current_user.id}: {audit_error}")
+
         return {"message": "Password cambiado exitosamente"}
     except ValueError as e:
         raise HTTPException(

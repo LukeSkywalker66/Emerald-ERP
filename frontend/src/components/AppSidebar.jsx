@@ -483,8 +483,12 @@ export function AppSidebar() {
                     .filter((item) => {
                       // Si no hay recurso definido, mostrar siempre
                       if (!item.resource) return true;
-                      // Si hay recurso, verificar permiso
-                      return user && hasPermission(user.role, item.resource, 'view');
+                      // Verificar permiso primario del recurso
+                      const hasResourceAccess = user && hasPermission(user.role, item.resource, 'view');
+                      // Fallback: si el recurso es "settings" y tiene self_service, mostrar igual
+                      // (permite a no-admins acceder a su auto-gestión de perfil)
+                      const hasSelfServiceFallback = item.resource === 'settings' && user && hasPermission(user.role, 'self_service', 'view');
+                      return hasResourceAccess || hasSelfServiceFallback;
                     })
                     .map((item) => {
                     const Icon = item.icon;

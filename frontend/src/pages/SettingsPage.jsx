@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useAuth } from '@/context/AuthContext';
 import {
   Settings,
   Save,
@@ -73,7 +74,17 @@ function parseWorkHours(value) {
 // ─── Component ──────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState('general');
+  const { user: currentUser } = useAuth();
+
+  // Determinar si el usuario tiene permisos de administración plenos
+  const isAdmin = useMemo(
+    () => currentUser?.is_superuser || currentUser?.role === 'admin' || currentUser?.role === 'superadmin',
+    [currentUser]
+  );
+
+  // Si no es admin, forzar la pestaña de usuarios (única que puede ver)
+  const defaultTab = isAdmin ? 'general' : 'users';
+  const [activeTab, setActiveTab] = useState(defaultTab);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -220,7 +231,9 @@ export default function SettingsPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-white">Ajustes</h1>
-            <p className="text-sm text-zinc-400">Configuración general del sistema</p>
+            <p className="text-sm text-zinc-400">
+              {isAdmin ? 'Configuración general del sistema' : 'Gestión de tu cuenta'}
+            </p>
           </div>
         </div>
       </div>
@@ -238,190 +251,198 @@ export default function SettingsPage() {
         </Alert>
       )}
 
-      {/* Tabs */}
+      {/* Tabs: admin ve todas, no-admin solo Usuarios (auto-gestión) */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="w-full sm:w-auto flex-wrap">
-          <TabsTrigger value="general" className="flex items-center gap-2">
-            <Globe size={16} />
-            General
-          </TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="general" className="flex items-center gap-2">
+              <Globe size={16} />
+              General
+            </TabsTrigger>
+          )}
           <TabsTrigger value="users" className="flex items-center gap-2">
             <Users size={16} />
             Usuarios
           </TabsTrigger>
-          <TabsTrigger value="tasks" className="flex items-center gap-2">
-            <CalendarClock size={16} />
-            Tareas Programadas
-          </TabsTrigger>
-          <TabsTrigger value="monitors" className="flex items-center gap-2">
-            <Activity size={16} />
-            Monitores de Servicio
-          </TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="tasks" className="flex items-center gap-2">
+              <CalendarClock size={16} />
+              Tareas Programadas
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="monitors" className="flex items-center gap-2">
+              <Activity size={16} />
+              Monitores de Servicio
+            </TabsTrigger>
+          )}
         </TabsList>
 
-        {/* ═══ General Tab ═══ */}
-        <TabsContent value="general" className="space-y-6">
-          <div>
-            <h2 className="text-xl font-bold text-zinc-50 mb-6">Configuración General</h2>
+        {/* ═══ General Tab (solo admin) ═══ */}
+        {isAdmin && (
+          <TabsContent value="general" className="space-y-6">
+            <div>
+              <h2 className="text-xl font-bold text-zinc-50 mb-6">Configuración General</h2>
 
-            <div className="space-y-4">
-              {/* Company Name */}
-              <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-4">
-                <label className="block text-zinc-300 text-sm font-medium mb-2 flex items-center gap-2">
-                  <Building2 size={16} className="text-zinc-500" />
-                  Nombre de la Empresa
-                </label>
-                <Input
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="2F INTERNET ARGENTINA S.A."
-                />
-                <p className="text-zinc-500 text-xs mt-2">
-                  Nombre que se mostrará en la interfaz y reportes del sistema.
-                </p>
-              </div>
-
-              {/* Logo URL */}
-              <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-4">
-                <label className="block text-zinc-300 text-sm font-medium mb-2 flex items-center gap-2">
-                  <Image size={16} className="text-zinc-500" />
-                  URL del Logo
-                </label>
-                <Input
-                  value={logoUrl}
-                  onChange={(e) => setLogoUrl(e.target.value)}
-                  placeholder="https://ejemplo.com/logo.png"
-                />
-                <p className="text-zinc-500 text-xs mt-2">
-                  URL pública del logo de la empresa. Se mostrará en el sidebar y login.
-                </p>
-                {logoUrl && (
-                  <div className="mt-3 flex items-center gap-3 p-2 rounded bg-zinc-900/50 border border-zinc-800/50">
-                    <img
-                      src={logoUrl}
-                      alt="Logo preview"
-                      className="h-10 w-10 object-contain rounded"
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                      }}
-                    />
-                    <span className="text-xs text-zinc-500">Vista previa</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Work Hours */}
-              <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-4">
-                <label className="block text-zinc-300 text-sm font-medium mb-3 flex items-center gap-2">
-                  <Clock size={16} className="text-zinc-500" />
-                  Horario de Visitas Técnicas
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Morning */}
-                  <div className="space-y-2 p-3 rounded-lg bg-zinc-900/30 border border-zinc-800/50">
-                    <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Turno Mañana</p>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1">
-                        <label className="block text-xs text-zinc-500 mb-1">Inicio</label>
-                        <Input
-                          type="time"
-                          value={workHours.morning_start}
-                          onChange={(e) => handleWorkHourChange('morning_start', e.target.value)}
-                        />
-                      </div>
-                      <span className="text-zinc-600 mt-6">→</span>
-                      <div className="flex-1">
-                        <label className="block text-xs text-zinc-500 mb-1">Fin</label>
-                        <Input
-                          type="time"
-                          value={workHours.morning_end}
-                          onChange={(e) => handleWorkHourChange('morning_end', e.target.value)}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Afternoon */}
-                  <div className="space-y-2 p-3 rounded-lg bg-zinc-900/30 border border-zinc-800/50">
-                    <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Turno Tarde</p>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1">
-                        <label className="block text-xs text-zinc-500 mb-1">Inicio</label>
-                        <Input
-                          type="time"
-                          value={workHours.afternoon_start}
-                          onChange={(e) => handleWorkHourChange('afternoon_start', e.target.value)}
-                        />
-                      </div>
-                      <span className="text-zinc-600 mt-6">→</span>
-                      <div className="flex-1">
-                        <label className="block text-xs text-zinc-500 mb-1">Fin</label>
-                        <Input
-                          type="time"
-                          value={workHours.afternoon_end}
-                          onChange={(e) => handleWorkHourChange('afternoon_end', e.target.value)}
-                        />
-                      </div>
-                    </div>
-                  </div>
+              <div className="space-y-4">
+                {/* Company Name */}
+                <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-4">
+                  <label className="block text-zinc-300 text-sm font-medium mb-2 flex items-center gap-2">
+                    <Building2 size={16} className="text-zinc-500" />
+                    Nombre de la Empresa
+                  </label>
+                  <Input
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    placeholder="2F INTERNET ARGENTINA S.A."
+                  />
+                  <p className="text-zinc-500 text-xs mt-2">
+                    Nombre que se mostrará en la interfaz y reportes del sistema.
+                  </p>
                 </div>
-                <p className="text-zinc-500 text-xs mt-3">
-                  Define el horario de visitas técnicas. Este horario determina cómo se separan los turnos mañana/tarde en la grilla de coordinación.
-                </p>
+
+                {/* Logo URL */}
+                <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-4">
+                  <label className="block text-zinc-300 text-sm font-medium mb-2 flex items-center gap-2">
+                    <Image size={16} className="text-zinc-500" />
+                    URL del Logo
+                  </label>
+                  <Input
+                    value={logoUrl}
+                    onChange={(e) => setLogoUrl(e.target.value)}
+                    placeholder="https://ejemplo.com/logo.png"
+                  />
+                  <p className="text-zinc-500 text-xs mt-2">
+                    URL pública del logo de la empresa. Se mostrará en el sidebar y login.
+                  </p>
+                  {logoUrl && (
+                    <div className="mt-3 flex items-center gap-3 p-2 rounded bg-zinc-900/50 border border-zinc-800/50">
+                      <img
+                        src={logoUrl}
+                        alt="Logo preview"
+                        className="h-10 w-10 object-contain rounded"
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                        }}
+                      />
+                      <span className="text-xs text-zinc-500">Vista previa</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Work Hours */}
+                <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-4">
+                  <label className="block text-zinc-300 text-sm font-medium mb-3 flex items-center gap-2">
+                    <Clock size={16} className="text-zinc-500" />
+                    Horario de Visitas Técnicas
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Morning */}
+                    <div className="space-y-2 p-3 rounded-lg bg-zinc-900/30 border border-zinc-800/50">
+                      <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Turno Mañana</p>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <label className="block text-xs text-zinc-500 mb-1">Inicio</label>
+                          <Input
+                            type="time"
+                            value={workHours.morning_start}
+                            onChange={(e) => handleWorkHourChange('morning_start', e.target.value)}
+                          />
+                        </div>
+                        <span className="text-zinc-600 mt-6">→</span>
+                        <div className="flex-1">
+                          <label className="block text-xs text-zinc-500 mb-1">Fin</label>
+                          <Input
+                            type="time"
+                            value={workHours.morning_end}
+                            onChange={(e) => handleWorkHourChange('morning_end', e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Afternoon */}
+                    <div className="space-y-2 p-3 rounded-lg bg-zinc-900/30 border border-zinc-800/50">
+                      <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Turno Tarde</p>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <label className="block text-xs text-zinc-500 mb-1">Inicio</label>
+                          <Input
+                            type="time"
+                            value={workHours.afternoon_start}
+                            onChange={(e) => handleWorkHourChange('afternoon_start', e.target.value)}
+                          />
+                        </div>
+                        <span className="text-zinc-600 mt-6">→</span>
+                        <div className="flex-1">
+                          <label className="block text-xs text-zinc-500 mb-1">Fin</label>
+                          <Input
+                            type="time"
+                            value={workHours.afternoon_end}
+                            onChange={(e) => handleWorkHourChange('afternoon_end', e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-zinc-500 text-xs mt-3">
+                    Define el horario de visitas técnicas. Este horario determina cómo se separan los turnos mañana/tarde en la grilla de coordinación.
+                  </p>
+                </div>
+
+                {/* Timezone */}
+                <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-4">
+                  <label className="block text-zinc-300 text-sm font-medium mb-2 flex items-center gap-2">
+                    <Globe size={16} className="text-zinc-500" />
+                    Zona Horaria
+                  </label>
+                  <Select value={timezone} onValueChange={setTimezone}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Seleccionar zona horaria" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TIMEZONE_OPTIONS.map((tz) => (
+                        <SelectItem key={tz.value} value={tz.value}>
+                          {tz.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-zinc-500 text-xs mt-2">
+                    Zona horaria del sistema. Afecta los registros de tiempo y programación de tareas.
+                  </p>
+                </div>
               </div>
 
-              {/* Timezone */}
-              <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-4">
-                <label className="block text-zinc-300 text-sm font-medium mb-2 flex items-center gap-2">
-                  <Globe size={16} className="text-zinc-500" />
-                  Zona Horaria
-                </label>
-                <Select value={timezone} onValueChange={setTimezone}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Seleccionar zona horaria" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIMEZONE_OPTIONS.map((tz) => (
-                      <SelectItem key={tz.value} value={tz.value}>
-                        {tz.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-zinc-500 text-xs mt-2">
-                  Zona horaria del sistema. Afecta los registros de tiempo y programación de tareas.
-                </p>
+              {/* Save Button */}
+              <div className="mt-6 flex items-center gap-3">
+                <Button
+                  variant="primary"
+                  onClick={handleSaveGeneral}
+                  disabled={saving}
+                  className="flex items-center gap-2"
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Guardando...
+                    </>
+                  ) : (
+                    <>
+                      <Save size={16} />
+                      Guardar Cambios
+                    </>
+                  )}
+                </Button>
+                <Button variant="outline" onClick={loadSettings} disabled={saving}>
+                  Descartar cambios
+                </Button>
               </div>
             </div>
+          </TabsContent>
+        )}
 
-            {/* Save Button */}
-            <div className="mt-6 flex items-center gap-3">
-              <Button
-                variant="primary"
-                onClick={handleSaveGeneral}
-                disabled={saving}
-                className="flex items-center gap-2"
-              >
-                {saving ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Guardando...
-                  </>
-                ) : (
-                  <>
-                    <Save size={16} />
-                    Guardar Cambios
-                  </>
-                )}
-              </Button>
-              <Button variant="outline" onClick={loadSettings} disabled={saving}>
-                Descartar cambios
-              </Button>
-            </div>
-          </div>
-        </TabsContent>
-
-        {/* ═══ Users Tab ═══ */}
+        {/* ═══ Users Tab (todos los roles) ═══ */}
         <TabsContent value="users" className="space-y-6">
           <div>
             <h2 className="text-xl font-bold text-zinc-50 mb-6">Gestión de Usuarios</h2>
@@ -429,21 +450,25 @@ export default function SettingsPage() {
           </div>
         </TabsContent>
 
-        {/* ═══ Scheduled Tasks Tab ═══ */}
-        <TabsContent value="tasks" className="space-y-6">
-          <div>
-            <h2 className="text-xl font-bold text-zinc-50 mb-6">Tareas Programadas</h2>
-            <ScheduledTasksTab />
-          </div>
-        </TabsContent>
+        {/* ═══ Scheduled Tasks Tab (solo admin) ═══ */}
+        {isAdmin && (
+          <TabsContent value="tasks" className="space-y-6">
+            <div>
+              <h2 className="text-xl font-bold text-zinc-50 mb-6">Tareas Programadas</h2>
+              <ScheduledTasksTab />
+            </div>
+          </TabsContent>
+        )}
 
-        {/* ═══ Service Monitors Tab ═══ */}
-        <TabsContent value="monitors" className="space-y-6">
-          <div>
-            <h2 className="text-xl font-bold text-zinc-50 mb-6">Monitores de Servicio</h2>
-            <MonitorsTab />
-          </div>
-        </TabsContent>
+        {/* ═══ Service Monitors Tab (solo admin) ═══ */}
+        {isAdmin && (
+          <TabsContent value="monitors" className="space-y-6">
+            <div>
+              <h2 className="text-xl font-bold text-zinc-50 mb-6">Monitores de Servicio</h2>
+              <MonitorsTab />
+            </div>
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

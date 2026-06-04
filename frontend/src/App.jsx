@@ -88,7 +88,12 @@ const AppRoutes = () => (
         <Route path="inventory/movements" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><MovementsHistory /></RoleGuard>} />
         <Route path="inventory/alerts" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><StockAlerts /></RoleGuard>} />
         
-        <Route path="settings" element={<RoleGuard resource="settings"><SettingsPage /></RoleGuard>} />
+        {/*
+          Settings route: permisivo por RBAC con self_service (todo usuario autenticado).
+          SettingsPage internamente decide qué tabs mostrar según el rol del usuario
+          (admin → CRUD completo, no-admin → solo auto-gestión de contraseña)
+        */}
+        <Route path="settings" element={<RoleGuard resource="self_service"><SettingsPage /></RoleGuard>} />
         
         {/* Audit Module Routes (Admin Only) */}
         <Route path="audit" element={<RoleGuard resource="audit_logs"><AuditLogsPage /></RoleGuard>} />

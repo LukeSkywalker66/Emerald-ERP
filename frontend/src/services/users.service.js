@@ -59,6 +59,18 @@ const usersService = {
   },
 
   /**
+   * Cambiar la contraseña del usuario actual (self-service, requiere contraseña actual)
+   * @param {string} oldPassword - Contraseña actual
+   * @param {string} newPassword - Nueva contraseña
+   */
+  async changeMyPassword(oldPassword, newPassword) {
+    const response = await api.post('/v1/auth/change-password', null, {
+      params: { old_password: oldPassword, new_password: newPassword },
+    });
+    return response.data;
+  },
+
+  /**
    * Eliminar permanentemente un usuario (solo sin historial)
    */
   async deleteUser(userId) {

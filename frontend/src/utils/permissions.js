@@ -203,6 +203,18 @@ const PERMISSIONS_MATRIX = {
       'tecnico': false, // TODO: definir si técnico puede ver clientes
     },
   },
+
+  // Auto-gestión de perfil (cambiar contraseña, ver info propia)
+  // Accesible para TODO usuario autenticado, independientemente de su rol
+  'self_service': {
+    actions: ['view', 'edit'],
+    roleWhitelist: {
+      'admin': true,
+      'operator': true,
+      'coordinator': true,
+      'tecnico': true,
+    },
+  },
 };
 
 const ROLE_ALIAS = {

@@ -115,9 +115,15 @@ export default function UsersTab() {
   const [editSubmitting, setEditSubmitting] = useState(false);
 
   useEffect(() => {
-    loadUsers();
+    // Solo los administradores necesitan cargar la lista completa de usuarios
+    if (isAdmin) {
+      loadUsers();
+    } else {
+      // No-admin no necesita llamar a la API, su info viene del contexto
+      setLoading(false);
+    }
     loadRoles();
-  }, []);
+  }, [isAdmin]);
 
   const loadRoles = async () => {
     try {
@@ -398,8 +404,8 @@ export default function UsersTab() {
     if (!validatePasswordForm()) return;
     setChangingPassword(true);
     try {
-      // Usar el endpoint de reset-password con el propio usuario
-      await usersService.resetPassword(currentUser.id, passwordForm.newPassword);
+      // Usar el endpoint de self-service con contraseña actual
+      await usersService.changeMyPassword(passwordForm.currentPassword, passwordForm.newPassword);
       alert('✅ Contraseña actualizada correctamente.');
       setChangePasswordOpen(false);
     } catch (error) {
@@ -424,7 +430,17 @@ export default function UsersTab() {
   // ── Render: Non-admin view (solo su usuario + cambiar contraseña) ────
 
   if (!isAdmin) {
-    const myUser = users.find((u) => u.id === currentUser?.id);
+    // Usar datos del contexto Auth (JWT) ya que no se carga la lista completa de usuarios
+    const myUser = users.find((u) => u.id === currentUser?.id) || {
+      id: currentUser?.id,
+      username: currentUser?.username,
+      email: currentUser?.email,
+      full_name: currentUser?.full_name,
+      is_active: true,
+      is_superuser: currentUser?.is_superuser,
+      last_login: null,
+      role: currentUser?.role ? { name: currentUser.role } : null,
+    };
 
     return (
       <div className="space-y-4">
@@ -510,6 +526,23 @@ export default function UsersTab() {
             </DialogHeader>
 
             <div className="space-y-4">
+              {/* Contraseña Actual */}
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                  Contraseña Actual *
+                </label>
+                <div className="relative">
+                  <Input
+                    type="password"
+                    placeholder="Tu contraseña actual"
+                    value={passwordForm.currentPassword}
+                    onChange={(e) => {
+                      setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }));
+                    }}
+                  />
+                </div>
+              </div>
+
               {/* Nueva Contraseña */}
               <div>
                 <label className="block text-sm font-medium text-zinc-300 mb-1.5">
