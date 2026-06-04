@@ -1,6 +1,8 @@
 # Handoff: Ejecución de Blanqueo + Migración Legacy Hesk
 
 > **Creado:** 2026-06-04
+> **Última actualización:** 2026-06-04 (sesión de ejecución)
+> **Estado:** ✅ Blanqueo completado en desarrollo. Pendiente migración Hesk.
 > **Propósito:** Documento de contexto para que una nueva sesión de Zoocode ejecute el proceso completo de blanqueo de base de datos y migración de tickets legacy Hesk hacia Emerald ERP.
 
 ---
