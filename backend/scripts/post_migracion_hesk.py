@@ -101,7 +101,8 @@ WHERE t.id IN (
 
 STAGE4_SQL = """
 UPDATE tickets t
-SET created_at = subq.fecha_original
+SET created_at = subq.fecha_original,
+    updated_at = subq.fecha_original
 FROM (
     SELECT t2.id,
            (tl.meta_data->'thread'->0->>'date')::timestamp AT TIME ZONE 'UTC' AS fecha_original
@@ -120,9 +121,9 @@ SELECT
     'note',
     -- Concatenar el nombre del autor legacy en el texto de la nota
     CASE
-        WHEN reply->>'author' IS NOT NULL AND reply->>'author' != ''
-        THEN reply->>'author' || ' escribió: ' || reply->>'body'
-        ELSE reply->>'body'
+        WHEN reply->>'author' IS NOT NULL AND reply->>'author'::text != ''
+        THEN CONCAT(reply->>'author'::text, ' escribió: ', reply->>'body'::text)
+        ELSE reply->>'body'::text
     END,
     jsonb_build_object(
         'source', 'legacy_reply',
