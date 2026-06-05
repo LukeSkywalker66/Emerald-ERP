@@ -55,17 +55,13 @@ import { formatTimeAgo, isUserOnline } from '@/utils/time';
 import { useAuth } from '@/context/AuthContext';
 
 export default function UsersTab() {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, authReady } = useAuth();
+
+  // ═══ TODOS los hooks useState/useEffect ANTES de cualquier early return ═══
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-
-  // ── Determinar si el usuario actual es administrador ──
-  const isAdmin =
-    currentUser?.is_superuser ||
-    currentUser?.role === 'admin' ||
-    currentUser?.role === 'superadmin';
 
   // Dialog states
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -85,12 +81,18 @@ export default function UsersTab() {
   const [passwordFormErrors, setPasswordFormErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
+  const [showCreateConfirmPassword, setShowCreateConfirmPassword] = useState(false);
+  const [showResetCustomPassword, setShowResetCustomPassword] = useState(false);
+  const [showResetCustomConfirmPassword, setShowResetCustomConfirmPassword] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
 
   const [resetUserId, setResetUserId] = useState(null);
   const [resetPasswordMode, setResetPasswordMode] = useState('auto');
   const [customResetPassword, setCustomResetPassword] = useState('');
+  const [customResetConfirmPassword, setCustomResetConfirmPassword] = useState('');
   const [resetPasswordError, setResetPasswordError] = useState('');
+  const [resetConfirmPasswordError, setResetConfirmPasswordError] = useState('');
 
   const [roles, setRoles] = useState([]);
   const [formData, setFormData] = useState({
@@ -113,6 +115,25 @@ export default function UsersTab() {
   });
   const [editFormErrors, setEditFormErrors] = useState({});
   const [editSubmitting, setEditSubmitting] = useState(false);
+
+  // ── Determinar si el usuario actual es administrador ──
+  const isAdmin =
+    currentUser?.is_superuser ||
+    currentUser?.role === 'admin' ||
+    currentUser?.role === 'superadmin';
+
+
+  // No renderizar contenido hasta que AuthContext haya hidratado el usuario
+  if (!authReady || !currentUser) {
+    return (
+      <div className="flex items-center justify-center min-h-[200px]">
+        <div className="flex flex-col items-center gap-3 text-zinc-400">
+          <div className="animate-spin w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full" />
+          <p className="text-sm">Cargando información del usuario...</p>
+        </div>
+      </div>
+    );
+  }
 
   useEffect(() => {
     // Solo los administradores necesitan cargar la lista completa de usuarios
@@ -317,23 +338,32 @@ export default function UsersTab() {
 
   const handleResetPassword = (userId) => {
     setResetUserId(userId);
-    setResetPasswordMode('auto');
     setCustomResetPassword('');
+    setCustomResetConfirmPassword('');
     setResetPasswordError('');
+    setResetConfirmPasswordError('');
+    setShowResetCustomPassword(false);
+    setShowResetCustomConfirmPassword(false);
     setResetDialogOpen(true);
   };
 
   const handleConfirmResetPassword = async () => {
-    if (resetPasswordMode === 'custom') {
-      const pwdError = validatePassword(customResetPassword);
-      if (pwdError) {
-        setResetPasswordError(pwdError);
-        return;
-      }
+    // Validar contraseña
+    const pwdError = validatePassword(customResetPassword);
+    if (pwdError) {
+      setResetPasswordError(pwdError);
+      return;
+    }
+    if (!customResetConfirmPassword) {
+      setResetConfirmPasswordError('Debes confirmar la contraseña');
+      return;
+    }
+    if (customResetPassword !== customResetConfirmPassword) {
+      setResetConfirmPasswordError('Las contraseñas no coinciden');
+      return;
     }
     try {
-      const password = resetPasswordMode === 'auto' ? null : customResetPassword;
-      const result = await usersService.resetPassword(resetUserId, password);
+      const result = await usersService.resetPassword(resetUserId, customResetPassword);
       const tempPassword = result?.temporary_password || result?.new_password;
       if (tempPassword) {
         alert(`✅ Contraseña temporal: ${tempPassword}\n\nEntrégala al usuario. Se recomienda cambiar al primer inicio de sesión.`);
@@ -380,7 +410,7 @@ export default function UsersTab() {
   // ── Password change (non-admin) ────────────────────────────────────
 
   const handleOpenChangePassword = () => {
-    setPasswordForm({ newPassword: '', confirmPassword: '' });
+    setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
     setPasswordFormErrors({});
     setShowPassword(false);
     setShowConfirmPassword(false);
@@ -427,198 +457,9 @@ export default function UsersTab() {
     );
   });
 
-  // ── Render: Non-admin view (solo su usuario + cambiar contraseña) ────
+  // ── Render: Conditional view based on isAdmin ───────────────────────
 
-  if (!isAdmin) {
-    // Usar datos del contexto Auth (JWT) ya que no se carga la lista completa de usuarios
-    const myUser = users.find((u) => u.id === currentUser?.id) || {
-      id: currentUser?.id,
-      username: currentUser?.username,
-      email: currentUser?.email,
-      full_name: currentUser?.full_name,
-      is_active: true,
-      is_superuser: currentUser?.is_superuser,
-      last_login: null,
-      role: currentUser?.role ? { name: currentUser.role } : null,
-    };
-
-    return (
-      <div className="space-y-4">
-        <Card className="bg-zinc-900/50 border-zinc-800">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-zinc-100 text-base flex items-center gap-2">
-              <Users className="h-4 w-4 text-emerald-500" />
-              Mi Usuario
-            </CardTitle>
-            <CardDescription className="text-zinc-500 text-xs">
-              Información de tu cuenta
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="text-center py-8 text-zinc-400 text-sm">Cargando información...</div>
-            ) : myUser ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
-                    <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Usuario</p>
-                    <p className="text-sm text-zinc-100 font-medium">{myUser.username}</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
-                    <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Email</p>
-                    <p className="text-sm text-zinc-100">{myUser.email}</p>
-                  </div>
-                  {myUser.full_name && (
-                    <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
-                      <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Nombre Completo</p>
-                      <p className="text-sm text-zinc-100">{myUser.full_name}</p>
-                    </div>
-                  )}
-                  <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
-                    <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Rol</p>
-                    <p className="text-sm text-zinc-100 capitalize">{myUser.role?.name || 'Sin rol'}</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
-                    <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Estado</p>
-                    <Badge
-                      className={`text-xs ${
-                        myUser.is_active
-                          ? 'bg-emerald-600/20 text-emerald-400 border-emerald-600'
-                          : 'bg-red-600/20 text-red-400 border-red-600'
-                      }`}
-                    >
-                      {myUser.is_active ? 'Activo' : 'Inactivo'}
-                    </Badge>
-                  </div>
-                  <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
-                    <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Último Acceso</p>
-                    <p className="text-sm text-zinc-100">{formatTimeAgo(myUser.last_login)}</p>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-zinc-800">
-                  <Button
-                    onClick={handleOpenChangePassword}
-                    className="bg-amber-600 hover:bg-amber-700"
-                    size="sm"
-                  >
-                    <Lock className="mr-2 h-4 w-4" />
-                    Cambiar mi contraseña
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-6 text-zinc-500 text-sm">
-                No se pudo cargar la información del usuario.
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* ═══ Dialog: Cambiar Contraseña (non-admin) ═══ */}
-        <Dialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-base">
-                <Lock className="h-5 w-5 text-amber-500" />
-                Cambiar mi Contraseña
-              </DialogTitle>
-            </DialogHeader>
-
-            <div className="space-y-4">
-              {/* Contraseña Actual */}
-              <div>
-                <label className="block text-sm font-medium text-zinc-300 mb-1.5">
-                  Contraseña Actual *
-                </label>
-                <div className="relative">
-                  <Input
-                    type="password"
-                    placeholder="Tu contraseña actual"
-                    value={passwordForm.currentPassword}
-                    onChange={(e) => {
-                      setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }));
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Nueva Contraseña */}
-              <div>
-                <label className="block text-sm font-medium text-zinc-300 mb-1.5">
-                  Nueva Contraseña *
-                </label>
-                <div className="relative">
-                  <Input
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Mín. 8 caracteres, 1 mayúscula, 1 minúscula, 1 número"
-                    value={passwordForm.newPassword}
-                    onChange={(e) => {
-                      setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }));
-                      setPasswordFormErrors((prev) => ({ ...prev, newPassword: undefined }));
-                    }}
-                    className={`pr-10 ${passwordFormErrors.newPassword ? 'border-red-500' : ''}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
-                  >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-                {passwordFormErrors.newPassword && (
-                  <p className="text-xs text-red-400 mt-1">{passwordFormErrors.newPassword}</p>
-                )}
-              </div>
-
-              {/* Confirmar Contraseña */}
-              <div>
-                <label className="block text-sm font-medium text-zinc-300 mb-1.5">
-                  Confirmar Contraseña *
-                </label>
-                <div className="relative">
-                  <Input
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    placeholder="Repite la contraseña"
-                    value={passwordForm.confirmPassword}
-                    onChange={(e) => {
-                      setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }));
-                      setPasswordFormErrors((prev) => ({ ...prev, confirmPassword: undefined }));
-                    }}
-                    className={`pr-10 ${passwordFormErrors.confirmPassword ? 'border-red-500' : ''}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
-                  >
-                    {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-                {passwordFormErrors.confirmPassword && (
-                  <p className="text-xs text-red-400 mt-1">{passwordFormErrors.confirmPassword}</p>
-                )}
-              </div>
-            </div>
-
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setChangePasswordOpen(false)} disabled={changingPassword}>
-                Cancelar
-              </Button>
-              <Button onClick={handleChangePassword} disabled={changingPassword} className="bg-amber-600 hover:bg-amber-700">
-                {changingPassword ? 'Guardando...' : 'Cambiar Contraseña'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-    );
-  }
-
-  // ── Render: Admin view (CRUD completo) ─────────────────────────────
-
-  return (
+  return isAdmin ? (
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-4">
@@ -629,6 +470,7 @@ export default function UsersTab() {
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Buscar usuarios..."
             className="pl-9 h-9 text-sm"
+            autoComplete="off"
           />
         </div>
         <Button
@@ -748,7 +590,10 @@ export default function UsersTab() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleResetPassword(user.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleResetPassword(user.id);
+                            }}
                             className="h-8 w-8 p-0 text-zinc-400 hover:text-zinc-100"
                             title="Resetear contraseña"
                           >
@@ -841,12 +686,21 @@ export default function UsersTab() {
             <div>
               <label className="block text-sm font-medium text-zinc-300 mb-1.5">Contraseña *</label>
               <div className="flex gap-2">
-                <Input
-                  type="text"
-                  value={formData.password}
-                  onChange={(e) => handleInputChange('password', e.target.value)}
-                  className={`flex-1 ${formErrors.password ? 'border-red-500' : ''} font-mono text-xs`}
-                />
+                <div className="relative flex-1">
+                  <Input
+                    type={showCreatePassword ? 'text' : 'password'}
+                    value={formData.password}
+                    onChange={(e) => handleInputChange('password', e.target.value)}
+                    className={`w-full ${formErrors.password ? 'border-red-500' : ''} pr-10`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCreatePassword(!showCreatePassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
+                  >
+                    {showCreatePassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
                 <Button
                   variant="outline"
                   size="sm"
@@ -870,13 +724,22 @@ export default function UsersTab() {
             {/* Confirmar Contraseña */}
             <div>
               <label className="block text-sm font-medium text-zinc-300 mb-1.5">Confirmar Contraseña *</label>
-              <Input
-                type="password"
-                placeholder="Repite la contraseña"
-                value={formData.confirmPassword}
-                onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
-                className={formErrors.confirmPassword ? 'border-red-500' : ''}
-              />
+              <div className="relative">
+                <Input
+                  type={showCreateConfirmPassword ? 'text' : 'password'}
+                  placeholder="Repite la contraseña"
+                  value={formData.confirmPassword}
+                  onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                  className={`pr-10 ${formErrors.confirmPassword ? 'border-red-500' : ''}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCreateConfirmPassword(!showCreateConfirmPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
+                >
+                  {showCreateConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
               {formErrors.confirmPassword && (
                 <p className="text-xs text-red-400 mt-1">{formErrors.confirmPassword}</p>
               )}
@@ -993,64 +856,49 @@ export default function UsersTab() {
         </DialogContent>
       </Dialog>
 
-      {/* ═══ Dialog: Reset Contraseña ═══ */}
-      <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <Key className="h-5 w-5 text-amber-500" />
-              Resetear Contraseña
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <p className="text-sm text-zinc-400">Elige cómo establecer la nueva contraseña:</p>
-
-            <div className="space-y-2">
-              <label className="flex items-center gap-3 p-3 border border-zinc-700 rounded-lg cursor-pointer hover:bg-zinc-800/50">
-                <input
-                  type="radio"
-                  name="resetMode"
-                  value="auto"
-                  checked={resetPasswordMode === 'auto'}
-                  onChange={(e) => setResetPasswordMode(e.target.value)}
-                  className="text-emerald-600 focus:ring-emerald-500"
-                />
-                <div>
-                  <div className="text-sm font-medium text-zinc-200">Generar automáticamente</div>
-                  <div className="text-xs text-zinc-500">Contraseña robusta de 14 caracteres</div>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-3 p-3 border border-zinc-700 rounded-lg cursor-pointer hover:bg-zinc-800/50">
-                <input
-                  type="radio"
-                  name="resetMode"
-                  value="custom"
-                  checked={resetPasswordMode === 'custom'}
-                  onChange={(e) => setResetPasswordMode(e.target.value)}
-                  className="text-emerald-600 focus:ring-emerald-500"
-                />
-                <div>
-                  <div className="text-sm font-medium text-zinc-200">Escribir manualmente</div>
-                  <div className="text-xs text-zinc-500">Define tú la contraseña temporal</div>
-                </div>
-              </label>
+      {/* ═══ Inline Modal: Reset Contraseña (sin Dialog portal para evitar bugs de re-render) ═══ */}
+      {resetDialogOpen && (
+        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center" onClick={() => setResetDialogOpen(false)}>
+          <div className="relative w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-start justify-between">
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Key className="h-5 w-5 text-amber-500" />
+                Resetear Contraseña
+                {resetUserId && (
+                  <span className="text-xs text-zinc-400 font-normal ml-1">
+                    — {users.find(u => u.id === resetUserId)?.username || `ID: ${resetUserId}`}
+                  </span>
+                )}
+              </h2>
             </div>
 
-            {resetPasswordMode === 'custom' && (
+            <div className="space-y-4">
+              <p className="text-sm text-zinc-400">
+                Ingresá la nueva contraseña para <strong>{users.find(u => u.id === resetUserId)?.username || 'el usuario'}</strong>:
+              </p>
+
               <div>
                 <label className="block text-sm font-medium text-zinc-300 mb-1.5">Nueva Contraseña *</label>
-                <Input
-                  type="password"
-                  placeholder="Min. 8 caracteres, 1 mayúscula, 1 minúscula, 1 número"
-                  value={customResetPassword}
-                  onChange={(e) => {
-                    setCustomResetPassword(e.target.value);
-                    setResetPasswordError('');
-                  }}
-                  className={resetPasswordError ? 'border-red-500' : ''}
-                />
+                <div className="relative">
+                  <Input
+                    type={showResetCustomPassword ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    placeholder="Mín. 8 caracteres, 1 mayúscula, 1 minúscula, 1 número"
+                    value={customResetPassword}
+                    onChange={(e) => {
+                      setCustomResetPassword(e.target.value);
+                      setResetPasswordError('');
+                    }}
+                    className={`pr-10 ${resetPasswordError ? 'border-red-500' : ''}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowResetCustomPassword(!showResetCustomPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
+                  >
+                    {showResetCustomPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
                 {resetPasswordError && <p className="text-xs text-red-400 mt-1">{resetPasswordError}</p>}
                 {!resetPasswordError && customResetPassword && (
                   <p className="text-xs text-zinc-500 mt-1">
@@ -1061,19 +909,46 @@ export default function UsersTab() {
                   </p>
                 )}
               </div>
-            )}
-          </div>
 
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setResetDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleConfirmResetPassword} className="bg-amber-600 hover:bg-amber-700">
-              Resetear Contraseña
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-1.5">Confirmar Contraseña *</label>
+                <div className="relative">
+                  <Input
+                    type={showResetCustomConfirmPassword ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    placeholder="Repite la contraseña"
+                    value={customResetConfirmPassword}
+                    onChange={(e) => {
+                      setCustomResetConfirmPassword(e.target.value);
+                      setResetConfirmPasswordError('');
+                    }}
+                    className={`pr-10 ${resetConfirmPasswordError ? 'border-red-500' : ''}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowResetCustomConfirmPassword(!showResetCustomConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
+                  >
+                    {showResetCustomConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                {resetConfirmPasswordError && (
+                  <p className="text-xs text-red-400 mt-1">{resetConfirmPasswordError}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-2 border-t border-zinc-800 pt-4">
+              <Button variant="ghost" onClick={() => setResetDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={handleConfirmResetPassword} className="bg-amber-600 hover:bg-amber-700">
+                Resetear Contraseña
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ═══ Dialog: Confirmar Eliminación ═══ */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
@@ -1098,6 +973,182 @@ export default function UsersTab() {
             </Button>
             <Button onClick={handleConfirmDelete} disabled={deleting} className="bg-red-600 hover:bg-red-700">
               {deleting ? 'Eliminando...' : 'Eliminar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  ) : (
+    <NonAdminView />
+  );
+}
+
+function NonAdminView() {
+  const { user: currentUser } = useAuth();
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [passwordFormErrors, setPasswordFormErrors] = useState({});
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+
+  const myUser = currentUser ? {
+    id: currentUser.id,
+    username: currentUser.username,
+    email: currentUser.email,
+    full_name: currentUser.full_name,
+    is_active: true,
+    is_superuser: currentUser.is_superuser,
+    last_login: null,
+    role: currentUser.role ? { name: currentUser.role } : null,
+  } : null;
+
+  const handleOpenChangePassword = () => {
+    setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    setPasswordFormErrors({});
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+    setChangePasswordOpen(true);
+  };
+
+  const validatePassword = (password) => {
+    if (!password || password.length < 8) return 'Mínimo 8 caracteres';
+    if (!/[A-Z]/.test(password)) return 'Debe contener al menos una mayúscula';
+    if (!/[a-z]/.test(password)) return 'Debe contener al menos una minúscula';
+    if (!/[0-9]/.test(password)) return 'Debe contener al menos un número';
+    return null;
+  };
+
+  const validatePasswordForm = () => {
+    const errors = {};
+    const pwdError = validatePassword(passwordForm.newPassword);
+    if (pwdError) errors.newPassword = pwdError;
+    if (!passwordForm.confirmPassword) {
+      errors.confirmPassword = 'Debes confirmar la contraseña';
+    } else if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      errors.confirmPassword = 'Las contraseñas no coinciden';
+    }
+    setPasswordFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleChangePassword = async () => {
+    if (!validatePasswordForm()) return;
+    setChangingPassword(true);
+    try {
+      await usersService.changeMyPassword(passwordForm.currentPassword, passwordForm.newPassword);
+      alert('✅ Contraseña actualizada correctamente.');
+      setChangePasswordOpen(false);
+    } catch (error) {
+      alert(`Error al cambiar contraseña: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  if (!myUser) return <div className="text-center py-8 text-zinc-400 text-sm">Cargando información...</div>;
+
+  return (
+    <div className="space-y-4">
+      <Card className="bg-zinc-900/50 border-zinc-800">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-zinc-100 text-base flex items-center gap-2">
+            <Users className="h-4 w-4 text-emerald-500" />
+            Mi Usuario
+          </CardTitle>
+          <CardDescription className="text-zinc-500 text-xs">
+            Información de tu cuenta
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
+                <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Usuario</p>
+                <p className="text-sm text-zinc-100 font-medium">{myUser.username}</p>
+              </div>
+              <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
+                <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Email</p>
+                <p className="text-sm text-zinc-100">{myUser.email}</p>
+              </div>
+              {myUser.full_name && (
+                <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Nombre Completo</p>
+                  <p className="text-sm text-zinc-100">{myUser.full_name}</p>
+                </div>
+              )}
+              <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
+                <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Rol</p>
+                <p className="text-sm text-zinc-100 capitalize">{myUser.role?.name || 'Sin rol'}</p>
+              </div>
+              <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
+                <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Estado</p>
+                <Badge className={`text-xs ${myUser.is_active ? 'bg-emerald-600/20 text-emerald-400 border-emerald-600' : 'bg-red-600/20 text-red-400 border-red-600'}`}>
+                  {myUser.is_active ? 'Activo' : 'Inactivo'}
+                </Badge>
+              </div>
+              <div className="p-3 rounded-lg bg-zinc-800/30 border border-zinc-700/50">
+                <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Último Acceso</p>
+                <p className="text-sm text-zinc-100">{formatTimeAgo(myUser.last_login)}</p>
+              </div>
+            </div>
+            <div className="pt-4 border-t border-zinc-800">
+              <Button onClick={handleOpenChangePassword} className="bg-amber-600 hover:bg-amber-700" size="sm">
+                <Lock className="mr-2 h-4 w-4" />
+                Cambiar mi contraseña
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Lock className="h-5 w-5 text-amber-500" />
+              Cambiar mi Contraseña
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">Contraseña Actual *</label>
+              <Input type="password" autoComplete="off" placeholder="Tu contraseña actual" value={passwordForm.currentPassword}
+                onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">Nueva Contraseña *</label>
+              <div className="relative">
+                <Input type={showPassword ? 'text' : 'password'} placeholder="Mín. 8 caracteres, 1 mayúscula, 1 minúscula, 1 número"
+                  value={passwordForm.newPassword}
+                  onChange={(e) => { setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value })); setPasswordFormErrors((prev) => ({ ...prev, newPassword: undefined })); }}
+                  className={`pr-10 ${passwordFormErrors.newPassword ? 'border-red-500' : ''}`} />
+                <button type="button" onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200">
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              {passwordFormErrors.newPassword && <p className="text-xs text-red-400 mt-1">{passwordFormErrors.newPassword}</p>}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">Confirmar Contraseña *</label>
+              <div className="relative">
+                <Input type={showConfirmPassword ? 'text' : 'password'} placeholder="Repite la contraseña"
+                  value={passwordForm.confirmPassword}
+                  onChange={(e) => { setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value })); setPasswordFormErrors((prev) => ({ ...prev, confirmPassword: undefined })); }}
+                  className={`pr-10 ${passwordFormErrors.confirmPassword ? 'border-red-500' : ''}`} />
+                <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200">
+                  {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              {passwordFormErrors.confirmPassword && <p className="text-xs text-red-400 mt-1">{passwordFormErrors.confirmPassword}</p>}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setChangePasswordOpen(false)} disabled={changingPassword}>Cancelar</Button>
+            <Button onClick={handleChangePassword} disabled={changingPassword} className="bg-amber-600 hover:bg-amber-700">
+              {changingPassword ? 'Guardando...' : 'Cambiar Contraseña'}
             </Button>
           </DialogFooter>
         </DialogContent>
