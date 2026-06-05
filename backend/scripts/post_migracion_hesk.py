@@ -101,7 +101,8 @@ WHERE t.id IN (
 
 STAGE4_SQL = """
 UPDATE tickets t
-SET created_at = subq.fecha_original
+SET created_at = subq.fecha_original,
+    updated_at = subq.fecha_original
 FROM (
     SELECT t2.id,
            (tl.meta_data->'thread'->0->>'date')::timestamp AT TIME ZONE 'UTC' AS fecha_original
@@ -114,11 +115,16 @@ WHERE t.id = subq.id;
 """
 
 STAGE5_SQL_EXPAND = """
-INSERT INTO ticket_timeline (ticket_id, event_type, content, meta_data, created_at, author_name)
+INSERT INTO ticket_timeline (ticket_id, event_type, content, meta_data, created_at)
 SELECT
     t.id,
     'note',
-    reply->>'body',
+    -- Concatenar el nombre del autor legacy en el texto de la nota
+    CASE
+        WHEN reply->>'author' IS NOT NULL AND reply->>'author'::text != ''
+        THEN CONCAT(reply->>'author'::text, ' escribió: ', reply->>'body'::text)
+        ELSE reply->>'body'::text
+    END,
     jsonb_build_object(
         'source', 'legacy_reply',
         'author_original', reply->>'author',
@@ -128,8 +134,7 @@ SELECT
     COALESCE(
         (reply->>'date')::timestamp AT TIME ZONE 'UTC',
         t.created_at
-    ),
-    reply->>'author'
+    )
 FROM tickets t
 JOIN ticket_timeline tl ON tl.ticket_id = t.id AND tl.event_type = 'legacy_import'
 CROSS JOIN LATERAL jsonb_array_elements(tl.meta_data->'thread') WITH ORDINALITY AS reply_elem(reply, ord)
@@ -141,7 +146,6 @@ WHERE ord > 1
       AND existing.event_type = 'note'
       AND existing.meta_data->>'source' = 'legacy_reply'
       AND existing.meta_data->>'date_original' = reply->>'date'
-      AND existing.author_name = reply->>'author'
   );
 """
 

@@ -91,6 +91,15 @@ HESK_PRIORITY_MAP = {
     "3": "low",
 }
 
+# Mapeo de estados Hesk → Emerald
+# Hesk status: 0=New, 1=In Progress, 2=Waiting, 3=Resolved, 4=..., 5=...
+HESK_STATUS_MAP = {
+    "0": "open",          # Nuevo → Open
+    "1": "in_progress",   # En progreso → In Progress
+    "2": "pending",       # Esperando respuesta → Pending
+    "3": "closed",        # Resuelto/Cerrado → Closed
+}
+
 # Keywords para inferir TicketType desde el subject
 TICKET_TYPE_KEYWORDS: list[tuple[list[str], str]] = [
     (["INSTALACION", "ALTA NUEVA", "NUEVA INSTALACION", "ALTA TV", "ALTA FO"], "installation"),
@@ -102,7 +111,30 @@ TICKET_TYPE_KEYWORDS: list[tuple[list[str], str]] = [
       "CAMBIO DE TITULAR", "CONSULTA"], "administrative"),
 ]
 
-# Mapping de custom fields a nombres semánticos
+# Keywords para inferir TicketType desde el subject
+
+
+def clean_html_text(text: str) -> str:
+    """
+    Limpia texto HTML legacy de Hesk.
+    - Convierte <br />, <br>, \r\n a \n
+    - Elimina etiquetas HTML restantes
+    - Elimina espacios múltiples
+    """
+    if not text:
+        return text
+    import re
+    # 1. Normalizar saltos de línea HTML
+    text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+    text = text.replace('\\r\\n', '\n').replace('\\n', '\n').replace('\r\n', '\n')
+    # 2. Eliminar etiquetas HTML restantes
+    text = re.sub(r'<[^>]+>', '', text)
+    # 3. Limpiar espacios múltiples y líneas vacías
+    text = re.sub(r' {2,}', ' ', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
 CUSTOM_FIELD_MAP = {
     "custom1": ("address", "Domicilio"),
     "custom2": ("phone", "Teléfono"),
@@ -336,7 +368,7 @@ def build_thread(
         "type": "original",
         "author": str(ticket_row.get("name", "")),
         "date": str(ticket_row.get("dt", "")),
-        "body": str(ticket_row.get("message", "")),
+        "body": clean_html_text(str(ticket_row.get("message", ""))),
     })
 
     # Replies ordenadas por dt
@@ -346,11 +378,16 @@ def build_thread(
             "type": "reply",
             "author": str(reply.get("name", "")),
             "date": str(reply.get("dt", "")),
-            "body": str(reply.get("message", "")),
+            "body": clean_html_text(str(reply.get("message", ""))),
             "staff_id": reply.get("staffid"),
         })
 
     return thread
+
+
+def map_status(hesk_status: Any) -> str:
+    """Mapea estado Hesk (0-5) a Emerald (open/in_progress/pending/closed)."""
+    return HESK_STATUS_MAP.get(str(hesk_status), "open")
 
 
 def build_ticket_fields(row: dict, replies: list[dict]) -> dict:
@@ -358,12 +395,17 @@ def build_ticket_fields(row: dict, replies: list[dict]) -> dict:
     from src.models.tickets import TicketStatus, TicketPriority, TicketType
 
     subject = str(row.get("subject", "")).strip() or "Ticket migrado (sin asunto)"
-    description = str(row.get("message", "")) or None
+    description = clean_html_text(str(row.get("message", ""))) or None
     priority_str = map_priority(row.get("priority"))
+    status_str = map_status(row.get("status"))
     ticket_type_str = infer_ticket_type(subject)
     connection_details = build_connection_details(row)
 
     # Convertir strings a enums de SQLAlchemy
+    try:
+        status = TicketStatus(status_str)
+    except ValueError:
+        status = TicketStatus.open
     try:
         priority = TicketPriority(priority_str)
     except ValueError:
@@ -377,7 +419,7 @@ def build_ticket_fields(row: dict, replies: list[dict]) -> dict:
         "subject": subject,
         "description": description,
         "connection_details": connection_details,
-        "status": TicketStatus.closed,
+        "status": status,
         "priority": priority,
         "ticket_type": ticket_type,
         # creator_id y assigned_to_id se dejan NULL
