@@ -54,7 +54,8 @@ const CuadrillasPage = () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await coordinationService.getTeams({ active_only: false });
+      // Solo cargar cuadrillas activas (las eliminadas quedan ocultas vía soft-delete)
+      const data = await coordinationService.getTeams();
       setTeams(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error loading teams:', err);

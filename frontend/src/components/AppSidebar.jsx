@@ -8,12 +8,14 @@
  * - Animaciones suaves y estado persistente en localStorage
  * - Auto-expansión cuando se navega a un item dentro de una sección colapsada
  * - Pin para fijar/colapsar la sidebar: colapsada muestra solo íconos, se expande al hover
+ * - Badge de alertas de stock dinámico (solo visible si hay alertas activas)
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { hasPermission } from '@/utils/permissions';
+import { getStockAlerts } from '@/services/inventory.service';
 import {
   LayoutDashboard,
   Ticket,
@@ -238,6 +240,32 @@ const MENU_ITEMS = [
 export function AppSidebar() {
   const { pathname } = useLocation();
   const { user } = useAuth(); // ← RBAC: Obtener usuario para filtrar items
+
+  // Estado: conteo de alertas de stock (para badge dinámico)
+  const [stockAlertCount, setStockAlertCount] = useState(0);
+
+  // Cargar alertas de stock para el badge
+  useEffect(() => {
+    let mounted = true;
+    const fetchAlerts = async () => {
+      try {
+        const alerts = await getStockAlerts();
+        if (mounted) {
+          setStockAlertCount(Array.isArray(alerts) ? alerts.length : 0);
+        }
+      } catch {
+        // Silencioso: si falla la API, no mostrar badge
+        if (mounted) setStockAlertCount(0);
+      }
+    };
+    fetchAlerts();
+    // Refrescar cada 5 minutos
+    const interval = setInterval(fetchAlerts, 5 * 60 * 1000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   // Estado: sidebar pinned (fijada = siempre expandida)
   const [isPinned, setIsPinned] = useState(() => {
@@ -521,9 +549,14 @@ export function AppSidebar() {
                             >
                               <Icon size={isCollapsed ? 20 : 18} />
 
-                              {/* Badge especial para Alertas */}
-                              {item.badge === 'hot' && (
-                                <div className="absolute top-0 right-0 w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+                              {/* Badge dinámico para Alertas de stock */}
+                              {item.badge === 'hot' && stockAlertCount > 0 && (
+                                <>
+                                  <div className="absolute top-0 right-0 w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+                                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center bg-red-600 text-white text-[9px] font-bold rounded-full leading-none">
+                                    {stockAlertCount > 9 ? '9+' : stockAlertCount}
+                                  </span>
+                                </>
                               )}
                             </div>
 

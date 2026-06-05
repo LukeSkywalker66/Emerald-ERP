@@ -7,6 +7,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session, joinedload
 
 from src.models.coordination import Team, TeamMember, TeamRole
+from src.models.tickets import WorkOrder, WorkOrderStatus
 from src.models.user import User
 from src.schemas.coordination import (
     TeamCreate,
@@ -118,21 +119,32 @@ class TeamService:
 
     def create_team(self, payload: TeamCreate) -> TeamDetailResponse:
         """
-        Crear nueva cuadrilla.
+        Crear nueva cuadrilla o reactivar una existente inactiva.
+        
+        Si ya existe una cuadrilla con el mismo nombre pero está inactiva
+        (soft-delete), se reactiva automáticamente y se actualizan sus datos.
         
         Args:
             payload: TeamCreate con datos de la cuadrilla
             
         Returns:
-            TeamDetailResponse de la cuadrilla creada
+            TeamDetailResponse de la cuadrilla creada/reactivada
             
         Raises:
-            ValueError: Si el nombre ya existe
+            ValueError: Si ya existe una cuadrilla activa con ese nombre
         """
         # Verificar si el nombre ya existe
         existing = self.db.query(Team).filter(Team.name == payload.name).first()
         if existing:
-            raise ValueError(f"Cuadrilla '{payload.name}' ya existe")
+            if existing.is_active:
+                raise ValueError(f"Cuadrilla '{payload.name}' ya existe")
+            # Reactivar cuadrilla inactiva (soft-delete recovery)
+            existing.is_active = True
+            if payload.vehicle_id is not None:
+                existing.vehicle_id = payload.vehicle_id
+            self.db.commit()
+            self.db.refresh(existing)
+            return self.get_team_by_id(existing.id)
         
         team = Team(
             name=payload.name,
@@ -182,7 +194,9 @@ class TeamService:
                 raise ValueError(f"Cuadrilla '{payload.name}' ya existe")
             team.name = payload.name
         
-        if payload.vehicle_id is not None:
+        # Usar exclude_unset para detectar cuando envían explícitamente vehicle_id: null (remover vehículo)
+        update_data = payload.model_dump(exclude_unset=True)
+        if 'vehicle_id' in update_data:
             team.vehicle_id = payload.vehicle_id
         
         if payload.is_active is not None:
@@ -195,22 +209,63 @@ class TeamService:
 
     def delete_team(self, team_id: int) -> bool:
         """
-        Eliminar cuadrilla (soft delete: marcar como inactiva).
+        Eliminar cuadrilla con validaciones de integridad.
+        
+        - Si tiene órdenes de trabajo activas (no completadas/canceladas): rechaza
+        - Si no tiene miembros ni historial: hard delete (eliminación física)
+        - Si solo tiene historial: soft delete (marca como inactiva)
         
         Args:
             team_id: ID de la cuadrilla
             
         Returns:
-            True si se marcó como inactiva
+            True si se eliminó
             
         Raises:
-            ValueError: Si no existe
+            ValueError: Si no existe o tiene OT activas
         """
         team = self.db.query(Team).filter(Team.id == team_id).first()
         
         if not team:
             raise ValueError(f"Cuadrilla {team_id} no existe")
         
+        # Validar que no tenga órdenes de trabajo activas
+        active_work_orders = (
+            self.db.query(WorkOrder)
+            .filter(
+                WorkOrder.team_id == team_id,
+                WorkOrder.status.notin_([
+                    WorkOrderStatus.COMPLETED,
+                    WorkOrderStatus.CANCELLED,
+                    WorkOrderStatus.REJECTED,
+                ])
+            )
+            .count()
+        )
+        if active_work_orders > 0:
+            raise ValueError(
+                f"No se puede eliminar: la cuadrilla tiene {active_work_orders} "
+                f"órdenes de trabajo activas. Finalízalas o reasígnelas primero."
+            )
+        
+        # Si no tiene miembros ni historial, hard delete
+        has_no_members = self.db.query(TeamMember).filter(
+            TeamMember.team_id == team_id
+        ).count() == 0
+        
+        has_no_history = (
+            self.db.query(WorkOrder)
+            .filter(WorkOrder.team_id == team_id)
+            .count() == 0
+        )
+        
+        if has_no_members and has_no_history:
+            # Hard delete: eliminar físicamente
+            self.db.delete(team)
+            self.db.commit()
+            return True
+        
+        # Soft delete: marcar como inactiva
         team.is_active = False
         self.db.commit()
         

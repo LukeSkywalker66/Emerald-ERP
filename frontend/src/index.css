@@ -156,6 +156,29 @@
       transform: translateX(100%);
     }
   }
+
+  /* Animación para Toast notifications - slide in desde derecha */
+  @keyframes toastSlideIn {
+    from {
+      opacity: 0;
+      transform: translateX(40px) scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+    }
+  }
+
+  @keyframes toastSlideOut {
+    from {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translateX(40px) scale(0.95);
+    }
+  }
 }
 
 /* 5. Estilos personalizados para Navigation Rail y componentes Emerald */
