@@ -73,8 +73,8 @@ TABLAS_PRESERVADAS: frozenset = frozenset({
     "plans",
     "connections",
     "clientes",
-    "cliente_emails",
-    "cliente_telefonos",
+    "clientes_emails",
+    "clientes_telefonos",
     "ppp_secrets",
     "sync_status",
     # Catálogos seed
@@ -343,8 +343,10 @@ def _execute_dry_run(session: Session) -> None:
         try:
             cnt = _get_table_count(session, t)
             log.info("    ✅ %s: %d registros (preservado)", t, cnt)
-        except Exception:
-            log.info("    ⚪ %s: (no existe o error)", t)
+        except Exception as e:
+            log.info("    ⚪ %s: %s", t, e)
+            # No abortar la transacción por un error de consulta
+            session.rollback()
 
     # ── ROLLBACK ────────────────────────────────────────────────────────
     log.info("")
@@ -409,14 +411,6 @@ def _execute_apply(session: Session, backup_dir: str) -> None:
 
     if non_admin_before > 0:
         # Primero team_members de usuarios no-admin
-        session.execute(
-            text("DELETE FROM team_members "
-                 "WHERE user_id IN (SELECT id FROM users WHERE NOT is_superuser)")
-        )
-        deleted_members = session.get_bind().exec_driver_sql(
-            "SELECT count(*) FROM team_members"
-        )
-        # More portable approach:
         result = session.execute(text(
             "WITH deleted AS ("
             "  DELETE FROM team_members "
@@ -439,8 +433,11 @@ def _execute_apply(session: Session, backup_dir: str) -> None:
         log.info("    ⏭️  No hay usuarios no-admin para eliminar")
 
     # ── 5. Fase 6: monitor_check_history ────────────────────────────────
+    # Usar savepoint para aislar el error: si la tabla no existe,
+    # solo se descarta el savepoint, no la transacción completa
     try:
-        _truncate_table(session, FASE_MONITOR_HISTORY)
+        with session.begin_nested():
+            _truncate_table(session, FASE_MONITOR_HISTORY)
         log.info("  📍 FASE 6: ✅ TRUNCATE monitor_check_history")
     except Exception as e:
         log.info("  📍 FASE 6: ⏭️  monitor_check_history no truncada (%s)", e)

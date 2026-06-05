@@ -424,6 +424,9 @@ def list_tickets(
         else:
             query = query.order_by(Ticket.created_at.desc())
     
+    # Obtener total REAL antes de paginar (sin los selectinload que afectan count)
+    total_count = query.with_entities(Ticket.id).count()
+    
     # Paginar - obtener limit+1 para saber si hay más
     tickets = query.offset(offset).limit(limit + 1).all()
     
@@ -485,9 +488,6 @@ def list_tickets(
                 tags=[TagResponse.model_validate(tag) for tag in t.tags] if t.tags else [],
             )
         )
-    
-    # Usar -1 para total desconocido si hay filtros
-    total_count = -1 if (status or priority or search or tags) else len(response_list)
     
     return {
         "items": response_list,

@@ -1,0 +1,1 @@
+docker exec emerald_db_dev sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > backup_0_con_mocks.sql
