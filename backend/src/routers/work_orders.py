@@ -681,7 +681,6 @@ def update_work_order(
     
     # Actualizar campos
     update_data = payload.model_dump(exclude_unset=True)
-    print(f"[DEBUG] Updating WO #{work_order_id} with data: {update_data}")
     
     # LÓGICA DE CÁLCULO AUTOMÁTICO DE scheduled_end
     if 'scheduled_start' in update_data or 'estimated_duration' in update_data:
@@ -693,20 +692,17 @@ def update_work_order(
             # Calcular scheduled_end automáticamente
             calculated_end = scheduled_start + timedelta(minutes=estimated_duration)
             update_data['scheduled_end'] = calculated_end
-            print(f"[DEBUG] Auto-calculated scheduled_end: {calculated_end}")
     
     # LÓGICA DE TRANSICIÓN DE ESTADOS AUTOMÁTICA
     # Si se asigna scheduled_start pero no hay team_id, pasar a "coordinated"
     if 'scheduled_start' in update_data and update_data.get('scheduled_start'):
         if not wo.team_id and 'team_id' not in update_data:
             update_data['status'] = WorkOrderStatus.coordinated
-            print(f"[DEBUG] Auto-transition to COORDINATED (fecha sin cuadrilla)")
     
     # Si se asigna team_id y ya hay scheduled_start, pasar a "scheduled"
     if 'team_id' in update_data and update_data.get('team_id'):
         if wo.scheduled_start or update_data.get('scheduled_start'):
             update_data['status'] = WorkOrderStatus.scheduled
-            print(f"[DEBUG] Auto-transition to SCHEDULED (fecha + cuadrilla)")
     
     # Aplicar actualizaciones
     for key, value in update_data.items():
@@ -735,9 +731,26 @@ def update_work_order(
         )
         db.add(timeline_event)
     
-    # Si se completa la OT, registrar en timeline con detalles de resolución
+    # Si se completa la OT, registrar en timeline con detalles de resolución y cuadrilla
     if payload.completed_at and not wo.completed_at:
         resolution_notes = payload.resolution_notes or (payload.resolution_type.value if payload.resolution_type else "sin especificar")
+        
+        # Obtener miembros de la cuadrilla asignada al momento de finalización
+        team_members_info = []
+        if wo.team_id:
+            from src.models.coordination import TeamMember
+            members = db.query(TeamMember).filter(
+                TeamMember.team_id == wo.team_id
+            ).all()
+            for m in members:
+                member_name = m.user.full_name if m.user and m.user.full_name else (m.user.username if m.user else f"ID:{m.user_id}")
+                team_members_info.append(f"{member_name} ({m.role})")
+        
+        team_str = f"Cuadrilla: {', '.join(team_members_info)}" if team_members_info else ""
+        full_content = f"OT #{wo.id} Finalizada: {resolution_notes}"
+        if team_str:
+            full_content += f" | {team_str}"
+        
         meta_data = {
             "work_order_id": wo.id,
             "resolution_type": payload.resolution_type.value if payload.resolution_type else None,
@@ -745,12 +758,14 @@ def update_work_order(
             "resolution_category": payload.resolution_category.value if payload.resolution_category else None,
             "photo_count": len(payload.photo_urls) if payload.photo_urls else 0,
             "status": WorkOrderStatus.completed.value,
+            "team_id": wo.team_id,
+            "team_members": team_members_info,
         }
         timeline_event = TicketTimeline(
             ticket_id=wo.ticket_id,
             author_id=current_user.id,
             event_type=TicketTimelineEventType.ot_event,
-            content=f"OT #{wo.id} Finalizada: {resolution_notes}",
+            content=full_content,
             meta_data=meta_data,
         )
         db.add(timeline_event)

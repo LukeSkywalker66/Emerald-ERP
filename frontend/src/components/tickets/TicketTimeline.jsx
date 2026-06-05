@@ -109,59 +109,16 @@ function TimelineEventCard({ event }) {
       </div>
     );
   }
-  const navigate = useNavigate();
-
-  const eventIcons = {
-    note: { icon: MessageSquare, color: 'text-blue-400' },
-    status_change: { icon: AlertCircle, color: 'text-amber-400' },
-    ot_event: { icon: Zap, color: 'text-emerald-400' },
-    alert: { icon: AlertTriangle, color: 'text-ruby-400' },
-    file: { icon: Paperclip, color: 'text-cyan-400' },
-  };
-
-  const eventInfo = eventIcons[event.event_type?.toLowerCase?.()] || eventIcons.note;
-  const Icon = eventInfo.icon;
-
-  // Extraer attachments del meta_data
-  const attachments = event.meta_data?.attachments || [];
-
-  const isImageFile = event.meta_data?.content_type?.startsWith('image/') || event.meta_data?.type?.startsWith('image/');
-  const fileSize = event.meta_data?.size;
-  const fileName = event.meta_data?.filename;
-  const filePath = event.meta_data?.filepath || event.meta_data?.url;
-
-  const formatFileSize = (bytes) => {
-    if (!bytes) return '';
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  };
-
-  // Mapeo de estados a colores
-  const statusColorMap = {
-    'pending_planning': 'bg-zinc-600 text-zinc-100',
-    'assigned': 'bg-blue-600 text-blue-100',
-    'in_progress': 'bg-amber-600 text-amber-100',
-    'completed': 'bg-emerald-600 text-emerald-100',
-    'failed': 'bg-red-600 text-red-100',
-  };
-
-  const getStatusLabel = (status) => {
-    const labels = {
-      'pending_planning': 'Pendiente',
-      'assigned': 'Asignada',
-      'in_progress': 'En progreso',
-      'completed': 'Completada',
-      'failed': 'Fallida',
-    };
-    return labels[status] || status;
-  };
 
   // Si es evento de OT, renderizar como Card clickeable con status dinámico
-  if (event.event_type === 'OT_EVENT' && event.meta_data?.work_order_id) {
+  if ((event.event_type || '').toLowerCase() === 'ot_event' && event.meta_data?.work_order_id) {
     // Usar el status ACTUAL si está disponible (desde backend), sino fallback al contenido
     const currentStatus = event.meta_data?.current_status || 'pending_planning';
     const statusColor = statusColorMap[currentStatus] || 'bg-zinc-600 text-zinc-100';
+    const teamInfo = event.meta_data?.team_name ? ` · ${event.meta_data.team_name}` : '';
+    const scheduleInfo = event.meta_data?.scheduled_start
+      ? ` · ${new Date(event.meta_data.scheduled_start).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+      : '';
     
     return (
       <div className="flex gap-4 relative">
@@ -174,7 +131,11 @@ function TimelineEventCard({ event }) {
             className="cursor-pointer rounded-lg border border-emerald-700/50 bg-emerald-900/30 p-4 hover:border-emerald-500 hover:bg-emerald-900/50 transition-all"
           >
             <div className="flex items-start justify-between mb-2">
-              <p className="text-sm text-emerald-200 font-semibold">OT #{event.meta_data.work_order_id}</p>
+              <p className="text-sm text-emerald-200 font-semibold">
+                OT #{event.meta_data.work_order_id}
+                {teamInfo && <span className="text-xs text-zinc-400 font-normal ml-1">{teamInfo}</span>}
+                {scheduleInfo && <span className="text-xs text-zinc-500 font-normal ml-1">{scheduleInfo}</span>}
+              </p>
               <span className={`px-2 py-1 rounded text-xs font-semibold ${statusColor}`}>
                 {getStatusLabel(currentStatus)}
               </span>

@@ -1186,9 +1186,62 @@ export default function TicketDetailPage() {
               {(ticket.timeline || []).length === 0 && (
                 <p className="text-sm text-zinc-500">Sin eventos aún.</p>
               )}
-              {(ticket.timeline || []).map((event, idx) => (
-                <TimelineItem key={event.id} event={event} index={idx} />
-              ))}
+              {(() => {
+                // Consolidar movimientos de OT:
+                // - La PRIMERA entrada (creación) → OT Card completa con datos actuales
+                // - Movimientos intermedios (asignar/desasignar) → texto compacto
+                // - Finalización/cierre → texto compacto con detalle de cuadrilla
+                const timeline = ticket.timeline || [];
+                const otEvents = [];
+                const otherEvents = [];
+                
+                for (const ev of timeline) {
+                  const t = (ev.event_type || '').toLowerCase();
+                  if (t === 'ot_event' && ev.meta_data?.work_order_id) {
+                    otEvents.push(ev);
+                  } else {
+                    otherEvents.push(ev);
+                  }
+                }
+                
+                // La primera entrada por work_order_id (más antigua) = creación = full card
+                // Todas las siguientes = compactas
+                const firstEventPerWoId = new Map();
+                const compactIds = new Set();
+                for (const ev of otEvents) {
+                  const wid = ev.meta_data.work_order_id;
+                  const existing = firstEventPerWoId.get(wid);
+                  if (!existing || new Date(ev.created_at) < new Date(existing.created_at)) {
+                    if (existing) compactIds.add(existing.id);
+                    firstEventPerWoId.set(wid, ev);
+                  } else {
+                    compactIds.add(ev.id);
+                  }
+                }
+                
+                const all = [...otherEvents];
+                for (const ev of otEvents) {
+                  all.push(compactIds.has(ev.id) ? { ...ev, _compact: true } : ev);
+                }
+                all.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                
+                return all.map((ev, idx) => {
+                  if (ev._compact) {
+                    const ts = new Date(ev.created_at).toLocaleString('es-AR', {
+                      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+                    });
+                    return (
+                      <div key={ev.id} className="flex items-center gap-2 py-1 px-1 text-xs text-zinc-500 border-l-2 border-zinc-700/50 ml-3 pl-3">
+                        <Zap size={10} className="text-emerald-500/60 flex-shrink-0" />
+                        <span className="text-zinc-400">{ts}</span>
+                        <span className="text-zinc-500">{ev.content}</span>
+                        {ev.author_name && <span className="text-zinc-600">· {ev.author_name}</span>}
+                      </div>
+                    );
+                  }
+                  return <TimelineItem key={ev.id} event={ev} index={idx} />;
+                });
+              })()}
             </div>
 
             {!isClosed && canCommentTicket && (

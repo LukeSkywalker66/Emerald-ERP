@@ -202,11 +202,22 @@ def _timeline_to_response(event: TicketTimeline, db: Optional[Session] = None) -
     # Si es un evento de OT, traer el status actual de la orden
     if event.event_type == TicketTimelineEventType.ot_event and meta.get('work_order_id') and db:
         try:
-            wo = db.get(WorkOrder, meta['work_order_id'])
+            from sqlalchemy import select
+            # Usar consulta FRESCA a la BD para evitar SQLAlchemy identity map
+            # que retorna datos cacheados del inicio del request
+            wo = db.execute(
+                select(WorkOrder).where(WorkOrder.id == meta['work_order_id'])
+            ).scalar_one_or_none()
             if wo:
                 # Incluir status ACTUAL de la OT, no el que estaba cuando se creó
                 meta['current_status'] = wo.status.value if hasattr(wo.status, 'value') else str(wo.status)
                 meta['current_ot_type'] = wo.ot_type.value if hasattr(wo.ot_type, 'value') else str(wo.ot_type)
+                # Incluir datos de asignación actual si está asignado a un equipo
+                if wo.team_id and wo.team:
+                    meta['team_name'] = wo.team.name
+                    meta['team_id'] = wo.team_id
+                if wo.scheduled_start:
+                    meta['scheduled_start'] = wo.scheduled_start.isoformat()
         except Exception:
             pass  # Silenciar errores para no romper el flujo
     
