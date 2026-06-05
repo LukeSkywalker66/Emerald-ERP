@@ -793,8 +793,6 @@ def update_work_order(
     except Exception as audit_error:
         logging.getLogger("uvicorn.error").error(f"❌ [AUDIT] Error al registrar actualización de OT {wo.id}: {audit_error}")
     
-    print(f"[DEBUG] After refresh, WO #{work_order_id} photo_urls: {wo.photo_urls}, resolution_category: {wo.resolution_category}")
-    
     return get_work_order_detail(work_order_id, db, current_user)
 
 

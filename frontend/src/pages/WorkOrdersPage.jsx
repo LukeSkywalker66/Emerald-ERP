@@ -14,6 +14,7 @@ import {
   User,
   Lock,
   ShieldAlert,
+  Truck,
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
@@ -75,19 +76,23 @@ export default function WorkOrdersPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   // Roles que ven columnas adicionales (Programada, Creada, Asignada)
-  const canSeeAdminColumns = useMemo(() => 
+  const canSeeAdminColumns = useMemo(() =>
     user?.role === 'admin' || user?.role === 'coordinator' || user?.role === 'operator' || user?.role === 'super_user',
     [user]
   );
 
   // Roles que pueden filtrar por técnico (solo admin y operator)
-  const canFilterByTechnician = useMemo(() => 
+  const canFilterByTechnician = useMemo(() =>
     user?.role === 'admin' || user?.role === 'operator',
     [user]
   );
 
   // Detectar si es técnico (para bifurcación de fetch)
   const isTechnician = useMemo(() => user?.role === 'tecnico', [user]);
+
+  // Team info for technician view
+  const [teamInfo, setTeamInfo] = useState(null);
+  const [teamVehicle, setTeamVehicle] = useState(null);
 
   // State
   const [workOrders, setWorkOrders] = useState([]);
@@ -135,19 +140,38 @@ export default function WorkOrdersPage() {
           if (!user?.id) {
             setAssignedVehicleId(null);
             setNeedsInspection(false);
+            setTeamInfo(null);
+            setTeamVehicle(null);
             setWorkOrders(items);
             return;
           }
 
           const teams = await coordinationService.getUserTeams(user?.id);
+          const primaryTeam = (teams || [])[0];
           const teamWithVehicle = (teams || []).find((team) => !!team.vehicle_id);
 
-          if (!teamWithVehicle?.vehicle_id) {
-            setAssignedVehicleId(null);
-            setNeedsInspection(false);
+          // Fetch team details (members, vehicle)
+          if (primaryTeam) {
+            try {
+              const detail = await coordinationService.getTeamDetail(primaryTeam.id);
+              setTeamInfo(detail);
+            } catch {
+              setTeamInfo(primaryTeam);
+            }
           } else {
+            setTeamInfo(null);
+          }
+
+          if (teamWithVehicle?.vehicle_id) {
             const vehicleId = teamWithVehicle.vehicle_id;
             setAssignedVehicleId(vehicleId);
+            // Fetch vehicle details
+            try {
+              const vehicle = await fleetService.getVehicleDetail(vehicleId);
+              setTeamVehicle(vehicle);
+            } catch {
+              setTeamVehicle(null);
+            }
 
             try {
               await fleetService.checkTodayInspection(vehicleId);
@@ -156,15 +180,19 @@ export default function WorkOrdersPage() {
               if (inspectionErr?.response?.status === 404) {
                 setNeedsInspection(true);
               } else {
-                // Error de red/servidor: no bloquear duro por disponibilidad.
                 setNeedsInspection(false);
               }
             }
+          } else {
+            setAssignedVehicleId(null);
+            setNeedsInspection(false);
+            setTeamVehicle(null);
           }
         } catch (teamsErr) {
-          // Si falla resolver cuadrilla, no bloquear para evitar falso positivo.
           setAssignedVehicleId(null);
           setNeedsInspection(false);
+          setTeamInfo(null);
+          setTeamVehicle(null);
         }
       } else {
         // ========== ADMIN/COORDINADOR: Vista global con filtros ==========
@@ -289,6 +317,37 @@ export default function WorkOrdersPage() {
           <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
         </Button>
       </div>
+
+      {/* Team Info Card - Solo para técnicos */}
+      {isTechnician && teamInfo && (
+        <div className="rounded-xl border border-emerald-800/60 bg-gradient-to-r from-emerald-950/70 to-zinc-950 p-4 flex flex-wrap items-center gap-x-6 gap-y-2">
+          <div className="flex items-center gap-2">
+            <Users size={16} className="text-emerald-400" />
+            <span className="text-sm font-medium text-emerald-300">{teamInfo.name}</span>
+          </div>
+          {teamVehicle && (
+            <div className="flex items-center gap-2">
+              <Truck size={16} className="text-cyan-400" />
+              <span className="text-sm text-zinc-200">{teamVehicle.name}</span>
+              {teamVehicle.license_plate && (
+                <span className="text-xs text-zinc-500">({teamVehicle.license_plate})</span>
+              )}
+            </div>
+          )}
+          {teamInfo.members && teamInfo.members.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <User size={16} className="text-zinc-400" />
+              {teamInfo.members
+                .filter((m) => m.user_id !== user?.id)
+                .map((m, i) => (
+                  <span key={m.user_id} className="text-xs text-zinc-300">
+                    {m.user_name}{m.role === 'leader' ? ' (Líder)' : ''}{i < teamInfo.members.filter(x => x.user_id !== user?.id).length - 1 ? ',' : ''}
+                  </span>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Error Alert */}
       {error && (
