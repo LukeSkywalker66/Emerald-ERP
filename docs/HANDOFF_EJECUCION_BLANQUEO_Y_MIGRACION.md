@@ -53,6 +53,8 @@ docker compose -f docker-compose.dev.yml exec backend python scripts/blanqueo_di
 # 2. Apply (ejecuta limpieza con backup automático)
 docker compose -f docker-compose.dev.yml exec backend python scripts/blanqueo_dia_cero.py --apply
 ```
+docker compose -f docker-compose.dev.yml exec -it backend python scripts/blanqueo_dia_cero.py --apply
+
 
 ### ¿Qué hace?
 
