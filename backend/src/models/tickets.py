@@ -927,6 +927,15 @@ class WorkOrderItem(Base, TimestampMixin):
         comment="Observaciones sobre este material"
     )
 
+    # Conexión asociada (para trazabilidad histórica BULK)
+    connection_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("connections.connection_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Conexión asociada (para consultar materiales BULK usados en una conexión)"
+    )
+
     # Relationships
     work_order: Mapped[WorkOrder] = relationship(
         "WorkOrder",

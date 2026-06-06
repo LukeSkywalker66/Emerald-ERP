@@ -42,7 +42,12 @@ from src.schemas.tickets import (
     TagResponse,
     TicketCategoryResponse,
     TicketReasonResponse,
+    ConnectionAssetResponse,
+    ConnectionNoteResponse,
+    ConnectionAssetsListResponse,
+    ConnectionNotesListResponse,
 )
+from src.models.inventory import ConnectionAsset, ConnectionNote
 from src.services.installation_onboarding import (
     InstallationSyncError,
     InstallationValidationError,
@@ -1191,4 +1196,65 @@ async def create_timeline_event_with_attachments(
 # El upload de archivos ahora usa tickets_v2_attachment.py con MinIO.
 # Este endpoint se reemplazó por la versión en tickets_v2_attachment.py.
 # Mantenemos esto solo como referencia; FastAPI usará el de tickets_v2_attachment.py.
+
+
+# ============================================
+# Connection Assets & Notes (por ticket)
+# ============================================
+
+
+@router.get(
+    "/{ticket_id}/connection-assets",
+    response_model=ConnectionAssetsListResponse,
+)
+def get_ticket_connection_assets(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Obtener activos instalados en la conexión asociada al ticket."""
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+    if not ticket.connection_id:
+        return ConnectionAssetsListResponse(connection_id=0, assets=[])
+
+    assets = (
+        db.query(ConnectionAsset)
+        .filter(ConnectionAsset.connection_id == ticket.connection_id)
+        .order_by(ConnectionAsset.installed_at.desc())
+        .all()
+    )
+    return ConnectionAssetsListResponse(
+        connection_id=ticket.connection_id,
+        assets=[ConnectionAssetResponse.model_validate(a) for a in assets],
+    )
+
+
+@router.get(
+    "/{ticket_id}/connection-notes",
+    response_model=ConnectionNotesListResponse,
+)
+def get_ticket_connection_notes(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Obtener notas de la conexión asociada al ticket."""
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+    if not ticket.connection_id:
+        return ConnectionNotesListResponse(connection_id=0, notes=[])
+
+    notes = (
+        db.query(ConnectionNote)
+        .filter(ConnectionNote.connection_id == ticket.connection_id)
+        .order_by(ConnectionNote.is_pinned.desc(), ConnectionNote.created_at.desc())
+        .all()
+    )
+    return ConnectionNotesListResponse(
+        connection_id=ticket.connection_id,
+        notes=[ConnectionNoteResponse.model_validate(n) for n in notes],
+    )
 

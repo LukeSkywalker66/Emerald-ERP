@@ -11,6 +11,7 @@ import {
   Users,
   CalendarClock,
   Activity,
+  ClipboardList,
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
@@ -33,6 +34,7 @@ import {
 import UsersTab from '@/pages/settings/UsersTab';
 import MonitorsTab from '@/pages/settings/MonitorsTab';
 import ScheduledTasksTab from '@/pages/settings/ScheduledTasksTab';
+import WOTemplatesTab from '@/pages/settings/WOTemplatesTab';
 
 // ─── Constants ──────────────────────────────────────────────────────────
 
@@ -276,6 +278,12 @@ export default function SettingsPage() {
               Monitores de Servicio
             </TabsTrigger>
           )}
+          {isAdmin && (
+            <TabsTrigger value="wo-templates" className="flex items-center gap-2">
+              <ClipboardList size={16} />
+              Órdenes de Trabajo
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* ═══ General Tab (solo admin) ═══ */}
@@ -466,6 +474,20 @@ export default function SettingsPage() {
             <div>
               <h2 className="text-xl font-bold text-zinc-50 mb-6">Monitores de Servicio</h2>
               <MonitorsTab />
+            </div>
+          </TabsContent>
+        )}
+
+        {/* ═══ WO Templates Tab (solo admin) ═══ */}
+        {isAdmin && (
+          <TabsContent value="wo-templates" className="space-y-6">
+            <div>
+              <h2 className="text-xl font-bold text-zinc-50 mb-6">Plantillas de Materiales - Órdenes de Trabajo</h2>
+              <p className="text-sm text-zinc-400 mb-6">
+                Configurá listas de productos sugeridos por tipo de visita.
+                Los técnicos verán estas plantillas precargadas al agregar materiales.
+              </p>
+              <WOTemplatesTab />
             </div>
           </TabsContent>
         )}

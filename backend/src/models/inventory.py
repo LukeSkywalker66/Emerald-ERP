@@ -34,10 +34,12 @@ class ProductType(str, PyEnum):
 
 class SerialItemStatus(str, PyEnum):
     """Estados de items serializados."""
-    NEW = "NEW"              # Nuevo sin usar
-    USED = "USED"            # Usado funcionando
-    DAMAGED = "DAMAGED"      # Dañado/no funcional
-    INSTALLED = "INSTALLED"  # Instalado en campo
+    NEW = "NEW"              # Depósito central, nuevo sin usar
+    IN_VEHICLE = "IN_VEHICLE"  # En camioneta de técnico (stock móvil)
+    INSTALLED = "INSTALLED"  # Instalado en cliente
+    DEFECTIVE = "DEFECTIVE"  # Devuelto por técnico como defectuoso
+    DAMAGED = "DAMAGED"      # Evaluado en central como no reparable
+    DECOMMISSIONED = "DECOMMISSIONED"  # Baja definitiva (solo central)
 
 
 class MovementType(str, PyEnum):
@@ -293,6 +295,13 @@ class SerialItem(Base):
         server_default="NEW",
         index=True
     )
+    connection_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("connections.connection_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Conexión donde está instalado este equipo (si status=INSTALLED)"
+    )
     ticket_related_id: Mapped[Optional[int]] = mapped_column(
         Integer,
         ForeignKey("tickets.id", ondelete="SET NULL"),
@@ -404,3 +413,147 @@ class StockMovement(Base):
 
     def __repr__(self):
         return f"<StockMovement(id={self.id}, type={self.movement_type.value}, product_id={self.product_id})>"
+
+
+class ConnectionAssetStatus(str, PyEnum):
+    """Estados de un activo registrado en una conexión."""
+    INSTALLED = "INSTALLED"    # Actualmente instalado en el cliente
+    REMOVED = "REMOVED"        # Fue retirado (reemplazado, dañado, etc.)
+
+
+class ConnectionAsset(Base):
+    """
+    Registro de equipos serializados instalados/retirados de una conexión.
+    Permite tener un historial completo de qué equipos tuvo cada cliente.
+
+    Solo aplica a productos SERIALIZED. Los BULK se trackean en work_order_items.
+    """
+    __tablename__ = "connection_assets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    connection_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("connections.connection_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="Conexión donde se instaló/retiró el equipo"
+    )
+    serial_item_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("serial_items.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        comment="Item serializado asociado"
+    )
+    product_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("products.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        comment="Producto del catálogo (para JOIN directo)"
+    )
+    serial_number: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        comment="Serial del equipo (redundancia para consultas rápidas)"
+    )
+    status: Mapped[ConnectionAssetStatus] = mapped_column(
+        String(50),
+        nullable=False,
+        default=ConnectionAssetStatus.INSTALLED.value,
+        comment="INSTALLED: activo, REMOVED: retirado"
+    )
+    installed_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+        comment="Fecha de instalación"
+    )
+    removed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime,
+        nullable=True,
+        comment="Fecha de retiro (si aplica)"
+    )
+    installed_by_wo_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("work_orders.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="OT que instaló este equipo"
+    )
+    removed_by_wo_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("work_orders.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="OT que retiró este equipo"
+    )
+    notes: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Observaciones sobre el estado del equipo al instalar/retirar"
+    )
+
+    # Relaciones
+    serial_item: Mapped["SerialItem"] = relationship("SerialItem", foreign_keys=[serial_item_id])
+    installed_by_wo: Mapped[Optional["WorkOrder"]] = relationship(
+        "WorkOrder", foreign_keys=[installed_by_wo_id], lazy="joined"
+    )
+    removed_by_wo: Mapped[Optional["WorkOrder"]] = relationship(
+        "WorkOrder", foreign_keys=[removed_by_wo_id], lazy="joined"
+    )
+
+    __table_args__ = (
+        Index("ix_connection_assets_lookup", "connection_id", "serial_item_id", unique=True),
+    )
+
+    def __repr__(self):
+        return f"<ConnectionAsset(id={self.id}, conn={self.connection_id}, serial='{self.serial_number}', status={self.status})>"
+
+
+class ConnectionNote(Base):
+    """
+    Notas de los técnicos sobre una conexión específica.
+    Observaciones libres que quedan como referencia para futuras visitas.
+    Ej: "Cliente con 3 pisos", "Perro peligroso", "Red aerea saturada".
+    """
+    __tablename__ = "connection_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    connection_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("connections.connection_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="Conexión asociada"
+    )
+    work_order_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("work_orders.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="OT que generó esta nota"
+    )
+    author_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Técnico que escribió la nota"
+    )
+    note: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="Contenido de la nota"
+    )
+    is_pinned: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+        comment="Nota importante/pinned (visible siempre)"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+        index=True
+    )
+
+    def __repr__(self):
+        return f"<ConnectionNote(id={self.id}, conn={self.connection_id}, pinned={self.is_pinned})>"

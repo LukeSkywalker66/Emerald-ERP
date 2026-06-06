@@ -492,6 +492,12 @@ Antes de modificar schema:
 - ✅ Migración e531d3d1fe20 aplicada ✓ - 3 MOBILE warehouses migrados a vehículos
 - ✅ Team.vehicle_id FK integrada con asignación de vehículos a cuadrillas
 - ✅ VehicleStatus enum: ACTIVE, MAINTENANCE, RETIRED, DONATED
+- ✅ **REFURBISH OT (06/06/2026):** Tablas nuevas: connection_assets, connection_notes, wo_templates, wo_template_items
+- ✅ **SerialItemStatus** extendido: NEW, IN_VEHICLE, INSTALLED, DEFECTIVE, DAMAGED, DECOMMISSIONED
+- ✅ **SerialItem** nuevo campo: connection_id (FK → connections)
+- ✅ **WorkOrderItem** nuevo campo: connection_id (FK → connections, tracking BULK histórico)
+- ✅ **WorkOrder Resolution** nuevo endpoint: POST /v2/work-orders/{id}/complete (orquesta descarga stock + creación de assets)
+- ✅ **WO Templates** en Settings: configuración admin de materiales sugeridos por tipo de visita
 
 ---
 
@@ -768,7 +774,91 @@ HAVING COUNT(*) > 1;
 
 ---
 
-**Última revisión:** 2 de marzo de 2026
-**Próximas features:** Mantenimiento programado (NUEVO status?), Combustible tracking
+## 📦 NUEVAS TABLAS: Trazabilidad de Activos (06/06/2026)
+
+### connection_assets
+
+Registro de equipos serializados instalados/retirados de una conexión. Trazabilidad completa.
+
+| Columna | Tipo | Descripción |
+|---------|------|-------------|
+| id | INT PK | ID único |
+| connection_id | INT FK→connections | Conexión donde está instalado |
+| serial_item_id | INT FK→serial_items | Item serializado |
+| product_id | INT FK→products | Producto del catálogo |
+| serial_number | VARCHAR(100) | Serial (redundancia) |
+| status | VARCHAR(50) | INSTALLED / REMOVED |
+| installed_at | DATETIME | Fecha de instalación |
+| removed_at | DATETIME? | Fecha de retiro |
+| installed_by_wo_id | INT FK→work_orders? | OT que instaló |
+| removed_by_wo_id | INT FK→work_orders? | OT que retiró |
+| notes | TEXT? | Observaciones |
+
+**UK:** (connection_id, serial_item_id)
+
+### connection_notes
+
+Notas libres de técnicos sobre una conexión.
+
+| Columna | Tipo | Descripción |
+|---------|------|-------------|
+| id | INT PK | |
+| connection_id | INT FK→connections | Conexión |
+| work_order_id | INT FK→work_orders? | OT que generó la nota |
+| author_id | INT FK→users? | Técnico autor |
+| note | TEXT | Contenido |
+| is_pinned | BOOL | Nota destacada |
+| created_at | DATETIME | Con índice |
+
+### wo_templates
+
+Plantillas de materiales sugeridos configurables por admin (Settings).
+
+| Columna | Tipo | Descripción |
+|---------|------|-------------|
+| id | INT PK | |
+| name | VARCHAR(200) | Nombre (ej: "Instalación FTTH Mínima") |
+| description | TEXT? | Descripción |
+| ot_type | VARCHAR(50)? | Filtro por tipo de OT |
+| is_active | BOOL | Activa/inactiva |
+
+### wo_template_items
+
+Productos dentro de cada plantilla.
+
+| Columna | Tipo | Descripción |
+|---------|------|-------------|
+| id | INT PK | |
+| template_id | INT FK→wo_templates CASCADE | Plantilla padre |
+| product_id | INT FK→products RESTRICT | Producto |
+| default_quantity | FLOAT | Cantidad sugerida |
+| required | BOOL | Obligatorio? |
+| sort_order | INT | Orden de aparición |
+| notes | TEXT? | Nota interna |
+
+### SerialItem - Nuevos estados
+
+```python
+class SerialItemStatus(str, PyEnum):
+    NEW = "NEW"              # Depósito central
+    IN_VEHICLE = "IN_VEHICLE"  # Camioneta de técnico
+    INSTALLED = "INSTALLED"  # Instalado en cliente (connection_id != null)
+    DEFECTIVE = "DEFECTIVE"  # Devuelto por técnico como defectuoso
+    DAMAGED = "DAMAGED"      # Evaluado en central como no reparable
+    DECOMMISSIONED = "DECOMMISSIONED"  # Baja definitiva
+```
+
+### SerialItem - Nuevos campos
+
+- `connection_id` (INT FK→connections, nullable): conexión donde está instalado
+
+### WorkOrderItem - Nuevos campos
+
+- `connection_id` (INT FK→connections, nullable): conexión asociada (tracking histórico BULK)
+
+---
+
+**Última revisión:** 6 de junio de 2026
+**Últimas features:** Refurbish OT module - Trazabilidad de activos, plantillas en Settings, wizard 4 pasos
 
 

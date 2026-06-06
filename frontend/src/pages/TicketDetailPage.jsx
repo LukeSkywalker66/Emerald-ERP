@@ -46,6 +46,7 @@ import RepeatedIssueAlert from '@/components/tickets/RepeatedIssueAlert';
 import TicketTags from '@/components/tickets/TicketTags';
 import WorkOrderCompletedSummary from '@/components/work-orders/WorkOrderCompletedSummary';
 import CreateEngineeringTaskDialog from '@/components/engineering/CreateEngineeringTaskDialog';
+import ConnectionInfoPanel from '@/components/tickets/ConnectionInfoPanel';
 import { useAuth } from '@/context/AuthContext';
 import { hasPermission } from '@/utils/permissions';
 import ImageViewer from '@/components/ui/ImageViewer';
@@ -1487,6 +1488,14 @@ export default function TicketDetailPage() {
                 )}
               </div>
             </div>
+          )}
+
+          {/* Información de Conexión (Activos + Notas) */}
+          {ticket.connection_id && (
+            <ConnectionInfoPanel
+              ticketId={ticket.id}
+              connectionId={ticket.connection_id}
+            />
           )}
 
           {/* Historial de Tickets de la Conexión */}
