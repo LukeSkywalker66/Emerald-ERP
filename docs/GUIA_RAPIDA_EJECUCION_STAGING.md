@@ -185,3 +185,5 @@ docker compose down --remove-orphans
 docker compose build --no-cache
 # Levanta los servicios obligando a recrear los contenedores
 docker compose up -d --force-recreate
+# seeding de estructura inicial
+docker exec emerald_backend_staging python scripts/provision_seed_data.py

@@ -56,6 +56,7 @@ def complete_work_order_with_inventory(
     resolution_notes: Optional[str] = None,
     photo_urls: Optional[list[str]] = None,
     connection_note: Optional[str] = None,
+    installation_signal_dbm: Optional[float] = None,
 ) -> WorkOrder:
     """
     Completar una OT procesando todo el inventario asociado.
@@ -179,7 +180,17 @@ def complete_work_order_with_inventory(
         db.add(note)
 
     # ============================================================
-    # 6. Actualizar connection_id en WorkOrderItems (histórico BULK)
+    # 6. Guardar nivel de señal de instalación (si se proporcionó)
+    # ============================================================
+    if installation_signal_dbm is not None and ticket.connection:
+        ticket.connection.installation_signal_dbm = installation_signal_dbm
+        logger.info(
+            f"Conexión #{connection_id}: signal_dbm={installation_signal_dbm} "
+            f"registrado desde OT #{work_order.id}"
+        )
+
+    # ============================================================
+    # 7. Actualizar connection_id en WorkOrderItems (histórico BULK)
     # ============================================================
     for item in items:
         item.connection_id = connection_id

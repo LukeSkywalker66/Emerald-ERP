@@ -265,8 +265,9 @@ export default function CloseWorkOrderDialog({
     loadTpl();
   }, [selectedAction, workOrder?.ot_type]);
 
-  // State para paso 4: Nota de conexión
+  // State para paso 4: Nota de conexión + señal de instalación
   const [connectionNote, setConnectionNote] = useState('');
+  const [signalDbm, setSignalDbm] = useState('');
 
   // Completar / Cerrar OT - usa acciones dinámicas + nuevo endpoint
   const handleComplete = async () => {
@@ -277,6 +278,7 @@ export default function CloseWorkOrderDialog({
         resolution_notes: resolutionNotes,
         photo_urls: uploadedPhotos,
         connection_note: connectionNote.trim() || null,
+        installation_signal_dbm: signalDbm ? parseFloat(signalDbm) : null,
       };
 
       // Usar el nuevo endpoint POST /complete con inventario
@@ -678,6 +680,30 @@ export default function CloseWorkOrderDialog({
                       Esta nota quedará asociada a la conexión del cliente para futuras visitas.
                     </p>
                   </div>
+
+                  {/* Nivel de señal de instalación (solo para instalaciones) */}
+                  {(workOrder?.ot_type === 'install_ftth' || workOrder?.ot_type === 'install_aire') && (
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-zinc-300 mb-2">
+                        Nivel de señal / luz (dBm) <span className="text-zinc-500">— opcional</span>
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={signalDbm}
+                          onChange={(e) => setSignalDbm(e.target.value)}
+                          placeholder="Ej: -18.5"
+                          className="w-32 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-white placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                        <span className="text-xs text-zinc-400">dBm</span>
+                      </div>
+                      <p className="mt-1 text-xs text-zinc-400">
+                        Registrá el nivel de señal óptica (FTTH) o RSSI (radio) medido al instalar.
+                        Quedará ligado a la conexión para futuras comparaciones.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

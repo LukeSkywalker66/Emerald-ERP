@@ -1817,6 +1817,7 @@ def complete_work_order(
             resolution_notes=payload.resolution_notes,
             photo_urls=payload.photo_urls,
             connection_note=payload.connection_note,
+            installation_signal_dbm=payload.installation_signal_dbm,
         )
     except CompletionError as e:
         raise HTTPException(status_code=422, detail=str(e))

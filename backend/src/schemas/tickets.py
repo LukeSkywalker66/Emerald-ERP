@@ -142,6 +142,7 @@ class WorkOrderCompleteRequest(BaseModel):
     resolution_notes: Optional[str] = Field(None, description="Notas de resolución")
     photo_urls: Optional[List[str]] = Field(default_factory=list, description="Fotos de evidencia")
     connection_note: Optional[str] = Field(None, description="Nota opcional para la conexión")
+    installation_signal_dbm: Optional[float] = Field(None, description="Nivel de señal óptica/RSSI al instalar (dBm)")
 
 
 class WorkOrderUpdate(BaseModel):
