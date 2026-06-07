@@ -121,7 +121,9 @@ def complete_work_order_with_inventory(
     # 3. Actualizar WorkOrder
     # ============================================================
     now = datetime.now(timezone.utc)
-    work_order.status = WorkOrderStatus.completed
+    # Detectar si es "No Realizada" (el endpoint mapea "no_realizada" → "incomplete")
+    is_no_realizada = resolution_category in ('no_realizada', 'incomplete')
+    work_order.status = WorkOrderStatus.failed if is_no_realizada else WorkOrderStatus.completed
     work_order.completed_at = now
     work_order.resolution_category = resolution_category
     work_order.resolution_notes = resolution_notes
@@ -129,19 +131,36 @@ def complete_work_order_with_inventory(
         work_order.photo_urls = photo_urls
 
     # ============================================================
-    # 4. Timeline event
+    # 4. Timeline event - card clickeable con status visible
     # ============================================================
+    final_status = WorkOrderStatus.failed if is_no_realizada else WorkOrderStatus.completed
+    action_label = "No Realizada" if is_no_realizada else "Completada"
+    item_count = len(items)
+    
     timeline_meta = {
         "work_order_id": work_order.id,
+        "status": final_status.value,            # ← frontend TicketDetailPage.jsx:265 usa .status
+        "current_status": final_status.value,    # ← frontend TicketTimeline.jsx:116 usa .current_status
+        "work_order_status": final_status.value, # ← legado
         "resolution_category": resolution_category,
-        "item_count": len(items),
-        "status": WorkOrderStatus.completed.value,
+        "item_count": item_count,
+        "action_code": "no_realizada" if is_no_realizada else "realizada",
     }
+    
+    # Contenido descriptivo para que el operador entienda sin abrir la OT
+    content_parts = [
+        f"🛠️ OT #{work_order.id} — {action_label}",
+    ]
+    if item_count > 0:
+        content_parts.append(f"📦 {item_count} material(es) procesado(s)")
+    if resolution_notes:
+        content_parts.append(f"📝 {resolution_notes[:200]}{'...' if len(resolution_notes) > 200 else ''}")
+    
     timeline_event = TicketTimeline(
         ticket_id=work_order.ticket_id,
         author_id=current_user.id,
         event_type=TicketTimelineEventType.ot_event,
-        content=f"OT #{work_order.id} completada con {len(items)} material(es)",
+        content="\n".join(content_parts),
         meta_data=timeline_meta,
     )
     db.add(timeline_event)
@@ -272,10 +291,11 @@ def _process_serialized_item(
         )
 
     warehouse_id = serial_item.warehouse_id
+    virtual_wh_id = _get_virtual_warehouse_id(db)
 
-    # Actualizar SerialItem
+    # Actualizar SerialItem: se mueve al warehouse VIRTUAL (instalado en cliente)
     serial_item.status = SerialItemStatus.INSTALLED
-    serial_item.warehouse_id = None  # Ya no está en depósito
+    serial_item.warehouse_id = virtual_wh_id
     serial_item.connection_id = connection_id
     serial_item.ticket_related_id = item.work_order_id
 
@@ -341,3 +361,25 @@ def _get_technician_warehouse_id(db: Session, user_id: int) -> Optional[int]:
         return warehouse.id
 
     return None
+
+
+def _get_virtual_warehouse_id(db: Session) -> int:
+    """
+    Obtiene el ID del warehouse VIRTUAL para equipos instalados en cliente.
+
+    Este warehouse es un depósito virtual que representa equipos instalados
+    en conexiones de clientes (no están físicamente en ningún depósito real).
+    Se usa como warehouse_id en SerialItem cuando status=INSTALLED.
+    """
+    from src.models.inventory import Warehouse, WarehouseType
+    warehouse = (
+        db.query(Warehouse)
+        .filter(Warehouse.type == WarehouseType.VIRTUAL)
+        .first()
+    )
+    if not warehouse:
+        raise CompletionError(
+            "No se encontró un warehouse VIRTUAL. "
+            "Debe existir un depósito de tipo VIRTUAL para registrar equipos instalados en cliente."
+        )
+    return warehouse.id

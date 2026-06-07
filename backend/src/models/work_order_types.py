@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.database import Base
@@ -76,6 +76,10 @@ class WOTemplate(Base):
         String(50), nullable=True, index=True,
         comment="Tipo de OT al que aplica (install, repair, etc.)"
     )
+    action_code: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, index=True,
+        comment="Acción de resolución a la que aplica (realizada, reconfig, etc.)"
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, index=True
     )
@@ -142,3 +146,57 @@ class WOTemplateItem(Base):
 
     def __repr__(self) -> str:
         return f"<WOTemplateItem(id={self.id}, tmpl={self.template_id}, prod={self.product_id})>"
+
+
+class WOAction(Base):
+    """
+    Acciones de resolución configurables por tipo de OT.
+    Define qué acciones puede realizar un técnico al completar una OT,
+    agrupadas por tipo de OT.
+
+    Built-in: 'realizada' (completada exitosamente) y 'no_realizada' (no se pudo realizar).
+    - 'no_realizada' existe para TODOS los tipos de OT y siempre requiere notas.
+    - 'realizada' existe para tipos simples (install, pickup, infrastructure).
+    - repair tiene acciones específicas (reconfig, replacement, etc).
+    """
+    __tablename__ = "wo_actions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ot_type: Mapped[str] = mapped_column(
+        String(50), nullable=False, index=True,
+        comment="Tipo de OT al que aplica (work_order_types.code)"
+    )
+    code: Mapped[str] = mapped_column(
+        String(50), nullable=False,
+        comment="Código interno (ej: realizada, no_realizada, reconfig)"
+    )
+    name: Mapped[str] = mapped_column(
+        String(200), nullable=False,
+        comment="Nombre visible (ej: Realizada, No Realizada, Reconfiguración)"
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment="Descripción de cuándo se usa esta acción"
+    )
+    requires_notes: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+        comment="Si requiere descripción obligatoria"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False, index=True
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False,
+        comment="Orden de aparición en el wizard"
+    )
+    is_builtin: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+        comment="Si es un acción fija del sistema (no se puede eliminar)"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("ot_type", "code", name="uq_wo_action_ot_type_code"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<WOAction(id={self.id}, ot={self.ot_type}, code='{self.code}')>"

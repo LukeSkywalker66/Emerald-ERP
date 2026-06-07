@@ -13,11 +13,17 @@ from src.models.work_order_types import WorkOrderTypeConfig, WOTemplate, WOTempl
 from src.models.inventory import Product
 from src.schemas.work_order_types import (
     WorkOrderTypeResponse,
+    WorkOrderTypeCreate,
+    WorkOrderTypeUpdate,
     WOTemplateCreate,
     WOTemplateUpdate,
     WOTemplateResponse,
     WOTemplateItemResponse,
+    WOActionCreate,
+    WOActionUpdate,
+    WOActionResponse,
 )
+from src.models.work_order_types import WOAction
 
 router = APIRouter(tags=["WorkOrderTypes"])
 
@@ -52,6 +58,119 @@ def list_work_order_types(
     return result
 
 
+@router.put(
+    "/{type_id}",
+    response_model=WorkOrderTypeResponse,
+)
+def update_work_order_type(
+    type_id: int,
+    payload: "WorkOrderTypeUpdate",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Actualizar un tipo de OT (nombre, color, icono, etc). Solo admin."""
+    require_admin(current_user)
+
+    config = db.query(WorkOrderTypeConfig).filter(WorkOrderTypeConfig.id == type_id).first()
+    if not config:
+        raise HTTPException(status_code=404, detail="Tipo de OT no encontrado")
+
+    if payload.name is not None:
+        config.name = payload.name
+    if payload.description is not None:
+        config.description = payload.description
+    if payload.color is not None:
+        config.color = payload.color
+    if payload.icon is not None:
+        config.icon = payload.icon
+    if payload.is_active is not None:
+        config.is_active = payload.is_active
+
+    db.commit()
+    db.refresh(config)
+    return config
+
+
+@router.post(
+    "/",
+    response_model=WorkOrderTypeResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@router.post(
+    "",
+    response_model=WorkOrderTypeResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_work_order_type(
+    payload: "WorkOrderTypeCreate",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Crear un nuevo tipo de OT (solo admin)."""
+    require_admin(current_user)
+
+    existing = db.query(WorkOrderTypeConfig).filter(
+        WorkOrderTypeConfig.code == payload.code
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Ya existe un tipo con code '{payload.code}'")
+
+    config = WorkOrderTypeConfig(
+        code=payload.code,
+        name=payload.name,
+        description=payload.description,
+        color=payload.color or "bg-zinc-600",
+        icon=payload.icon,
+        is_active=payload.is_active if payload.is_active is not None else True,
+    )
+    db.add(config)
+    db.commit()
+    db.refresh(config)
+    return config
+
+
+@router.delete(
+    "/{type_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_work_order_type(
+    type_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Eliminar un tipo de OT (solo admin)."""
+    require_admin(current_user)
+
+    config = db.query(WorkOrderTypeConfig).filter(WorkOrderTypeConfig.id == type_id).first()
+    if not config:
+        raise HTTPException(status_code=404, detail="Tipo de OT no encontrado")
+
+    db.delete(config)
+    db.commit()
+
+
+@router.patch(
+    "/{type_id}/toggle",
+    response_model=WorkOrderTypeResponse,
+)
+def toggle_work_order_type(
+    type_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Activar/desactivar un tipo de OT. Solo admin."""
+    require_admin(current_user)
+
+    config = db.query(WorkOrderTypeConfig).filter(WorkOrderTypeConfig.id == type_id).first()
+    if not config:
+        raise HTTPException(status_code=404, detail="Tipo de OT no encontrado")
+
+    config.is_active = not config.is_active
+    db.commit()
+    db.refresh(config)
+    return config
+
+
 # ============================================================
 # WO Templates CRUD (Admin only)
 # ============================================================
@@ -79,6 +198,7 @@ def _build_template_response(template: WOTemplate) -> WOTemplateResponse:
         name=template.name,
         description=template.description,
         ot_type=template.ot_type,
+        action_code=template.action_code,
         is_active=template.is_active,
         created_at=template.created_at,
         updated_at=template.updated_at,
@@ -93,14 +213,17 @@ def _build_template_response(template: WOTemplate) -> WOTemplateResponse:
 def list_wo_templates(
     active_only: bool = False,
     ot_type: str = None,
+    action_code: str = None,
     db: Session = Depends(get_db),
 ):
-    """Listar plantillas de materiales. Filtro opcional por tipo de OT."""
+    """Listar plantillas de materiales. Filtro opcional por tipo de OT y acción."""
     stmt = select(WOTemplate).order_by(WOTemplate.name)
     if active_only:
         stmt = stmt.where(WOTemplate.is_active == True)
     if ot_type:
         stmt = stmt.where(WOTemplate.ot_type == ot_type)
+    if action_code:
+        stmt = stmt.where(WOTemplate.action_code == action_code)
     result = db.execute(stmt).scalars().all()
     return [_build_template_response(t) for t in result]
 
@@ -137,6 +260,7 @@ def create_wo_template(
         name=payload.name,
         description=payload.description,
         ot_type=payload.ot_type,
+        action_code=payload.action_code,
         is_active=payload.is_active,
     )
     db.add(template)
@@ -181,6 +305,8 @@ def update_wo_template(
         template.description = payload.description
     if payload.ot_type is not None:
         template.ot_type = payload.ot_type
+    if payload.action_code is not None:
+        template.action_code = payload.action_code
     if payload.is_active is not None:
         template.is_active = payload.is_active
 
@@ -224,4 +350,110 @@ def delete_wo_template(
         raise HTTPException(status_code=404, detail="Plantilla no encontrada")
 
     db.delete(template)
+    db.commit()
+
+
+# ============================================================
+# WO Actions CRUD (Admin only)
+# ============================================================
+
+
+@router.get(
+    "/actions",
+    response_model=List[WOActionResponse],
+)
+def list_wo_actions(
+    ot_type: str = None,
+    active_only: bool = False,
+    db: Session = Depends(get_db),
+):
+    """Listar acciones de resolución. Filtro opcional por tipo de OT."""
+    stmt = select(WOAction).order_by(WOAction.ot_type, WOAction.sort_order)
+    if ot_type:
+        stmt = stmt.where(WOAction.ot_type == ot_type)
+    if active_only:
+        stmt = stmt.where(WOAction.is_active == True)
+    result = db.execute(stmt).scalars().all()
+    return result
+
+
+@router.post(
+    "/actions",
+    response_model=WOActionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_wo_action(
+    payload: WOActionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Crear una nueva acción de resolución (solo admin)."""
+    require_admin(current_user)
+
+    existing = db.query(WOAction).filter(
+        WOAction.ot_type == payload.ot_type,
+        WOAction.code == payload.code,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Ya existe una acción con code '{payload.code}' para este tipo de OT")
+
+    action = WOAction(**payload.model_dump())
+    db.add(action)
+    db.commit()
+    db.refresh(action)
+    return action
+
+
+@router.put(
+    "/actions/{action_id}",
+    response_model=WOActionResponse,
+)
+def update_wo_action(
+    action_id: int,
+    payload: WOActionUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Actualizar una acción de resolución (solo admin)."""
+    require_admin(current_user)
+
+    action = db.query(WOAction).filter(WOAction.id == action_id).first()
+    if not action:
+        raise HTTPException(status_code=404, detail="Acción no encontrada")
+
+    if payload.name is not None:
+        action.name = payload.name
+    if payload.description is not None:
+        action.description = payload.description
+    if payload.requires_notes is not None:
+        action.requires_notes = payload.requires_notes
+    if payload.is_active is not None:
+        action.is_active = payload.is_active
+    if payload.sort_order is not None:
+        action.sort_order = payload.sort_order
+
+    db.commit()
+    db.refresh(action)
+    return action
+
+
+@router.delete(
+    "/actions/{action_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_wo_action(
+    action_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Eliminar una acción de resolución (solo admin). Las built-in no se pueden eliminar."""
+    require_admin(current_user)
+
+    action = db.query(WOAction).filter(WOAction.id == action_id).first()
+    if not action:
+        raise HTTPException(status_code=404, detail="Acción no encontrada")
+    if action.is_builtin:
+        raise HTTPException(status_code=400, detail="No se puede eliminar una acción built-in")
+
+    db.delete(action)
     db.commit()

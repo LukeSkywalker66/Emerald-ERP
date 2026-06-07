@@ -191,6 +191,7 @@ class WorkOrderItemResponse(BaseModel):
     """Schema de respuesta para items de material."""
     id: int
     product_id: int
+    product_name: Optional[str] = None
     quantity: float
     serial_number: Optional[str] = None
     notes: Optional[str] = None

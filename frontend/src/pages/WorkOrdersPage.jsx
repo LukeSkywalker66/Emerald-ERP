@@ -22,6 +22,7 @@ import api from '@/api/client';
 import workOrdersService from '@/services/workOrders.service';
 import coordinationService from '@/services/coordination.service';
 import fleetService from '@/services/fleet.service';
+import workOrderTypesService from '@/services/workOrderTypes.service';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -107,6 +108,9 @@ export default function WorkOrdersPage() {
   const [needsInspection, setNeedsInspection] = useState(false);
   const [assignedVehicleId, setAssignedVehicleId] = useState(null);
   const [inspectionDialogOpen, setInspectionDialogOpen] = useState(false);
+
+  // OT Types (DB-driven)
+  const [otTypes, setOtTypes] = useState([]);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -239,6 +243,11 @@ export default function WorkOrdersPage() {
       setIsRefreshing(false);
     }
   };
+
+  // Cargar tipos de OT desde la DB
+  useEffect(() => {
+    workOrderTypesService.getWorkOrderTypes(false).then(setOtTypes).catch(() => {});
+  }, []);
 
   useEffect(() => {
     setIsLoading(true);
@@ -475,10 +484,9 @@ export default function WorkOrdersPage() {
             className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 focus:ring-2 focus:ring-emerald-500/40 h-9"
           >
             <option value="">Todos los tipos</option>
-            <option value="repair">Soporte</option>
-            <option value="install">Instalación</option>
-            <option value="pickup">Retiro</option>
-            <option value="infrastructure">Infraestructura</option>
+            {otTypes.filter(t => t.is_active).map((type) => (
+              <option key={type.id} value={type.code}>{type.name}</option>
+            ))}
           </select>
 
           {/* Filtro por asignado (solo admin y operator) */}

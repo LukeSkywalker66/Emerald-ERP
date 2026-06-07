@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/dialog';
 import workOrdersService from '@/services/workOrders.service';
 import beholderService from '@/services/beholder.service';
+import workOrderTypesService from '@/services/workOrderTypes.service';
 import useMaterialSelector from '@/components/work-orders/useMaterialSelector';
 import MaterialSelectorForm from '@/components/work-orders/MaterialSelectorForm';
 import { useAuth } from '@/context/AuthContext';
@@ -96,7 +97,7 @@ function Timer({ startedAt }) {
 }
 
 // Material Item
-function MaterialItem({ item, onRemove }) {
+function MaterialItem({ item, onRemove, disabled }) {
   return (
     <div className="flex items-center justify-between p-2 rounded bg-zinc-800/50 border border-zinc-700/50">
       <div className="flex-1 min-w-0">
@@ -105,12 +106,14 @@ function MaterialItem({ item, onRemove }) {
         </p>
         <p className="text-xs text-zinc-500">Qty: {item.quantity}</p>
       </div>
-      <button
-        onClick={() => onRemove(item.id)}
-        className="p-1 hover:bg-zinc-700 rounded transition-colors text-zinc-400 hover:text-rose-400"
-      >
-        <X size={14} />
-      </button>
+      {!disabled && (
+        <button
+          onClick={() => onRemove(item.id)}
+          className="p-1 hover:bg-zinc-700 rounded transition-colors text-zinc-400 hover:text-rose-400"
+        >
+          <X size={14} />
+        </button>
+      )}
     </div>
   );
 }
@@ -129,6 +132,7 @@ export default function WorkOrderExecutionPage() {
   const [workOrder, setWorkOrder] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [otTypeMap, setOtTypeMap] = useState({});
 
   // Dialogs
   const [showMaterialDialog, setShowMaterialDialog] = useState(false);
@@ -164,6 +168,13 @@ export default function WorkOrderExecutionPage() {
       setIsLoading(false);
     }
   };
+
+  // Cargar tipos de OT desde DB
+  useEffect(() => {
+    workOrderTypesService.getWorkOrderTypes(false)
+      .then((types) => setOtTypeMap(workOrderTypesService.buildTypeMap(types)))
+      .catch(() => {});
+  }, []);
 
   // Cargar inventario cuando se abre el modal de materiales (usando hook compartido)
   useEffect(() => {
@@ -310,7 +321,11 @@ export default function WorkOrderExecutionPage() {
     const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
     return scheduledDate < fiveMinAgo;
   })();
-  const typeConfig = OT_TYPE_ICONS[workOrder?.ot_type] || OT_TYPE_ICONS.repair;
+  // Type info desde DB (fallback a hardcoded)
+  const otTypeInfo = otTypeMap[workOrder?.ot_type];
+  const typeConfig = otTypeInfo
+    ? { icon: Wrench, label: otTypeInfo.name, color: otTypeInfo.color?.replace('bg-', 'text-') || 'text-emerald-400' }
+    : (OT_TYPE_ICONS[workOrder?.ot_type] || OT_TYPE_ICONS.repair);
   const TypeIcon = typeConfig.icon;
   const rawPriority =
     typeof workOrder?.ticket_info?.priority === 'string'
@@ -724,6 +739,7 @@ export default function WorkOrderExecutionPage() {
                     key={item.id}
                     item={item}
                     onRemove={handleRemoveMaterial}
+                    disabled={workOrder?.status === 'completed' || workOrder?.status === 'failed'}
                   />
                 ))}
               </div>

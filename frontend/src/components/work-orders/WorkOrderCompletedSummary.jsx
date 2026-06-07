@@ -60,11 +60,6 @@ export default function WorkOrderCompletedSummary({ workOrder }) {
 
   const colors = categoryColors[category] || categoryColors.other;
 
-  console.log('[DEBUG] WorkOrderCompletedSummary received:', {
-    photo_urls: photos,
-    resolution_category: category,
-  });
-
   return (
     <div className="space-y-4">
       {/* Referencia del Ticket Origen */}

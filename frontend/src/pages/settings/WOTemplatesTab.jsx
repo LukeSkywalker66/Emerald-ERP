@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Pencil, Trash2, Package, ClipboardList, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import * as workOrderTypesService from '@/services/workOrderTypes.service';
 import * as inventoryService from '@/services/inventory.service';
 
 /**
  * WOTemplatesTab - Admin panel for work order material templates.
  * Part of the Settings page (Etapa 5).
+ * Loads OT types dynamically from DB (WorkOrderTypeConfig).
  */
 export default function WOTemplatesTab() {
   const [templates, setTemplates] = useState([]);
@@ -15,12 +16,15 @@ export default function WOTemplatesTab() {
   const [error, setError] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [products, setProducts] = useState([]);
+  const [otTypes, setOtTypes] = useState([]);
+  const [woActions, setWoActions] = useState([]); // Acciones desde DB
 
   // Form state
   const [form, setForm] = useState({
     name: '',
     description: '',
     ot_type: '',
+    action_code: '',
     is_active: true,
     items: [],
   });
@@ -28,12 +32,16 @@ export default function WOTemplatesTab() {
   const loadTemplates = useCallback(async () => {
     try {
       setLoading(true);
-      const [data, cats] = await Promise.all([
+      const [data, cats, types, actions] = await Promise.all([
         workOrderTypesService.getWOTemplates(),
         inventoryService.getProducts().catch(() => []),
+        workOrderTypesService.getWorkOrderTypes(false).catch(() => []),
+        workOrderTypesService.getWOActions().catch(() => []),
       ]);
       setTemplates(data || []);
       setProducts(cats || []);
+      setOtTypes(types || []);
+      setWoActions(actions || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -44,7 +52,7 @@ export default function WOTemplatesTab() {
   useEffect(() => { loadTemplates(); }, [loadTemplates]);
 
   const resetForm = () => setForm({
-    name: '', description: '', ot_type: '', is_active: true, items: [],
+    name: '', description: '', ot_type: '', action_code: '', is_active: true, items: [],
   });
 
   const startEdit = (tmpl) => {
@@ -53,6 +61,7 @@ export default function WOTemplatesTab() {
       name: tmpl.name,
       description: tmpl.description || '',
       ot_type: tmpl.ot_type || '',
+      action_code: tmpl.action_code || '',
       is_active: tmpl.is_active,
       items: (tmpl.items || []).map((i) => ({
         product_id: i.product_id,
@@ -147,10 +156,25 @@ export default function WOTemplatesTab() {
             className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white text-sm"
           >
             <option value="">Todos los tipos de OT</option>
-            <option value="install">Instalación</option>
-            <option value="repair">Soporte/Reparación</option>
-            <option value="pickup">Retiro</option>
-            <option value="infrastructure">Infraestructura</option>
+            {otTypes.filter(t => t.is_active).map((type) => (
+              <option key={type.id} value={type.code}>
+                {type.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={form.action_code}
+            onChange={(e) => setForm({ ...form, action_code: e.target.value })}
+            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white text-sm"
+          >
+            <option value="">Todas las acciones</option>
+            {woActions
+              .filter(a => a.is_active && (!form.ot_type || a.ot_type === form.ot_type))
+              .map((action) => (
+                <option key={action.id} value={action.code}>
+                  {action.name}
+                </option>
+              ))}
           </select>
         </div>
         <textarea
@@ -236,7 +260,12 @@ export default function WOTemplatesTab() {
                     {!tmpl.is_active && <Badge variant="outline" className="text-[10px] border-zinc-600 text-zinc-500">Inactiva</Badge>}
                     {tmpl.ot_type && (
                       <Badge variant="outline" className="text-[10px] border-emerald-700/50 text-emerald-300">
-                        {tmpl.ot_type}
+                        {otTypes.find(t => t.code === tmpl.ot_type)?.name || tmpl.ot_type}
+                      </Badge>
+                    )}
+                    {tmpl.action_code && (
+                      <Badge variant="outline" className="text-[10px] border-blue-700/50 text-blue-300">
+                        {woActions.find(a => a.code === tmpl.action_code)?.name || tmpl.action_code}
                       </Badge>
                     )}
                   </div>

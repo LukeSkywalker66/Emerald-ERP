@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
-import { ChevronRight, ChevronLeft, Paperclip, Camera, X } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Paperclip, Camera, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import api from '@/api/client';
 import workOrdersService from '@/services/workOrders.service';
+import * as workOrderTypesService from '@/services/workOrderTypes.service';
 import { useAuth } from '@/context/AuthContext';
 import useMaterialSelector from '@/components/work-orders/useMaterialSelector';
 import MaterialSelectorForm from '@/components/work-orders/MaterialSelectorForm';
@@ -30,8 +31,9 @@ export default function CloseWorkOrderDialog({
   const { user } = useAuth();
   const [step, setStep] = useState(1);
 
-  // Paso 1: Resolución
-  const [selectedCategory, setSelectedCategory] = useState(null);
+  // Paso 1: Resolución (acciones dinámicas desde API)
+  const [woActions, setWoActions] = useState([]);
+  const [selectedAction, setSelectedAction] = useState(null);
   const [resolutionNotes, setResolutionNotes] = useState('');
 
   // Paso 2: Materiales - Compartido (hook unificado)
@@ -97,6 +99,17 @@ export default function CloseWorkOrderDialog({
     });
   };
 
+  // Cargar acciones de resolución desde la API cuando se abre el dialog
+  const [actionsLoading, setActionsLoading] = useState(false);
+  useEffect(() => {
+    if (!isOpen || !workOrder?.ot_type) return;
+    setActionsLoading(true);
+    workOrderTypesService.getWOActions({ ot_type: workOrder.ot_type, active_only: true })
+      .then(setWoActions)
+      .catch(() => setWoActions([]))
+      .finally(() => setActionsLoading(false));
+  }, [isOpen, workOrder?.ot_type]);
+
   // Cargar inventario desde el hook compartido cuando se abre el dialog
   useEffect(() => {
     if (isOpen && workOrder?.id) {
@@ -114,7 +127,7 @@ export default function CloseWorkOrderDialog({
     } else {
       // Se cierra el dialog: limpiar TODO
       setStep(1);
-      setSelectedCategory(null);
+      setSelectedAction(null);
       setResolutionNotes('');
       setUploadedPhotos([]);
       setUploadError(null);
@@ -166,7 +179,6 @@ export default function CloseWorkOrderDialog({
       if (response.data && response.data.attachment) {
         const photoUrl = response.data.attachment.url;
         setUploadedPhotos((prev) => [...prev, photoUrl]);
-        console.log('[DEBUG] Photo uploaded:', photoUrl);
       }
     } catch (err) {
       console.error('[ERROR] Upload failed:', err);
@@ -199,18 +211,19 @@ export default function CloseWorkOrderDialog({
   };
 
   // Detectar si es "No Realizada"
-  const isIncomplete = selectedCategory === 'incomplete';
+  const isNoRealizada = selectedAction?.code === 'no_realizada';
+  const selectedActionRequiresNotes = selectedAction?.requires_notes === true;
 
   // Validaciones por paso
-  const isStep1Valid = !!selectedCategory && resolutionNotes.trim().length >= 10;
+  const isStep1Valid = (() => {
+    if (!selectedAction) return false;
+    if (isNoRealizada || selectedActionRequiresNotes) {
+      return resolutionNotes.trim().length >= 10;
+    }
+    return true; // acciones sin requisito de notas
+  })();
   const isStep2Valid = true; // Opcional
-  const requiresPhotoEvidence =
-    !isIncomplete && (
-      workOrder?.status === 'pending_closure' ||
-      (workOrder?.ot_type !== 'pickup' && workOrder?.ot_type !== 'pending_planning')
-    );
-
-  const isStep3Valid = requiresPhotoEvidence ? uploadedPhotos.length > 0 : true;
+  const isStep3Valid = true; // Fotos opcionales
   const isStep4Valid = true; // Confirmacion siempre valida
 
   // Handlers de navegación (ahora 4 pasos)
@@ -226,29 +239,45 @@ export default function CloseWorkOrderDialog({
     }
   };
 
+  // Cargar plantilla de materiales según OT type + acción seleccionada
+  const [suggestedTemplate, setSuggestedTemplate] = useState(null);
+  const [loadingTemplate, setLoadingTemplate] = useState(false);
+  useEffect(() => {
+    if (!selectedAction || !workOrder?.ot_type) {
+      setSuggestedTemplate(null);
+      return;
+    }
+    const loadTpl = async () => {
+      setLoadingTemplate(true);
+      try {
+        const templates = await workOrderTypesService.getWOTemplates({
+          ot_type: workOrder.ot_type,
+          action_code: selectedAction.code,
+          active_only: true,
+        });
+        setSuggestedTemplate(templates?.[0] || null);
+      } catch {
+        setSuggestedTemplate(null);
+      } finally {
+        setLoadingTemplate(false);
+      }
+    };
+    loadTpl();
+  }, [selectedAction, workOrder?.ot_type]);
+
   // State para paso 4: Nota de conexión
   const [connectionNote, setConnectionNote] = useState('');
 
-  // Completar / Cerrar OT (soporta "No Realizada") - USA NUEVO ENDPOINT
+  // Completar / Cerrar OT - usa acciones dinámicas + nuevo endpoint
   const handleComplete = async () => {
-    if (!isStep3Valid) {
-      const msg = isIncomplete
-        ? 'Debes escribir el motivo por el que no se realizó la OT.'
-        : 'Debes adjuntar al menos una foto para esta resolución';
-      setUploadError(msg);
-      return;
-    }
-
     try {
       setUploading(true);
       const payload = {
-        resolution_category: isIncomplete ? 'incomplete' : (selectedCategory || 'other'),
+        resolution_category: selectedAction?.code || 'other',
         resolution_notes: resolutionNotes,
         photo_urls: uploadedPhotos,
         connection_note: connectionNote.trim() || null,
       };
-
-      console.log('[DEBUG] Closing WO with new endpoint, payload:', payload);
 
       // Usar el nuevo endpoint POST /complete con inventario
       await api.post(`/v2/work-orders/${workOrder.id}/complete`, payload, {
@@ -280,38 +309,7 @@ export default function CloseWorkOrderDialog({
     }
   };
 
-  const categoryOptions = [
-    {
-      value: 'infrastructure',
-      label: 'Infraestructura',
-      desc: 'Fibra, nodos, torres',
-      color: 'bg-blue-600',
-    },
-    {
-      value: 'equipment',
-      label: 'Equipamiento',
-      desc: 'Routers, ONUs, antenas',
-      color: 'bg-purple-600',
-    },
-    {
-      value: 'configuration',
-      label: 'Configuración',
-      desc: 'Software, parámetros',
-      color: 'bg-emerald-600',
-    },
-    {
-      value: 'other',
-      label: 'Otra',
-      desc: 'Otra categoría',
-      color: 'bg-amber-600',
-    },
-    {
-      value: 'incomplete',
-      label: 'No Realizada',
-      desc: 'No se pudo completar (cliente ausente, equipo dañado, etc.)',
-      color: 'bg-rose-600',
-    },
-  ];
+  // categoryOptions reemplazado por woActions (dinámico desde API)
 
   return (
     <Dialog
@@ -333,11 +331,11 @@ export default function CloseWorkOrderDialog({
           <div className="mb-2 flex items-start justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold text-white mb-2">
-                {isIncomplete ? 'Cerrar OT - No Realizada' : 'Completar Orden de Trabajo'}
+                {isNoRealizada ? 'Cerrar OT - No Realizada' : 'Completar Orden de Trabajo'}
               </h2>
               <p className="text-sm text-zinc-400">
                 Paso {step} de 4: {step === 1 ? 'Resolución' : step === 2 ? 'Materiales' : step === 3 ? 'Evidencia' : 'Confirmación'}
-                {isIncomplete && step === 3 && ' (opcional)'}
+                {step === 3 && ' (opcional)'}
               </p>
             </div>
             <Button
@@ -368,46 +366,72 @@ export default function CloseWorkOrderDialog({
 
           {/* Contenido por Paso */}
           <div className="mb-2 min-h-96">
-            {/* PASO 1: RESOLUCIÓN */}
+            {/* PASO 1: RESOLUCIÓN - ACCIONES DINÁMICAS */}
             {step === 1 && (
               <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-zinc-300 mb-3">
-                    Categoría de Resolución
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    {categoryOptions.map((cat) => (
-                      <button
-                        key={cat.value}
-                        onClick={() => setSelectedCategory(cat.value)}
-                        className={`p-3 rounded border-2 transition ${
-                          selectedCategory === cat.value
-                            ? `${cat.color} border-emerald-400`
-                            : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
-                        }`}
-                      >
-                        <div className="font-medium text-white">{cat.label}</div>
-                        <div className="text-xs text-zinc-400">{cat.desc}</div>
-                      </button>
-                    ))}
+                {actionsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 size={20} className="animate-spin text-emerald-400 mr-2" />
+                    <span className="text-sm text-zinc-400">Cargando acciones...</span>
                   </div>
-                </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-300 mb-3">
+                        Acción Realizada
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {woActions.map((action) => {
+                          const isSelected = selectedAction?.code === action.code;
+                          const isNoReal = action.code === 'no_realizada';
+                          return (
+                            <button
+                              key={action.id}
+                              onClick={() => setSelectedAction(action)}
+                              className={`p-3 rounded border-2 transition text-left ${
+                                isSelected
+                                  ? isNoReal
+                                    ? 'bg-rose-600/20 border-rose-500'
+                                    : 'bg-emerald-600/20 border-emerald-500'
+                                  : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
+                              }`}
+                            >
+                              <div className="font-medium text-white">{action.name}</div>
+                              {action.description && (
+                                <div className="text-xs text-zinc-400 mt-1">{action.description}</div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-zinc-300 mb-2">
-                    Descripción del Trabajo
-                  </label>
-                  <textarea
-                    value={resolutionNotes}
-                    onChange={(e) => setResolutionNotes(e.target.value)}
-                    placeholder="Describe qué se hizo, qué se encontró y cómo se resolvió..."
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-white placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    rows={6}
-                  />
-                  <div className="mt-1 text-xs text-zinc-400">
-                    {resolutionNotes.length}/1000 caracteres (mínimo 10)
-                  </div>
-                </div>
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-300 mb-2">
+                        Descripción del Trabajo
+                        {(selectedAction && !selectedActionRequiresNotes && !isNoRealizada) && (
+                          <span className="text-zinc-500 font-normal"> (opcional)</span>
+                        )}
+                      </label>
+                      <textarea
+                        value={resolutionNotes}
+                        onChange={(e) => setResolutionNotes(e.target.value)}
+                        placeholder={
+                          isNoRealizada
+                            ? "Explicá el motivo por el que no se realizó la OT..."
+                            : "Describí brevemente el trabajo realizado (opcional)"
+                        }
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-white placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        rows={5}
+                      />
+                      {(isNoRealizada || selectedActionRequiresNotes) && (
+                        <div className="mt-1 text-xs text-zinc-400">
+                          {resolutionNotes.length}/1000 caracteres (mínimo 10)
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -439,9 +463,44 @@ export default function CloseWorkOrderDialog({
                         </div>
                       ))}
                     </div>
-                  ) : (
-                    <div className="p-4 bg-amber-900/30 border border-amber-700/50 rounded text-sm text-amber-200">
-                      ⚠️ Esta instalación no tiene materiales registrados. Considera agregar si se utilizó algo.
+                  ) : suggestedTemplate && (
+                    <div className="p-3 rounded-lg border border-emerald-800/50 bg-emerald-950/20 mb-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-medium text-emerald-300">
+                          📋 Plantilla sugerida: {suggestedTemplate.name}
+                        </p>
+                        <button
+                          onClick={async () => {
+                            for (const item of suggestedTemplate.items) {
+                              materialState.setForm({
+                                product_id: item.product_id,
+                                quantity: item.default_quantity,
+                                serial_number: '',
+                                notes: item.notes || '',
+                              });
+                              materialState.handleProductChange(item.product_id);
+                              await materialState.addMaterial();
+                            }
+                            // Refrescar materiales después de cargar la plantilla
+                            if (workOrder?.id) {
+                              const updated = await workOrdersService.getWorkOrderDetail(workOrder.id);
+                              setMaterials(updated?.items || []);
+                            }
+                            onMaterialsUpdated?.();
+                          }}
+                          className="text-xs px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+                        >
+                          Cargar plantilla
+                        </button>
+                      </div>
+                      <div className="space-y-1">
+                        {suggestedTemplate.items.map((item, i) => (
+                          <div key={i} className="flex items-center gap-2 text-xs text-zinc-400">
+                            <span className="text-emerald-400">•</span>
+                            <span>Producto #{item.product_id} x{item.default_quantity}{item.required ? ' *' : ''}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -563,9 +622,9 @@ export default function CloseWorkOrderDialog({
                   
                   {/* Resumen de la resolución */}
                   <div className="p-3 rounded-lg bg-zinc-800/50 border border-zinc-700 mb-4">
-                    <p className="text-xs text-zinc-400 mb-1">Categoría de resolución</p>
+                    <p className="text-xs text-zinc-400 mb-1">Acción realizada</p>
                     <p className="text-sm text-white font-medium">
-                      {categoryOptions.find(c => c.value === selectedCategory)?.label || selectedCategory}
+                      {selectedAction?.name || 'Sin especificar'}
                     </p>
                     {resolutionNotes && (
                       <>

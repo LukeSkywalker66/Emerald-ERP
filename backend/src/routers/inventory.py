@@ -87,7 +87,7 @@ def get_stock_alerts(
         ))
         .outerjoin(SerialItem, and_(
             SerialItem.product_id == Product.id,
-            SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.USED])
+            SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.IN_VEHICLE])
         ))
         .group_by(Product.id, Product.name, Product.sku, Product.type, Product.category, Product.min_stock_alert)
         .having(
@@ -201,24 +201,6 @@ def create_warehouse(
     db.add(warehouse)
     db.commit()
     db.refresh(warehouse)
-    db.refresh(warehouse, attribute_names=["user"])
-    
-    # 🔒 AUDIT LOG: Registrar creación de warehouse
-    try:
-        log_create(
-            db=db,
-            user_id=_get_user_id_from_request(),
-            entity_name="warehouses",
-            entity_id=warehouse.id,
-            new_values={
-                "name": warehouse.name,
-                "type": warehouse.type.value,
-                "user_id": warehouse.user_id
-            }
-        )
-    except Exception as audit_error:
-        logger.error(f"❌ [AUDIT] Error al registrar creación de warehouse {warehouse.id}: {audit_error}")
-    
     return WarehouseResponse(
         **_exclude_vehicle(warehouse.__dict__),
         user_name=_safe_user_name(warehouse.user),
@@ -367,7 +349,7 @@ def delete_warehouse(
         select(func.count()).select_from(SerialItem).where(
             and_(
                 SerialItem.warehouse_id == warehouse_id,
-                SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.USED])
+                SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.IN_VEHICLE])
             )
         )
     ).scalar()
@@ -455,7 +437,7 @@ def get_warehouse_stock(
         select(SerialItem)
         .options(joinedload(SerialItem.product))
         .where(SerialItem.warehouse_id == warehouse_id)
-        .where(SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.USED]))
+        .where(SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.IN_VEHICLE]))
     )
     serial_items = db.execute(serial_stmt).scalars().all()
     
@@ -757,7 +739,7 @@ def delete_product(
         select(func.count()).select_from(SerialItem).where(
             and_(
                 SerialItem.product_id == product_id,
-                SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.USED])
+                SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.IN_VEHICLE])
             )
         )
     ).scalar()

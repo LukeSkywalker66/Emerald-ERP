@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import * as inventoryService from '@/services/inventory.service';
 import workOrdersService from '@/services/workOrders.service';
+import coordinationService from '@/services/coordination.service';
 import { useAuth } from '@/context/AuthContext';
 
 /**
@@ -49,6 +50,38 @@ export default function useMaterialSelector(workOrderId) {
   /**
    * Cargar inventario: productos + warehouse + stock
    */
+  /**
+   * Buscar warehouse del técnico vía team → vehicle → warehouse.
+   * La relación correcta es: User → TeamMember → Team → Vehicle → Warehouse(MOBILE).
+   * El campo user_id en Warehouse está deprecated.
+   */
+  const resolveWarehouse = useCallback(async (userId) => {
+    // 1. Buscar por team → vehicle → warehouse (relación correcta)
+    try {
+      const teams = await coordinationService.getUserTeams(userId);
+      const teamWithVehicle = (teams || []).find((t) => !!t.vehicle_id);
+      if (teamWithVehicle?.vehicle_id) {
+        const warehouses = await inventoryService.getWarehouses({
+          warehouse_type: 'MOBILE',
+        });
+        const vehicleWh = warehouses.find((w) => w.vehicle?.id === teamWithVehicle.vehicle_id);
+        if (vehicleWh) return vehicleWh;
+      }
+    } catch (e) {
+      console.warn('[useMaterialSelector] Team lookup failed:', e);
+    }
+
+    // 2. Fallback: buscar por user_id directo (deprecated)
+    try {
+      const direct = await inventoryService.getMyWarehouse(userId);
+      if (direct) return direct;
+    } catch (e) {
+      // ignorar
+    }
+
+    return null;
+  }, []);
+
   const loadInventory = useCallback(async () => {
     if (!user?.id) return;
 
@@ -58,20 +91,24 @@ export default function useMaterialSelector(workOrderId) {
       setIsLoading(true);
       setError(null);
 
-      const [productsData, myWarehouse] = await Promise.all([
-        inventoryService.getProducts(),
-        inventoryService.getMyWarehouse(user.id),
-      ]);
+      const myWarehouse = await resolveWarehouse(user.id);
 
       if (cancelled) return;
-
-      setProducts(productsData || []);
       setCurrentWarehouse(myWarehouse || null);
 
       if (myWarehouse) {
-        const stockData = await inventoryService.getWarehouseStock(myWarehouse.id);
+        const [productsData, stockData] = await Promise.all([
+          inventoryService.getProducts(),
+          inventoryService.getWarehouseStock(myWarehouse.id),
+        ]);
         if (cancelled) return;
+        setProducts(productsData || []);
         setWarehouseStock(stockData);
+      } else {
+        // Sin warehouse: cargar solo productos
+        const productsData = await inventoryService.getProducts();
+        if (cancelled) return;
+        setProducts(productsData || []);
       }
     } catch (err) {
       if (cancelled) return;
@@ -82,7 +119,7 @@ export default function useMaterialSelector(workOrderId) {
     }
 
     return () => { cancelled = true; };
-  }, [user?.id]);
+  }, [user?.id, resolveWarehouse]);
 
   /**
    * Refrescar stock del warehouse actual

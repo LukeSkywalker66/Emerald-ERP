@@ -50,7 +50,7 @@ export default function MaterialSelectorForm({ materialState, onAdd, compact = f
 
       {!currentWarehouse && !isLoading && (
         <div className="text-xs text-amber-200 bg-amber-950/30 border border-amber-800/50 rounded-lg p-3">
-          ⚠️ No tienes una camioneta asignada. Contacta a coordinación.
+          ⚠️ No se encontró un depósito móvil asignado. Podés seleccionar productos pero no agregarlos hasta tener un vehículo asignado.
         </div>
       )}
 

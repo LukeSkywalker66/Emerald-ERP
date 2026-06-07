@@ -18,6 +18,7 @@ from src.models.tickets import (
     TicketTimelineEventType,
     WorkOrderStatus,
     WorkOrderType,
+    ResolutionCategory,
 )
 from src.models.user import User
 from src.models.coordination import Team, TeamMember
@@ -51,6 +52,7 @@ from src.models.inventory import (
     ConnectionAsset,
     ConnectionNote,
     ConnectionAssetStatus,
+    Product,
 )
 
 logger = logging.getLogger(__name__)
@@ -528,6 +530,13 @@ def get_work_order_detail(
             if creator_phone:
                 ticket_info["contact_phone"] = creator_phone
     
+    # Obtener nombres de productos para los items
+    product_ids = list(set(item.product_id for item in wo.work_order_items))
+    products_map = {}
+    if product_ids:
+        for p in db.query(Product).filter(Product.id.in_(product_ids)).all():
+            products_map[p.id] = p.name
+    
     return WorkOrderDetailResponse(
         id=wo.id,
         ticket_id=wo.ticket_id,
@@ -562,6 +571,7 @@ def get_work_order_detail(
             WorkOrderItemResponse(
                 id=item.id,
                 product_id=item.product_id,
+                product_name=products_map.get(item.product_id, f"Producto #{item.product_id}"),
                 quantity=item.quantity,
                 serial_number=item.serial_number,
                 notes=item.notes,
@@ -729,16 +739,30 @@ def update_work_order(
     if 'custom_data' in update_data:
         attributes.flag_modified(wo, "custom_data")
     
-    # Crear evento de timeline si cambia estado
+    # Crear evento de timeline si cambia estado (con etiquetas en español)
+    STATUS_LABELS = {
+        "pending_planning": "Pendiente",
+        "assigned": "Asignada",
+        "in_progress": "En Progreso",
+        "pending_closure": "Pendiente Cierre",
+        "completed": "Completada",
+        "failed": "Fallida",
+        "scheduled": "Programada",
+        "backlog": "Backlog",
+        "testing": "Testing",
+        "rejected": "Rechazada",
+    }
     if payload.status and payload.status != old_status:
+        old_label = STATUS_LABELS.get(old_status.value, old_status.value)
+        new_label = STATUS_LABELS.get(payload.status.value, payload.status.value)
         timeline_event = TicketTimeline(
             ticket_id=wo.ticket_id,
             author_id=current_user.id,
             event_type=TicketTimelineEventType.ot_event,
-            content=f"OT #{wo.id}: Estado actualizado de {old_status.value} a {payload.status.value}",
+            content=f"OT #{wo.id}: Estado actualizado de {old_label} a {new_label}",
             meta_data={
-                "work_order_id": wo.id, 
-                "old_status": old_status.value, 
+                "work_order_id": wo.id,
+                "old_status": old_status.value,
                 "new_status": payload.status.value,
                 "team_id": wo.team_id,
                 "scheduled_start": wo.scheduled_start.isoformat() if wo.scheduled_start else None,
@@ -831,17 +855,6 @@ def add_work_order_item(
         notes=payload.notes,
     )
     db.add(item)
-    
-    # Evento de timeline
-    serial_info = f" (SN: {payload.serial_number})" if payload.serial_number else ""
-    timeline_event = TicketTimeline(
-        ticket_id=wo.ticket_id,
-        author_id=current_user.id,
-        event_type=TicketTimelineEventType.ot_event,
-        content=f"Material agregado a OT #{wo.id}: Producto {payload.product_id} x{payload.quantity}{serial_info}",
-        meta_data={"work_order_id": wo.id, "product_id": payload.product_id, "quantity": payload.quantity},
-    )
-    db.add(timeline_event)
     
     db.commit()
     db.refresh(item)
@@ -1759,6 +1772,24 @@ def complete_work_order(
     Si hay errores de inventario (stock insuficiente, serial no encontrado),
     la transacción se revierte y se retorna error 422.
     """
+    # Mapear action_code → ResolutionCategory
+    # Los action codes vienen del wizard paso 1 (WO Actions configurables)
+    # y deben traducirse a los valores del enum ResolutionCategory.
+    _ACTION_TO_CATEGORY = {
+        "no_realizada": ResolutionCategory.incomplete,
+    }
+    raw_category = payload.resolution_category
+    if raw_category and raw_category in _ACTION_TO_CATEGORY:
+        resolved_category = _ACTION_TO_CATEGORY[raw_category]
+    elif raw_category:
+        # Intentar usar el valor directamente (si ya es un valor válido del enum)
+        try:
+            resolved_category = ResolutionCategory(raw_category)
+        except (ValueError, LookupError):
+            resolved_category = ResolutionCategory.other
+    else:
+        resolved_category = None
+
     # Cargar OT con items
     wo = (
         db.query(WorkOrder)
@@ -1782,7 +1813,7 @@ def complete_work_order(
             db=db,
             work_order=wo,
             current_user=current_user,
-            resolution_category=payload.resolution_category,
+            resolution_category=resolved_category.value if resolved_category else None,
             resolution_notes=payload.resolution_notes,
             photo_urls=payload.photo_urls,
             connection_note=payload.connection_note,

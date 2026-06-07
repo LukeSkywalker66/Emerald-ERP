@@ -377,6 +377,61 @@ def delete_vehicle(
     return None
 
 
+def _build_inspection_response(
+    inspection: VehicleInspection,
+    vehicle_name: str | None = None,
+    technician_name: str | None = None,
+) -> VehicleInspectionResponse:
+    """Convierte un modelo VehicleInspection a su schema de respuesta."""
+    return VehicleInspectionResponse(
+        id=inspection.id,
+        vehicle_id=inspection.vehicle_id,
+        vehicle_name=vehicle_name,
+        technician_id=inspection.technician_id,
+        technician_name=technician_name,
+        inspection_date=inspection.inspection_date,
+        km_actual=inspection.km_actual,
+        mechanical_conditions=inspection.mechanical_conditions,
+        oil_level=inspection.oil_level,
+        water_level=inspection.water_level,
+        fuel_level=inspection.fuel_level,
+        brake_fluid_level=inspection.brake_fluid_level,
+        has_hydraulic_leaks=inspection.has_hydraulic_leaks,
+        pulls_to_one_side=inspection.pulls_to_one_side,
+        oil_leaks=inspection.oil_leaks,
+        hose_leaks=inspection.hose_leaks,
+        radiator_leaks=inspection.radiator_leaks,
+        low_beam_lights_ok=inspection.low_beam_lights_ok,
+        high_beam_lights_ok=inspection.high_beam_lights_ok,
+        hazard_lights_ok=inspection.hazard_lights_ok,
+        brake_lights_ok=inspection.brake_lights_ok,
+        position_lights_ok=inspection.position_lights_ok,
+        reverse_lights_ok=inspection.reverse_lights_ok,
+        fog_lights_ok=inspection.fog_lights_ok,
+        dashboard_indicators_on=inspection.dashboard_indicators_on,
+        reverse_alarm_ok=inspection.reverse_alarm_ok,
+        tires_cuts_or_bulges=inspection.tires_cuts_or_bulges,
+        has_spare_tire=inspection.has_spare_tire,
+        has_lug_wrench=inspection.has_lug_wrench,
+        has_jack=inspection.has_jack,
+        tires_pressure_ok_30psi=inspection.tires_pressure_ok_30psi,
+        seatbelts_all_ok=inspection.seatbelts_all_ok,
+        horn_ok=inspection.horn_ok,
+        mirrors_ok=inspection.mirrors_ok,
+        has_two_safety_cones=inspection.has_two_safety_cones,
+        fire_extinguisher_ok=inspection.fire_extinguisher_ok,
+        wipers_ok=inspection.wipers_ok,
+        water_level_ok=inspection.water_level_ok,
+        oil_level_ok=inspection.oil_level_ok,
+        tires_ok=inspection.tires_ok,
+        lights_ok=inspection.lights_ok,
+        cleanliness_ok=inspection.cleanliness_ok,
+        damage_notes=inspection.damage_notes,
+        status=inspection.status.value if hasattr(inspection.status, 'value') else inspection.status,
+        created_at=inspection.created_at,
+    )
+
+
 @inspection_router.post(
     "/inspections",
     response_model=VehicleInspectionResponse,

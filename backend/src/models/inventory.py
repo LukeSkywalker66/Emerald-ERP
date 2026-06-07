@@ -287,7 +287,7 @@ class SerialItem(Base):
         ForeignKey("warehouses.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
-        comment="Ubicación actual del item"
+        comment="Ubicación actual del item. CENTRAL/MOBILE/VIRTUAL (instalado en cliente)"
     )
     status: Mapped[SerialItemStatus] = mapped_column(
         Enum(SerialItemStatus, name="serial_item_status_enum", native_enum=False),

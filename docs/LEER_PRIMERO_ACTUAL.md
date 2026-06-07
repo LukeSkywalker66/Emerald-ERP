@@ -190,6 +190,27 @@ cd backend && alembic upgrade head
 
 ---
 
+---
+
+## 🏭 Provisioning de Datos Semilla
+
+Después de ejecutar migraciones Alembic en un entorno nuevo (staging/producción),
+ejecutar el script de provisioning para crear datos base:
+
+```bash
+docker exec emerald_backend python scripts/provision_seed_data.py
+```
+
+Este script es **IDEMPOTENTE** y crea:
+- **VIRTUAL warehouse** ("Equipos Instalados en Cliente") → para equipos serializados instalados
+- **Tipos de OT** → install_ftth, install_aire, repair, pickup, infrastructure
+- **Acciones de resolución (WO Actions)** → 15 acciones configurables por tipo de OT
+
+> ⚠️ El VIRTUAL warehouse es obligatorio para el cierre de OTs con inventario.
+> Sin él, el endpoint `POST /work-orders/{id}/complete` fallará con error 422.
+
+---
+
 ## 📝 Próximas Tareas Prioritarias
 
 1. 🔴 **MinIO**: Finalizar integración de almacenamiento S3-compatible para archivos

@@ -35,6 +35,8 @@ import UsersTab from '@/pages/settings/UsersTab';
 import MonitorsTab from '@/pages/settings/MonitorsTab';
 import ScheduledTasksTab from '@/pages/settings/ScheduledTasksTab';
 import WOTemplatesTab from '@/pages/settings/WOTemplatesTab';
+import OTTypesTab from '@/pages/settings/OTTypesTab';
+import WOActionsTab from '@/pages/settings/WOActionsTab';
 
 // ─── Constants ──────────────────────────────────────────────────────────
 
@@ -279,7 +281,7 @@ export default function SettingsPage() {
             </TabsTrigger>
           )}
           {isAdmin && (
-            <TabsTrigger value="wo-templates" className="flex items-center gap-2">
+            <TabsTrigger value="work-orders" className="flex items-center gap-2">
               <ClipboardList size={16} />
               Órdenes de Trabajo
             </TabsTrigger>
@@ -478,16 +480,43 @@ export default function SettingsPage() {
           </TabsContent>
         )}
 
-        {/* ═══ WO Templates Tab (solo admin) ═══ */}
+        {/* ═══ Work Orders Tab (solo admin) ═══ */}
         {isAdmin && (
-          <TabsContent value="wo-templates" className="space-y-6">
+          <TabsContent value="work-orders" className="space-y-6">
             <div>
-              <h2 className="text-xl font-bold text-zinc-50 mb-6">Plantillas de Materiales - Órdenes de Trabajo</h2>
-              <p className="text-sm text-zinc-400 mb-6">
-                Configurá listas de productos sugeridos por tipo de visita.
-                Los técnicos verán estas plantillas precargadas al agregar materiales.
-              </p>
-              <WOTemplatesTab />
+              <h2 className="text-xl font-bold text-zinc-50 mb-6">Configuración de Órdenes de Trabajo</h2>
+              
+              {/* Sección: Tipos de OT */}
+              <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4 mb-8">
+                <h3 className="text-sm font-semibold text-white mb-1">Tipos de Orden de Trabajo</h3>
+                <p className="text-xs text-zinc-400 mb-4">
+                  Configurá los nombres, colores e íconos de los tipos de OT disponibles.
+                  Tipos base: Instalación FTTH, Instalación Aire, Reclamo, Baja e Infraestructura.
+                </p>
+                <OTTypesTab />
+              </div>
+
+              {/* Sección: Acciones de Resolución */}
+              <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4 mb-8">
+                <h3 className="text-sm font-semibold text-white mb-1">Acciones de Resolución</h3>
+                <p className="text-xs text-zinc-400 mb-4">
+                  Configurá las acciones disponibles al completar una OT, agrupadas por tipo de OT.
+                  "No Realizada" y "Realizada" son acciones built-in para todos los tipos.
+                </p>
+                <WOActionsTab />
+              </div>
+
+              {/* Separador visual */}
+              <div className="border-t border-zinc-800 my-8"></div>
+
+              {/* Sección: Plantillas de Materiales */}
+              <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4">
+                <h3 className="text-sm font-semibold text-white mb-1">Plantillas de Materiales por Tipo de OT</h3>
+                <p className="text-xs text-zinc-400 mb-4">
+                  Definí listas de productos sugeridos que los técnicos verán precargados al agregar materiales.
+                </p>
+                <WOTemplatesTab />
+              </div>
             </div>
           </TabsContent>
         )}

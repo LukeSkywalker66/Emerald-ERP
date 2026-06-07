@@ -119,9 +119,10 @@ class WorkOrderStatus(StrEnum):
 
 class WorkOrderType(StrEnum):
     """Tipos de órdenes de trabajo."""
-    repair = "repair"  # Reparación/Diagnóstico
-    install = "install"  # Instalación
-    pickup = "pickup"  # Retiro de equipo
+    install_ftth = "install_ftth"  # Instalación Fibra Óptica (FTTH)
+    install_aire = "install_aire"  # Instalación Aire/Antena
+    repair = "repair"              # Reclamo/Soporte técnico
+    pickup = "pickup"              # Baja/Retiro de equipo
     infrastructure = "infrastructure"  # Cuadrilla de infraestructura
 
 

@@ -12,6 +12,7 @@ from sqlalchemy import select, text, func
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from src.database import get_db
+from src.core.security import get_current_user
 from src.models import (
     Ticket,
     TicketTimeline,
