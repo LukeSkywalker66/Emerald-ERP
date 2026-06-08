@@ -4,11 +4,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import * as workOrderTypesService from '@/services/workOrderTypes.service';
 import * as inventoryService from '@/services/inventory.service';
+import { getProductGroups } from '@/services/inventory.service';
 
 /**
  * WOTemplatesTab - Admin panel for work order material templates.
  * Part of the Settings page (Etapa 5).
- * Loads OT types dynamically from DB (WorkOrderTypeConfig).
+ * Supports both specific products and product groups (e.g., "ONU/ONT").
  */
 export default function WOTemplatesTab() {
   const [templates, setTemplates] = useState([]);
@@ -16,8 +17,9 @@ export default function WOTemplatesTab() {
   const [error, setError] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [products, setProducts] = useState([]);
+  const [productGroups, setProductGroups] = useState([]);
   const [otTypes, setOtTypes] = useState([]);
-  const [woActions, setWoActions] = useState([]); // Acciones desde DB
+  const [woActions, setWoActions] = useState([]);
 
   // Form state
   const [form, setForm] = useState({
@@ -32,14 +34,16 @@ export default function WOTemplatesTab() {
   const loadTemplates = useCallback(async () => {
     try {
       setLoading(true);
-      const [data, cats, types, actions] = await Promise.all([
+      const [data, prods, groups, types, actions] = await Promise.all([
         workOrderTypesService.getWOTemplates(),
         inventoryService.getProducts().catch(() => []),
+        getProductGroups().catch(() => []),
         workOrderTypesService.getWorkOrderTypes(false).catch(() => []),
         workOrderTypesService.getWOActions().catch(() => []),
       ]);
       setTemplates(data || []);
-      setProducts(cats || []);
+      setProducts(prods || []);
+      setProductGroups(groups || []);
       setOtTypes(types || []);
       setWoActions(actions || []);
     } catch (err) {
@@ -64,7 +68,8 @@ export default function WOTemplatesTab() {
       action_code: tmpl.action_code || '',
       is_active: tmpl.is_active,
       items: (tmpl.items || []).map((i) => ({
-        product_id: i.product_id,
+        product_id: i.product_id || '',
+        group_id: i.group_id || '',
         default_quantity: i.default_quantity,
         required: i.required,
         sort_order: i.sort_order,
@@ -75,10 +80,27 @@ export default function WOTemplatesTab() {
 
   const handleSave = async () => {
     try {
+      // Validate items have at least product_id or group_id
+      const invalidItems = form.items.filter(
+        i => (!i.product_id || i.product_id === '') && (!i.group_id || i.group_id === '')
+      );
+      if (invalidItems.length > 0) {
+        alert('Cada item debe tener seleccionado un producto O un grupo. Corregí los items marcados.');
+        return;
+      }
+      // Build payload: convert empty strings to null for optional fields
+      const payload = {
+        ...form,
+        items: form.items.map((item) => ({
+          ...item,
+          product_id: item.product_id ? parseInt(item.product_id) : null,
+          group_id: item.group_id ? parseInt(item.group_id) : null,
+        })),
+      };
       if (editingId) {
-        await workOrderTypesService.updateWOTemplate(editingId, form);
+        await workOrderTypesService.updateWOTemplate(editingId, payload);
       } else {
-        await workOrderTypesService.createWOTemplate(form);
+        await workOrderTypesService.createWOTemplate(payload);
       }
       resetForm();
       setEditingId(null);
@@ -101,7 +123,7 @@ export default function WOTemplatesTab() {
   const addItem = () => {
     setForm((prev) => ({
       ...prev,
-      items: [...prev.items, { product_id: '', default_quantity: 1, required: false, sort_order: prev.items.length, notes: '' }],
+      items: [...prev.items, { product_id: '', group_id: '', default_quantity: 1, required: false, sort_order: prev.items.length, notes: '' }],
     }));
   };
 
@@ -109,6 +131,9 @@ export default function WOTemplatesTab() {
     setForm((prev) => {
       const items = [...prev.items];
       items[idx] = { ...items[idx], [field]: value };
+      // If selecting a group, clear product and vice versa
+      if (field === 'group_id' && value) items[idx].product_id = '';
+      if (field === 'product_id' && value) items[idx].group_id = '';
       return { ...prev, items };
     });
   };
@@ -130,7 +155,6 @@ export default function WOTemplatesTab() {
 
   return (
     <div className="space-y-6">
-      {/* Error */}
       {error && (
         <div className="p-3 bg-rose-950/30 border border-rose-800/50 rounded text-sm text-rose-200">
           {error}
@@ -188,45 +212,72 @@ export default function WOTemplatesTab() {
         {/* Items */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-zinc-400">Productos sugeridos</span>
+            <span className="text-xs font-medium text-zinc-400">
+              Productos sugeridos <span className="text-zinc-600">(podés elegir producto específico o grupo)</span>
+            </span>
             <Button size="sm" variant="outline" onClick={addItem} className="h-7 text-xs">
-              <Plus size={12} className="mr-1" /> Agregar producto
+              <Plus size={12} className="mr-1" /> Agregar
             </Button>
           </div>
           {form.items.map((item, idx) => (
-            <div key={idx} className="flex items-center gap-2 p-2 bg-zinc-800/50 rounded border border-zinc-700">
-              <select
-                value={item.product_id}
-                onChange={(e) => updateItem(idx, 'product_id', parseInt(e.target.value))}
-                className="flex-1 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-white text-xs"
-              >
-                <option value="">Seleccionar...</option>
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
-                ))}
-              </select>
+            <div key={idx} className="flex items-start gap-2 p-2 bg-zinc-800/50 rounded border border-zinc-700">
+              <div className="flex-1 space-y-1">
+                {/* Group selector (arriba: jerarquía superior) */}
+                <select
+                  value={item.group_id}
+                  onChange={(e) => updateItem(idx, 'group_id', e.target.value)}
+                  className="w-full px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-white text-xs"
+                  disabled={!!item.product_id}
+                >
+                  <option value="">— Grupo de producto —</option>
+                  {productGroups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name} {g.description ? `(${g.description})` : ''}
+                    </option>
+                  ))}
+                </select>
+                {/* Product selector (abajo: refinamiento) */}
+                <select
+                  value={item.product_id}
+                  onChange={(e) => updateItem(idx, 'product_id', e.target.value)}
+                  className="w-full px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-white text-xs"
+                  disabled={!!item.group_id}
+                >
+                  <option value="">— Producto específico —</option>
+                  {products
+                    .filter(p => !item.group_id || p.group_id === parseInt(item.group_id))
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.sku}) {p.group_name ? `[${p.group_name}]` : ''}
+                      </option>
+                    ))}
+                </select>
+              </div>
               <input
                 type="number"
                 value={item.default_quantity}
-                onChange={(e) => updateItem(idx, 'default_quantity', parseFloat(e.target.value))}
+                onChange={(e) => updateItem(idx, 'default_quantity', parseFloat(e.target.value) || 0)}
                 className="w-16 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-white text-xs text-center"
-                min="1"
+                min="0"
                 step="0.5"
               />
-              <label className="flex items-center gap-1 text-xs text-zinc-400">
-                <input
-                  type="checkbox"
-                  checked={item.required}
-                  onChange={(e) => updateItem(idx, 'required', e.target.checked)}
-                />
-                Requerido
-              </label>
-              <button
-                onClick={() => removeItem(idx)}
-                className="p-1 text-zinc-500 hover:text-rose-400 transition-colors"
-              >
-                <Trash2 size={14} />
-              </button>
+              <div className="flex flex-col items-center gap-1">
+                <label className="flex items-center gap-1 text-xs text-zinc-400 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={item.required}
+                    onChange={(e) => updateItem(idx, 'required', e.target.checked)}
+                    className="w-3 h-3"
+                  />
+                  Req
+                </label>
+                <button
+                  onClick={() => removeItem(idx)}
+                  className="p-1 text-zinc-500 hover:text-rose-400 transition-colors"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
             </div>
           ))}
           {form.items.length === 0 && (
@@ -276,7 +327,11 @@ export default function WOTemplatesTab() {
                     {(tmpl.items || []).map((item, i) => (
                       <Badge key={i} variant="outline" className={`text-[10px] ${item.required ? 'border-amber-700/50 text-amber-300' : 'border-zinc-700 text-zinc-400'}`}>
                         <Package size={10} className="mr-1" />
-                        {item.product_name || `#${item.product_id}`} x{item.default_quantity}
+                        {item.group_name
+                          ? `[${item.group_name}]`
+                          : (item.product_name || `#${item.product_id}`)
+                        }
+                        {' x'}{item.default_quantity}
                         {item.required ? ' *' : ''}
                       </Badge>
                     ))}

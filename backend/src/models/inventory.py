@@ -11,6 +11,7 @@ from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Text, ForeignKey,
     Enum, UniqueConstraint, Index, text, Boolean
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from src.database import Base
 
@@ -49,6 +50,36 @@ class MovementType(str, PyEnum):
     CONSUMPTION = "CONSUMPTION"  # Uso en OT
     RECOVERY = "RECOVERY"        # Recupero de campo
     ADJUSTMENT = "ADJUSTMENT"    # Ajuste de inventario
+
+
+class UnitMeasure(str, PyEnum):
+    """Unidades de medida para productos compuestos."""
+    METERS = "m"           # Metros (cable, drop, UTP)
+    UNITS = "units"        # Unidades (conectores, grampas)
+    PIECES = "pcs"         # Piezas individuales
+
+
+class DeliveryStatus(str, PyEnum):
+    """Estados de una entrega de materiales."""
+    DRAFT = "DRAFT"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+
+
+class ReceiptItemCondition(str, PyEnum):
+    """Condición de un material recibido."""
+    GOOD = "GOOD"
+    DEFECTIVE = "DEFECTIVE"
+    DAMAGED = "DAMAGED"
+
+
+class PurchaseStatus(str, PyEnum):
+    """Estados de una compra."""
+    DRAFT = "DRAFT"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
 
 
 # ============================================
@@ -92,6 +123,53 @@ class ProductCategory(Base):
 
     def __repr__(self):
         return f"<ProductCategory(id={self.id}, name='{self.name}')>"
+
+
+class ProductGroup(Base):
+    """
+    Agrupación de productos del mismo rubro.
+    Ej: ONU/ONT, Router Domiciliario, Conectores, Cableado.
+    Permite filtrado y aplicar especificaciones técnicas comunes.
+    """
+    __tablename__ = "product_groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        unique=True,
+        index=True,
+        comment="Nombre del grupo (Ej: ONU/ONT, Router Domiciliario)"
+    )
+    description: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True,
+        comment="Descripción del grupo"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("true"),
+        comment="Si el grupo está disponible para nuevos productos"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+        onupdate=datetime.utcnow
+    )
+
+    # Relaciones
+    products: Mapped[List["Product"]] = relationship(
+        "Product", back_populates="group", lazy="select"
+    )
+
+    def __repr__(self):
+        return f"<ProductGroup(id={self.id}, name='{self.name}')>"
 
 
 class Warehouse(Base):
@@ -159,7 +237,8 @@ class Warehouse(Base):
 class Product(Base):
     """
     Catálogo de productos.
-    Define si un producto requiere seguimiento por serial o es a granel.
+    Define si un producto requiere seguimiento por serial o es a granel,
+    su agrupación lógica (grupo), y si es un producto compuesto (fraccionable).
     """
     __tablename__ = "products"
 
@@ -184,6 +263,39 @@ class Product(Base):
         index=True,
         comment="Ej: ONU, CABLE, HERRAMIENTA"
     )
+
+    # ========== NUEVOS CAMPOS: Agrupación ==========
+    group_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("product_groups.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Grupo lógico de producto (ONU/ONT, Router, Conectores, etc)"
+    )
+
+    # ========== NUEVOS CAMPOS: Fraccionamiento ==========
+    unit_size: Mapped[Optional[float]] = mapped_column(
+        Float,
+        nullable=True,
+        comment="Tamaño de 1 unidad compuesta (ej: 300 para bobina drop, 10 para blister conectores)"
+    )
+    unit_measure: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True,
+        comment="Unidad de medida (m, units, pcs)"
+    )
+    is_composite: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+        comment="True si se compra entero pero se consume fraccionadamente (ej: bobina, blister)"
+    )
+    composite_unit_label: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="Etiqueta de la unidad compuesta (ej: Bobina, Blister, Cajita)"
+    )
+
     min_stock_alert: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -204,12 +316,60 @@ class Product(Base):
     )
 
     # Relaciones
+    group: Mapped[Optional["ProductGroup"]] = relationship(
+        "ProductGroup", back_populates="products", lazy="joined"
+    )
+    spec: Mapped[Optional["ProductSpec"]] = relationship(
+        "ProductSpec", back_populates="product",
+        uselist=False, cascade="all, delete-orphan", lazy="selectin"
+    )
     stock_bulk: Mapped[List["StockBulk"]] = relationship("StockBulk", back_populates="product", cascade="all, delete-orphan")
     serial_items: Mapped[List["SerialItem"]] = relationship("SerialItem", back_populates="product", cascade="all, delete-orphan")
     movements: Mapped[List["StockMovement"]] = relationship("StockMovement", back_populates="product")
 
     def __repr__(self):
         return f"<Product(id={self.id}, sku='{self.sku}', name='{self.name}', type={self.type.value})>"
+
+
+class ProductSpec(Base):
+    """
+    Especificaciones técnicas dinámicas de un producto.
+    Almacena atributos en JSONB según el grupo del producto.
+    
+    Ej ONU/ONT:  { "is_dual_band": true, "wifi_version": "6", "mode": "router_bridge" }
+    Ej Router:   { "is_mesh": false, "is_dual_band": true, "ports": "4xGE", "extra_notes": "..." }
+    """
+    __tablename__ = "product_specs"
+
+    product_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("products.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+        comment="FK a products (1:1)"
+    )
+    specs: Mapped[Optional[dict]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Especificaciones técnicas en formato JSONB (atributos dinámicos según grupo)"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+        onupdate=datetime.utcnow
+    )
+
+    # Relaciones
+    product: Mapped["Product"] = relationship("Product", back_populates="spec")
+
+    def __repr__(self):
+        return f"<ProductSpec(product_id={self.product_id}, specs={self.specs})>"
 
 
 class StockBulk(Base):

@@ -103,7 +103,13 @@ class WOTemplate(Base):
 class WOTemplateItem(Base):
     """
     Producto individual dentro de una plantilla de materiales.
-    Define qué producto, cantidad por defecto, y si es obligatorio.
+    Define qué producto (o grupo de producto), cantidad por defecto, y si es obligatorio.
+    
+    Puede referenciar:
+    - Un producto específico (product_id)
+    - O un grupo de producto (group_id) — útil para decir "1 ONT" sin especificar modelo
+    
+    Ambos son mutuamente excluyentes: si se especifica group_id, se ignora product_id.
     """
     __tablename__ = "wo_template_items"
 
@@ -113,11 +119,17 @@ class WOTemplateItem(Base):
         ForeignKey("wo_templates.id", ondelete="CASCADE"),
         nullable=False, index=True
     )
-    product_id: Mapped[int] = mapped_column(
+    product_id: Mapped[Optional[int]] = mapped_column(
         Integer,
         ForeignKey("products.id", ondelete="RESTRICT"),
-        nullable=False, index=True,
-        comment="Producto del catálogo"
+        nullable=True, index=True,
+        comment="Producto específico del catálogo (opcional si se usa group_id)"
+    )
+    group_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("product_groups.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+        comment="Grupo de producto (ej: ONU/ONT). Alternativa a product_id para referencias genéricas"
     )
     default_quantity: Mapped[float] = mapped_column(
         Float, default=1.0, nullable=False,
@@ -140,12 +152,15 @@ class WOTemplateItem(Base):
     template: Mapped["WOTemplate"] = relationship(
         "WOTemplate", back_populates="items"
     )
-    product: Mapped["Product"] = relationship(
+    product: Mapped[Optional["Product"]] = relationship(
         "Product", lazy="joined"
+    )
+    group: Mapped[Optional["ProductGroup"]] = relationship(
+        "ProductGroup", lazy="joined"
     )
 
     def __repr__(self) -> str:
-        return f"<WOTemplateItem(id={self.id}, tmpl={self.template_id}, prod={self.product_id})>"
+        return f"<WOTemplateItem(id={self.id}, tmpl={self.template_id}, prod={self.product_id}, group={self.group_id})>"
 
 
 class WOAction(Base):

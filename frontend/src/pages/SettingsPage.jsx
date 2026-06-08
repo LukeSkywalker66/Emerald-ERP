@@ -14,6 +14,7 @@ import {
   ClipboardList,
   CheckCircle2,
   AlertCircle,
+  Package,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +38,7 @@ import ScheduledTasksTab from '@/pages/settings/ScheduledTasksTab';
 import WOTemplatesTab from '@/pages/settings/WOTemplatesTab';
 import OTTypesTab from '@/pages/settings/OTTypesTab';
 import WOActionsTab from '@/pages/settings/WOActionsTab';
+import ProductGroupsTab from '@/pages/settings/ProductGroupsTab';
 
 // ─── Constants ──────────────────────────────────────────────────────────
 
@@ -286,6 +288,12 @@ export default function SettingsPage() {
               Órdenes de Trabajo
             </TabsTrigger>
           )}
+          {isAdmin && (
+            <TabsTrigger value="product-groups" className="flex items-center gap-2">
+              <Package size={16} />
+              Grupos de Producto
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* ═══ General Tab (solo admin) ═══ */}
@@ -516,6 +524,23 @@ export default function SettingsPage() {
                   Definí listas de productos sugeridos que los técnicos verán precargados al agregar materiales.
                 </p>
                 <WOTemplatesTab />
+              </div>
+            </div>
+          </TabsContent>
+        )}
+
+        {/* ═══ Product Groups Tab (solo admin) ═══ */}
+        {isAdmin && (
+          <TabsContent value="product-groups" className="space-y-6">
+            <div>
+              <h2 className="text-xl font-bold text-zinc-50 mb-6">Grupos de Producto</h2>
+              <p className="text-zinc-400 text-sm mb-6">
+                Los grupos permiten agrupar productos del mismo rubro (ONU/ONT, Router, Cableado, Conectores)
+                y definir especificaciones técnicas comunes. Luego se usan para filtrar en el catálogo
+                y para la selección inteligente de modelos en las entregas.
+              </p>
+              <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4">
+                <ProductGroupsTab />
               </div>
             </div>
           </TabsContent>

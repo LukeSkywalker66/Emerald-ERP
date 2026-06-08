@@ -46,8 +46,13 @@ class WorkOrderTypeResponse(BaseModel):
 
 
 class WOTemplateItemCreate(BaseModel):
-    """Schema para crear/actualizar un item de plantilla."""
-    product_id: int
+    """Schema para crear/actualizar un item de plantilla.
+    
+    Puede referenciar un producto específico (product_id) o un grupo (group_id).
+    Si se especifica group_id, se ignora product_id.
+    """
+    product_id: Optional[int] = Field(None, description="Producto específico (si se conoce)")
+    group_id: Optional[int] = Field(None, description="Grupo de producto (ej: ONU/ONT)")
     default_quantity: float = 1.0
     required: bool = False
     sort_order: int = 0
@@ -58,13 +63,15 @@ class WOTemplateItemResponse(BaseModel):
     """Schema de respuesta para un item de plantilla."""
     id: int
     template_id: int
-    product_id: int
+    product_id: Optional[int] = None
+    group_id: Optional[int] = None
     default_quantity: float
     required: bool
     sort_order: int
     notes: Optional[str] = None
     product_name: Optional[str] = None  # joined from Product
     product_sku: Optional[str] = None
+    group_name: Optional[str] = None  # joined from ProductGroup
 
     model_config = ConfigDict(from_attributes=True)
 

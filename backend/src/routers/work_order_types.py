@@ -182,16 +182,19 @@ def _build_template_response(template: WOTemplate) -> WOTemplateResponse:
     for item in (template.items or []):
         product_name = item.product.name if item.product else None
         product_sku = item.product.sku if item.product else None
+        group_name = item.group.name if item.group else None
         items.append(WOTemplateItemResponse(
             id=item.id,
             template_id=item.template_id,
             product_id=item.product_id,
+            group_id=item.group_id,
             default_quantity=item.default_quantity,
             required=item.required,
             sort_order=item.sort_order,
             notes=item.notes,
             product_name=product_name,
             product_sku=product_sku,
+            group_name=group_name,
         ))
     return WOTemplateResponse(
         id=template.id,
@@ -270,6 +273,7 @@ def create_wo_template(
         item = WOTemplateItem(
             template_id=template.id,
             product_id=item_data.product_id,
+            group_id=item_data.group_id,
             default_quantity=item_data.default_quantity,
             required=item_data.required,
             sort_order=item_data.sort_order or idx,
@@ -321,6 +325,7 @@ def update_wo_template(
             item = WOTemplateItem(
                 template_id=template.id,
                 product_id=item_data.product_id,
+                group_id=item_data.group_id,
                 default_quantity=item_data.default_quantity,
                 required=item_data.required,
                 sort_order=item_data.sort_order or idx,

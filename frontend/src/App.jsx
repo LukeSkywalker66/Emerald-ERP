@@ -39,6 +39,11 @@ import EngineeringBoardPage from './pages/engineering/EngineeringBoardPage';
 // Coordination Module Pages
 import CuadrillasPage from './pages/coordination/CuadrillasPage';
 
+// Logistics Module Pages
+import MaterialDeliveryDashboard from './pages/logistics/MaterialDeliveryDashboard';
+import MaterialDeliveryWizard from './pages/logistics/MaterialDeliveryWizard';
+import MaterialReceiptWizard from './pages/logistics/MaterialReceiptWizard';
+
 const PrivateRoute = ({ children }) => {
   const { isAuthenticated } = useAuth();
   return isAuthenticated ? children : <Navigate to="/login" replace />;
@@ -87,6 +92,13 @@ const AppRoutes = () => (
         <Route path="inventory/adjustments" element={<RoleGuard resource="inventory" action="adjust" fallbackPath="/app/inventory/warehouses"><StockAdjustments /></RoleGuard>} />
         <Route path="inventory/movements" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><MovementsHistory /></RoleGuard>} />
         <Route path="inventory/alerts" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><StockAlerts /></RoleGuard>} />
+
+        {/* Logistics Module Routes */}
+        <Route path="logistics/deliveries" element={<RoleGuard resource="inventory_admin"><MaterialDeliveryDashboard /></RoleGuard>} />
+        <Route path="logistics/deliveries/new" element={<RoleGuard resource="inventory_admin"><MaterialDeliveryWizard /></RoleGuard>} />
+        <Route path="logistics/deliveries/:id" element={<RoleGuard resource="inventory_admin"><MaterialDeliveryWizard /></RoleGuard>} />
+        <Route path="logistics/receipts/new" element={<RoleGuard resource="inventory_admin"><MaterialReceiptWizard /></RoleGuard>} />
+        <Route path="logistics/receipts/:id" element={<RoleGuard resource="inventory_admin"><MaterialReceiptWizard /></RoleGuard>} />
         
         {/*
           Settings route: permisivo por RBAC con self_service (todo usuario autenticado).

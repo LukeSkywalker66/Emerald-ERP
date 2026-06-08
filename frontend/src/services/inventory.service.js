@@ -363,6 +363,106 @@ export const getInventoryStats = async () => {
 };
 
 // ============================================
+// PRODUCT GROUPS
+// ============================================
+
+/**
+ * Obtener lista de grupos de productos.
+ * @param {boolean} activeOnly - Solo grupos activos
+ * @returns {Promise<Array>}
+ */
+export const getProductGroups = async (activeOnly = true) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/product-groups`, {
+      params: { active_only: activeOnly }
+    });
+    return data;
+  } catch (error) {
+    console.error('❌ Error fetching product groups:', error);
+    throw error;
+  }
+};
+
+/**
+ * Crear un nuevo grupo de productos.
+ * @param {Object} payload - { name, description?, is_active? }
+ * @returns {Promise<Object>}
+ */
+export const createProductGroup = async (payload) => {
+  try {
+    const { data } = await api.post(`${BASE_URL}/product-groups`, payload);
+    return data;
+  } catch (error) {
+    console.error('❌ Error creating product group:', error);
+    throw error;
+  }
+};
+
+/**
+ * Actualizar un grupo de productos.
+ * @param {number} groupId
+ * @param {Object} payload - { name?, description?, is_active? }
+ * @returns {Promise<Object>}
+ */
+export const updateProductGroup = async (groupId, payload) => {
+  try {
+    const { data } = await api.put(`${BASE_URL}/product-groups/${groupId}`, payload);
+    return data;
+  } catch (error) {
+    console.error(`❌ Error updating product group ${groupId}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Eliminar un grupo de productos.
+ * @param {number} groupId
+ */
+export const deleteProductGroup = async (groupId) => {
+  try {
+    await api.delete(`${BASE_URL}/product-groups/${groupId}`);
+  } catch (error) {
+    console.error(`❌ Error deleting product group ${groupId}:`, error);
+    throw error;
+  }
+};
+
+// ============================================
+// PRODUCT SPECS
+// ============================================
+
+/**
+ * Obtener especificaciones técnicas de un producto.
+ * @param {number} productId
+ * @returns {Promise<Object>} { product_id, specs, created_at, updated_at }
+ */
+export const getProductSpecs = async (productId) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/products/${productId}/specs`);
+    return data;
+  } catch (error) {
+    console.error(`❌ Error fetching specs for product ${productId}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Actualizar especificaciones técnicas de un producto.
+ * @param {number} productId
+ * @param {Object} payload - { specs: { ... } }
+ * @returns {Promise<Object>}
+ */
+export const updateProductSpecs = async (productId, payload) => {
+  try {
+    const { data } = await api.put(`${BASE_URL}/products/${productId}/specs`, payload);
+    return data;
+  } catch (error) {
+    console.error(`❌ Error updating specs for product ${productId}:`, error);
+    throw error;
+  }
+};
+
+// ============================================
 // EXPORT DEFAULT (opcional para compatibilidad)
 // ============================================
 
@@ -389,5 +489,15 @@ export default {
   
   // Stock Alerts (optimizado)
   getStockAlerts,
-  getInventoryStats
+  getInventoryStats,
+  
+  // Product Groups
+  getProductGroups,
+  createProductGroup,
+  updateProductGroup,
+  deleteProductGroup,
+  
+  // Product Specs
+  getProductSpecs,
+  updateProductSpecs,
 };
