@@ -298,6 +298,40 @@ export const getCloseValidations = async (ticketId) => {
   }
 };
 
+// ============================================
+// Connection Assets & Notes
+// ============================================
+
+/**
+ * Obtener activos instalados en la conexión del ticket.
+ * @param {number} ticketId
+ * @returns {Promise<Object>} { connection_id, assets[] }
+ */
+export const getConnectionAssets = async (ticketId) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/${ticketId}/connection-assets`);
+    return data;
+  } catch (error) {
+    console.error('❌ Error fetching connection assets:', error);
+    return { connection_id: 0, assets: [] };
+  }
+};
+
+/**
+ * Obtener notas de la conexión del ticket.
+ * @param {number} ticketId
+ * @returns {Promise<Object>} { connection_id, notes[] }
+ */
+export const getConnectionNotes = async (ticketId) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/${ticketId}/connection-notes`);
+    return data;
+  } catch (error) {
+    console.error('❌ Error fetching connection notes:', error);
+    return { connection_id: 0, notes: [] };
+  }
+};
+
 export default {
   getAll,
   getById,
@@ -318,5 +352,8 @@ export default {
   removeTagFromTicket,
   // Close/Cancel validations
   getCloseValidations,
+  // Connection Assets & Notes
+  getConnectionAssets,
+  getConnectionNotes,
 };
 

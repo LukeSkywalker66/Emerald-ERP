@@ -17,7 +17,9 @@ import {
   createSerialItem,
   updateProduct,
   deleteProduct,
-  getProductCategories
+  getProductCategories,
+  getProductGroups,
+  updateProductSpecs
 } from '@/services/inventory.service';
 
 export default function ProductCatalog() {
@@ -26,16 +28,19 @@ export default function ProductCatalog() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [categories, setCategories] = useState([]);
+  const [productGroups, setProductGroups] = useState([]);
 
   // Search/Filter state
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('ALL');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [groupFilter, setGroupFilter] = useState('ALL');
 
   // Modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showSpecsModal, setShowSpecsModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -44,7 +49,12 @@ export default function ProductCatalog() {
   const [deleteError, setDeleteError] = useState(null);
   const [selectedProduct, setSelectedProduct] = useState(null);
 
-  // Form state
+  // Specs editor state
+  const [specsForm, setSpecsForm] = useState({});
+  const [savingSpecs, setSavingSpecs] = useState(false);
+  const [specsError, setSpecsError] = useState(null);
+
+  // Form state — expanded with new fields
   const [formData, setFormData] = useState({
     name: '',
     sku: '',
@@ -52,17 +62,41 @@ export default function ProductCatalog() {
     category: 'Cableado',
     description: '',
     min_stock_alert: 50,
-    serial_numbers: ''
+    serial_numbers: '',
+    // Nuevos campos
+    group_id: '',
+    is_composite: false,
+    unit_size: '',
+    unit_measure: 'm',
+    composite_unit_label: '',
+    specs: {}
+  });
+
+  const resetFormData = () => setFormData({
+    name: '',
+    sku: '',
+    type: 'BULK',
+    category: 'Cableado',
+    description: '',
+    min_stock_alert: 50,
+    serial_numbers: '',
+    group_id: '',
+    is_composite: false,
+    unit_size: '',
+    unit_measure: 'm',
+    composite_unit_label: '',
+    specs: {}
   });
 
   useEffect(() => {
     loadProducts();
     loadCategories();
+    loadProductGroups();
   }, []);
 
   useEffect(() => {
     applyFilters();
-  }, [products, searchTerm, typeFilter, categoryFilter]);
+  }, [products, searchTerm, typeFilter, categoryFilter, groupFilter]);
 
   const loadProducts = async () => {
     setLoading(true);
@@ -88,6 +122,15 @@ export default function ProductCatalog() {
     }
   };
 
+  const loadProductGroups = async () => {
+    try {
+      const data = await getProductGroups();
+      setProductGroups(data || []);
+    } catch (err) {
+      console.error('Error loading product groups:', err);
+    }
+  };
+
   const applyFilters = () => {
     let filtered = [...products];
 
@@ -99,6 +142,11 @@ export default function ProductCatalog() {
     // Filter by category
     if (categoryFilter !== 'ALL') {
       filtered = filtered.filter(p => p.category === categoryFilter);
+    }
+
+    // Filter by group
+    if (groupFilter !== 'ALL') {
+      filtered = filtered.filter(p => p.group_id === parseInt(groupFilter));
     }
 
     // Search by name or SKU
@@ -138,10 +186,25 @@ export default function ProductCatalog() {
         type: formData.type,
         category: formData.category || null,
         description: formData.description.trim() || null,
-        min_stock_alert: parseInt(formData.min_stock_alert) || 0
+        min_stock_alert: parseInt(formData.min_stock_alert) || 0,
+        // Nuevos campos
+        group_id: formData.group_id ? parseInt(formData.group_id) : null,
+        is_composite: formData.type === 'BULK' ? formData.is_composite : false,
+        unit_size: formData.is_composite && formData.unit_size ? parseFloat(formData.unit_size) : null,
+        unit_measure: formData.is_composite ? (formData.unit_measure || 'm') : null,
+        composite_unit_label: formData.is_composite ? (formData.composite_unit_label || null) : null,
       };
 
       const created = await createProduct(payload);
+
+      // Save specs if group and specs data provided
+      if (created?.id && formData.group_id && Object.keys(formData.specs).length > 0) {
+        try {
+          await updateProductSpecs(created.id, { specs: formData.specs });
+        } catch (specErr) {
+          console.warn('⚠️ Product created but specs not saved:', specErr);
+        }
+      }
 
       // If SERIALIZED type, create serial items for each serial number
       if (formData.type === 'SERIALIZED' && formData.serial_numbers.trim()) {
@@ -170,15 +233,7 @@ export default function ProductCatalog() {
 
       // Close modal and reset form
       setShowCreateModal(false);
-      setFormData({
-        name: '',
-        sku: '',
-        type: 'BULK',
-        category: 'Cableado',
-        description: '',
-        min_stock_alert: 50,
-        serial_numbers: ''
-      });
+      resetFormData();
     } catch (err) {
       console.error('Error creating product:', err);
       setCreateError(err.response?.data?.detail || err.message || 'Error al crear producto');
@@ -212,7 +267,13 @@ export default function ProductCatalog() {
         // type is intentionally omitted - immutable field handled by backend
         category: formData.category || null,
         description: formData.description.trim() || null,
-        min_stock_alert: parseInt(formData.min_stock_alert) || 0
+        min_stock_alert: parseInt(formData.min_stock_alert) || 0,
+        // Nuevos campos
+        group_id: formData.group_id ? parseInt(formData.group_id) : null,
+        is_composite: formData.type === 'BULK' ? formData.is_composite : false,
+        unit_size: formData.is_composite && formData.unit_size ? parseFloat(formData.unit_size) : null,
+        unit_measure: formData.is_composite ? (formData.unit_measure || 'm') : null,
+        composite_unit_label: formData.is_composite ? (formData.composite_unit_label || null) : null,
       };
 
       await updateProduct(selectedProduct.id, payload);
@@ -243,15 +304,7 @@ export default function ProductCatalog() {
       // Close modal and reset form
       setShowEditModal(false);
       setSelectedProduct(null);
-      setFormData({
-        name: '',
-        sku: '',
-        type: 'BULK',
-        category: 'Cableado',
-        description: '',
-        min_stock_alert: 50,
-        serial_numbers: ''
-      });
+      resetFormData();
     } catch (err) {
       console.error('Error updating product:', err);
       setEditError(err.response?.data?.detail || err.message || 'Error al actualizar producto');
@@ -296,7 +349,15 @@ export default function ProductCatalog() {
       type: product.type,
       category: product.category || 'Cableado',
       description: product.description || '',
-      min_stock_alert: product.min_stock_alert || 50
+      min_stock_alert: product.min_stock_alert || 50,
+      serial_numbers: '',
+      // Nuevos campos
+      group_id: product.group_id ? String(product.group_id) : '',
+      is_composite: product.is_composite || false,
+      unit_size: product.unit_size ? String(product.unit_size) : '',
+      unit_measure: product.unit_measure || 'm',
+      composite_unit_label: product.composite_unit_label || '',
+      specs: product.specs || {}
     });
     setShowEditModal(true);
     setEditError(null);
@@ -378,6 +439,18 @@ export default function ProductCatalog() {
               <option key={name} value={name}>{name}</option>
             ))}
           </select>
+
+          {/* Group Filter */}
+          <select
+            value={groupFilter}
+            onChange={(e) => setGroupFilter(e.target.value)}
+            className="px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
+          >
+            <option value="ALL">Todos los Grupos</option>
+            {productGroups.map(g => (
+              <option key={g.id} value={g.id}>{g.name}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -417,10 +490,11 @@ export default function ProductCatalog() {
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
           {/* Table Header */}
           <div className="bg-zinc-800/50 border-b border-zinc-800 grid grid-cols-12 gap-4 p-4 text-xs font-semibold text-zinc-400 uppercase tracking-wide">
-            <div className="col-span-4">Producto</div>
+            <div className="col-span-3">Producto</div>
             <div className="col-span-2">SKU</div>
-            <div className="col-span-2">Tipo</div>
+            <div className="col-span-1">Tipo</div>
             <div className="col-span-2">Categoría</div>
+            <div className="col-span-2">Grupo</div>
             <div className="col-span-1">Mín Stock</div>
             <div className="col-span-1">Acción</div>
           </div>
@@ -433,7 +507,7 @@ export default function ProductCatalog() {
                 className="grid grid-cols-12 gap-4 p-4 hover:bg-zinc-800/50 transition-colors items-center"
               >
                 {/* Nombre */}
-                <div className="col-span-4">
+                <div className="col-span-3">
                   <div className="flex items-center space-x-2">
                     {product.type === 'BULK' ? (
                       <Droplets className="w-4 h-4 text-blue-400 flex-shrink-0" />
@@ -459,13 +533,13 @@ export default function ProductCatalog() {
                 </div>
 
                 {/* Type */}
-                <div className="col-span-2">
+                <div className="col-span-1">
                   <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${
                     product.type === 'BULK'
                       ? 'bg-blue-900/30 text-blue-300 border-blue-800'
                       : 'bg-purple-900/30 text-purple-300 border-purple-800'
                   }`}>
-                    {product.type === 'BULK' ? 'A GRANEL' : 'SERIALIZADO'}
+                    {product.type === 'BULK' ? 'BG' : 'SR'}
                   </span>
                 </div>
 
@@ -473,6 +547,13 @@ export default function ProductCatalog() {
                 <div className="col-span-2">
                   <span className="text-zinc-400 text-sm">
                     {product.category || '-'}
+                  </span>
+                </div>
+
+                {/* Group */}
+                <div className="col-span-2">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-zinc-800 text-zinc-300">
+                    {product.group_name || '-'}
                   </span>
                 </div>
 
@@ -621,6 +702,31 @@ export default function ProductCatalog() {
                 </div>
               )}
 
+              {/* Group selector */}
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-2">
+                  Grupo de Producto
+                </label>
+                <select
+                  value={formData.group_id}
+                  onChange={(e) => {
+                    const gid = e.target.value;
+                    const group = productGroups.find(g => String(g.id) === gid);
+                    setFormData({ ...formData, group_id: gid, specs: {} });
+                    // If specs already exist for this product, load them
+                    if (selectedProduct?.specs && selectedProduct.group_id === parseInt(gid)) {
+                      setFormData(prev => ({ ...prev, group_id: gid, specs: selectedProduct.specs }));
+                    }
+                  }}
+                  className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
+                >
+                  <option value="">Sin grupo</option>
+                  {productGroups.map(g => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
+                </select>
+              </div>
+
               {/* Category */}
               <div>
                 <label className="block text-sm font-medium text-zinc-300 mb-2">
@@ -637,6 +743,218 @@ export default function ProductCatalog() {
                   ))}
                 </select>
               </div>
+
+              {/* Composite product fields (only for BULK type) */}
+              {formData.type === 'BULK' && (
+                <>
+                  <div className="border-t border-zinc-800 pt-4">
+                    <h3 className="text-lg font-semibold text-zinc-200 mb-3">Producto Compuesto / Fraccionable</h3>
+                    <p className="text-xs text-zinc-500 mb-4">
+                      Marcá esta opción si el producto se compra como unidad (bobina, blister)
+                      pero se consume fraccionadamente (metros, unidades).
+                    </p>
+
+                    <label className="flex items-center space-x-3 mb-4 p-3 bg-zinc-800/50 rounded-lg cursor-pointer hover:bg-zinc-800 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={formData.is_composite}
+                        onChange={(e) => setFormData({ ...formData, is_composite: e.target.checked })}
+                        className="w-5 h-5 rounded border-zinc-600 text-emerald-500 focus:ring-emerald-500 bg-zinc-700"
+                      />
+                      <div>
+                        <span className="text-zinc-200 font-medium">Es un producto compuesto</span>
+                        <p className="text-xs text-zinc-500">Ej: Bobina de drop 300m, Blister conectores x10</p>
+                      </div>
+                    </label>
+
+                    {formData.is_composite && (
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-zinc-300 mb-2">
+                            Tamaño por Unidad
+                          </label>
+                          <input
+                            type="number"
+                            value={formData.unit_size}
+                            onChange={(e) => setFormData({ ...formData, unit_size: e.target.value })}
+                            placeholder="Ej: 300"
+                            min="0"
+                            step="0.1"
+                            className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-zinc-300 mb-2">
+                            Unidad de Medida
+                          </label>
+                          <select
+                            value={formData.unit_measure}
+                            onChange={(e) => setFormData({ ...formData, unit_measure: e.target.value })}
+                            className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
+                          >
+                            <option value="m">Metros (m)</option>
+                            <option value="units">Unidades</option>
+                            <option value="pcs">Piezas</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-zinc-300 mb-2">
+                            Etiqueta de Unidad
+                          </label>
+                          <input
+                            type="text"
+                            value={formData.composite_unit_label}
+                            onChange={(e) => setFormData({ ...formData, composite_unit_label: e.target.value })}
+                            placeholder="Ej: Bobina, Blister"
+                            className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Specs editor (only when a group is selected) */}
+              {formData.group_id && (
+                <div className="border-t border-zinc-800 pt-4">
+                  <h3 className="text-lg font-semibold text-zinc-200 mb-3">Especificaciones Técnicas</h3>
+                  <p className="text-xs text-zinc-500 mb-4">
+                    Completá los atributos técnicos según el grupo seleccionado.
+                  </p>
+                  <div className="space-y-3">
+                    {/* Common fields - these will be shown based on group */}
+                    {(() => {
+                      const group = productGroups.find(g => String(g.id) === formData.group_id);
+                      const groupName = group?.name || '';
+                      const isONT = groupName.includes('ONT') || groupName.includes('ONU');
+                      const isRouter = groupName.includes('Router');
+                      const fields = [];
+
+                      if (isONT || isRouter) {
+                        fields.push(
+                          <div key="dual_band">
+                            <label className="flex items-center space-x-3 p-3 bg-zinc-800/50 rounded-lg cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={formData.specs?.is_dual_band || false}
+                                onChange={(e) => setFormData({
+                                  ...formData,
+                                  specs: { ...formData.specs, is_dual_band: e.target.checked }
+                                })}
+                                className="w-5 h-5 rounded border-zinc-600 text-emerald-500 bg-zinc-700"
+                              />
+                              <span className="text-zinc-200">Doble Banda (Dual Band)</span>
+                            </label>
+                          </div>
+                        );
+
+                        if (isONT) {
+                          fields.push(
+                            <div key="wifi">
+                              <label className="block text-sm font-medium text-zinc-300 mb-2">WiFi</label>
+                              <select
+                                value={formData.specs?.wifi_version || ''}
+                                onChange={(e) => setFormData({
+                                  ...formData,
+                                  specs: { ...formData.specs, wifi_version: e.target.value }
+                                })}
+                                className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white"
+                              >
+                                <option value="">Seleccionar</option>
+                                <option value="4">WiFi 4</option>
+                                <option value="5">WiFi 5</option>
+                                <option value="6">WiFi 6</option>
+                              </select>
+                            </div>
+                          );
+                          fields.push(
+                            <div key="mode">
+                              <label className="block text-sm font-medium text-zinc-300 mb-2">Modo</label>
+                              <select
+                                value={formData.specs?.mode || ''}
+                                onChange={(e) => setFormData({
+                                  ...formData,
+                                  specs: { ...formData.specs, mode: e.target.value }
+                                })}
+                                className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white"
+                              >
+                                <option value="">Seleccionar</option>
+                                <option value="router">Router</option>
+                                <option value="bridge">Bridge</option>
+                                <option value="router_bridge">Router + Bridge</option>
+                              </select>
+                            </div>
+                          );
+                        }
+
+                        if (isRouter) {
+                          fields.push(
+                            <div key="mesh">
+                              <label className="flex items-center space-x-3 p-3 bg-zinc-800/50 rounded-lg cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={formData.specs?.is_mesh || false}
+                                  onChange={(e) => setFormData({
+                                    ...formData,
+                                    specs: { ...formData.specs, is_mesh: e.target.checked }
+                                  })}
+                                  className="w-5 h-5 rounded border-zinc-600 text-emerald-500 bg-zinc-700"
+                                />
+                                <span className="text-zinc-200">Mesh</span>
+                              </label>
+                            </div>
+                          );
+                          fields.push(
+                            <div key="extra_notes">
+                              <label className="block text-sm font-medium text-zinc-300 mb-2">Notas Extras</label>
+                              <textarea
+                                value={formData.specs?.extra_notes || ''}
+                                onChange={(e) => setFormData({
+                                  ...formData,
+                                  specs: { ...formData.specs, extra_notes: e.target.value }
+                                })}
+                                rows="2"
+                                className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white resize-none"
+                                placeholder="Puertos, características especiales..."
+                              />
+                            </div>
+                          );
+                        }
+                      }
+
+                      // If no specific fields for this group, show raw JSON editor
+                      if (fields.length === 0) {
+                        fields.push(
+                          <div key="raw">
+                            <label className="block text-sm font-medium text-zinc-300 mb-2">
+                              Atributos (JSON)
+                            </label>
+                            <textarea
+                              value={JSON.stringify(formData.specs || {}, null, 2)}
+                              onChange={(e) => {
+                                try {
+                                  const parsed = JSON.parse(e.target.value);
+                                  setFormData({ ...formData, specs: parsed });
+                                } catch {
+                                  // Allow typing invalid JSON temporarily
+                                }
+                              }}
+                              rows="4"
+                              className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white font-mono text-sm resize-none"
+                              placeholder='{"key": "value"}'
+                            />
+                          </div>
+                        );
+                      }
+
+                      return fields;
+                    })()}
+                  </div>
+                </div>
+              )}
 
               {/* Description */}
               <div>
@@ -820,6 +1138,26 @@ export default function ProductCatalog() {
                   </div>
                 )}
 
+                {/* Group selector */}
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Grupo de Producto
+                  </label>
+                  <select
+                    value={formData.group_id}
+                    onChange={(e) => {
+                      const gid = e.target.value;
+                      setFormData({ ...formData, group_id: gid, specs: selectedProduct?.specs || {} });
+                    }}
+                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors"
+                  >
+                    <option value="">Sin grupo</option>
+                    {productGroups.map(g => (
+                      <option key={g.id} value={g.id}>{g.name}</option>
+                    ))}
+                  </select>
+                </div>
+
                 {/* Category */}
                 <div>
                   <label className="block text-sm font-medium text-zinc-300 mb-2">
@@ -836,6 +1174,148 @@ export default function ProductCatalog() {
                     ))}
                   </select>
                 </div>
+
+                {/* Composite product fields (only for BULK type) */}
+                {formData.type === 'BULK' && (
+                  <>
+                    <div className="border-t border-zinc-800 pt-4">
+                      <h3 className="text-lg font-semibold text-zinc-200 mb-3">Producto Compuesto / Fraccionable</h3>
+                      <p className="text-xs text-zinc-500 mb-4">
+                        Marcá esta opción si el producto se compra como unidad (bobina, blister)
+                        pero se consume fraccionadamente (metros, unidades).
+                      </p>
+                      <label className="flex items-center space-x-3 mb-4 p-3 bg-zinc-800/50 rounded-lg cursor-pointer hover:bg-zinc-800 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={formData.is_composite}
+                          onChange={(e) => setFormData({ ...formData, is_composite: e.target.checked })}
+                          className="w-5 h-5 rounded border-zinc-600 text-blue-500 focus:ring-blue-500 bg-zinc-700"
+                        />
+                        <div>
+                          <span className="text-zinc-200 font-medium">Es un producto compuesto</span>
+                          <p className="text-xs text-zinc-500">Ej: Bobina de drop 300m, Blister conectores x10</p>
+                        </div>
+                      </label>
+                      {formData.is_composite && (
+                        <div className="grid grid-cols-3 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-zinc-300 mb-2">Tamaño por Unidad</label>
+                            <input type="number" value={formData.unit_size}
+                              onChange={(e) => setFormData({ ...formData, unit_size: e.target.value })}
+                              placeholder="Ej: 300" min="0" step="0.1"
+                              className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white" />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-zinc-300 mb-2">Unidad de Medida</label>
+                            <select value={formData.unit_measure}
+                              onChange={(e) => setFormData({ ...formData, unit_measure: e.target.value })}
+                              className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white">
+                              <option value="m">Metros (m)</option>
+                              <option value="units">Unidades</option>
+                              <option value="pcs">Piezas</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-zinc-300 mb-2">Etiqueta de Unidad</label>
+                            <input type="text" value={formData.composite_unit_label}
+                              onChange={(e) => setFormData({ ...formData, composite_unit_label: e.target.value })}
+                              placeholder="Ej: Bobina, Blister"
+                              className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white" />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {/* Specs editor */}
+                {formData.group_id && (
+                  <div className="border-t border-zinc-800 pt-4">
+                    <h3 className="text-lg font-semibold text-zinc-200 mb-3">Especificaciones Técnicas</h3>
+                    <div className="space-y-3">
+                      {(() => {
+                        const group = productGroups.find(g => String(g.id) === formData.group_id);
+                        const groupName = group?.name || '';
+                        const isONT = groupName.includes('ONT') || groupName.includes('ONU');
+                        const isRouter = groupName.includes('Router');
+                        const fields = [];
+                        if (isONT || isRouter) {
+                          fields.push(
+                            <div key="dual_band">
+                              <label className="flex items-center space-x-3 p-3 bg-zinc-800/50 rounded-lg cursor-pointer">
+                                <input type="checkbox"
+                                  checked={formData.specs?.is_dual_band || false}
+                                  onChange={(e) => setFormData({ ...formData, specs: { ...formData.specs, is_dual_band: e.target.checked } })}
+                                  className="w-5 h-5 rounded border-zinc-600 text-blue-500 bg-zinc-700" />
+                                <span className="text-zinc-200">Doble Banda (Dual Band)</span>
+                              </label>
+                            </div>
+                          );
+                          if (isONT) {
+                            fields.push(
+                              <div key="wifi">
+                                <label className="block text-sm font-medium text-zinc-300 mb-2">WiFi</label>
+                                <select value={formData.specs?.wifi_version || ''}
+                                  onChange={(e) => setFormData({ ...formData, specs: { ...formData.specs, wifi_version: e.target.value } })}
+                                  className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white">
+                                  <option value="">Seleccionar</option>
+                                  <option value="4">WiFi 4</option>
+                                  <option value="5">WiFi 5</option>
+                                  <option value="6">WiFi 6</option>
+                                </select>
+                              </div>
+                            );
+                            fields.push(
+                              <div key="mode">
+                                <label className="block text-sm font-medium text-zinc-300 mb-2">Modo</label>
+                                <select value={formData.specs?.mode || ''}
+                                  onChange={(e) => setFormData({ ...formData, specs: { ...formData.specs, mode: e.target.value } })}
+                                  className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white">
+                                  <option value="">Seleccionar</option>
+                                  <option value="router">Router</option>
+                                  <option value="bridge">Bridge</option>
+                                  <option value="router_bridge">Router + Bridge</option>
+                                </select>
+                              </div>
+                            );
+                          }
+                          if (isRouter) {
+                            fields.push(
+                              <div key="mesh">
+                                <label className="flex items-center space-x-3 p-3 bg-zinc-800/50 rounded-lg cursor-pointer">
+                                  <input type="checkbox"
+                                    checked={formData.specs?.is_mesh || false}
+                                    onChange={(e) => setFormData({ ...formData, specs: { ...formData.specs, is_mesh: e.target.checked } })}
+                                    className="w-5 h-5 rounded border-zinc-600 text-blue-500 bg-zinc-700" />
+                                  <span className="text-zinc-200">Mesh</span>
+                                </label>
+                              </div>
+                            );
+                            fields.push(
+                              <div key="extra_notes">
+                                <label className="block text-sm font-medium text-zinc-300 mb-2">Notas Extras</label>
+                                <textarea value={formData.specs?.extra_notes || ''}
+                                  onChange={(e) => setFormData({ ...formData, specs: { ...formData.specs, extra_notes: e.target.value } })}
+                                  rows="2" className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white resize-none" />
+                              </div>
+                            );
+                          }
+                        }
+                        if (fields.length === 0) {
+                          fields.push(
+                            <div key="raw">
+                              <label className="block text-sm font-medium text-zinc-300 mb-2">Atributos (JSON)</label>
+                              <textarea value={JSON.stringify(formData.specs || {}, null, 2)}
+                                onChange={(e) => { try { setFormData({ ...formData, specs: JSON.parse(e.target.value) }); } catch {} }}
+                                rows="4" className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white font-mono text-sm resize-none" />
+                            </div>
+                          );
+                        }
+                        return fields;
+                      })()}
+                    </div>
+                  </div>
+                )}
 
                 {/* Description */}
                 <div>

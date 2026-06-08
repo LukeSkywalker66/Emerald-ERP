@@ -182,6 +182,13 @@ const MENU_ITEMS = [
         resource: 'inventory_admin',
         badge: 'hot', // Indicador especial
       },
+      {
+        title: 'Entregas a Cuadrillas',
+        icon: Truck,
+        href: '/app/logistics/deliveries',
+        description: 'Transferencia de materiales a móviles',
+        resource: 'inventory_admin',
+      },
     ],
   },
   {

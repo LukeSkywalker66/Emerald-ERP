@@ -18,6 +18,7 @@ from src.models.tickets import (
     TicketTimelineEventType,
     WorkOrderStatus,
     WorkOrderType,
+    ResolutionCategory,
 )
 from src.models.user import User
 from src.models.coordination import Team, TeamMember
@@ -26,9 +27,15 @@ from src.schemas.tickets import (
     WorkOrderCreate,
     WorkOrderDetailResponse,
     WorkOrderUpdate,
+    WorkOrderCompleteRequest,
     WorkOrderItemCreate,
     WorkOrderItemResponse,
     WorkOrderListResponse,
+    ConnectionNoteCreate,
+    ConnectionNoteResponse,
+    ConnectionAssetResponse,
+    ConnectionAssetsListResponse,
+    ConnectionNotesListResponse,
 )
 from src.schemas.contact_attempts import (
     ContactAttemptCreate,
@@ -37,6 +44,16 @@ from src.schemas.contact_attempts import (
 )
 from src.models.contact_attempts import ContactAttempt, ContactAttemptResult
 from src.services.work_order_service import create_work_order_for_ticket
+from src.services.wo_completion_service import (
+    complete_work_order_with_inventory,
+    CompletionError,
+)
+from src.models.inventory import (
+    ConnectionAsset,
+    ConnectionNote,
+    ConnectionAssetStatus,
+    Product,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -513,6 +530,13 @@ def get_work_order_detail(
             if creator_phone:
                 ticket_info["contact_phone"] = creator_phone
     
+    # Obtener nombres de productos para los items
+    product_ids = list(set(item.product_id for item in wo.work_order_items))
+    products_map = {}
+    if product_ids:
+        for p in db.query(Product).filter(Product.id.in_(product_ids)).all():
+            products_map[p.id] = p.name
+    
     return WorkOrderDetailResponse(
         id=wo.id,
         ticket_id=wo.ticket_id,
@@ -547,6 +571,7 @@ def get_work_order_detail(
             WorkOrderItemResponse(
                 id=item.id,
                 product_id=item.product_id,
+                product_name=products_map.get(item.product_id, f"Producto #{item.product_id}"),
                 quantity=item.quantity,
                 serial_number=item.serial_number,
                 notes=item.notes,
@@ -714,16 +739,30 @@ def update_work_order(
     if 'custom_data' in update_data:
         attributes.flag_modified(wo, "custom_data")
     
-    # Crear evento de timeline si cambia estado
+    # Crear evento de timeline si cambia estado (con etiquetas en español)
+    STATUS_LABELS = {
+        "pending_planning": "Pendiente",
+        "assigned": "Asignada",
+        "in_progress": "En Progreso",
+        "pending_closure": "Pendiente Cierre",
+        "completed": "Completada",
+        "failed": "Fallida",
+        "scheduled": "Programada",
+        "backlog": "Backlog",
+        "testing": "Testing",
+        "rejected": "Rechazada",
+    }
     if payload.status and payload.status != old_status:
+        old_label = STATUS_LABELS.get(old_status.value, old_status.value)
+        new_label = STATUS_LABELS.get(payload.status.value, payload.status.value)
         timeline_event = TicketTimeline(
             ticket_id=wo.ticket_id,
             author_id=current_user.id,
             event_type=TicketTimelineEventType.ot_event,
-            content=f"OT #{wo.id}: Estado actualizado de {old_status.value} a {payload.status.value}",
+            content=f"OT #{wo.id}: Estado actualizado de {old_label} a {new_label}",
             meta_data={
-                "work_order_id": wo.id, 
-                "old_status": old_status.value, 
+                "work_order_id": wo.id,
+                "old_status": old_status.value,
                 "new_status": payload.status.value,
                 "team_id": wo.team_id,
                 "scheduled_start": wo.scheduled_start.isoformat() if wo.scheduled_start else None,
@@ -816,17 +855,6 @@ def add_work_order_item(
         notes=payload.notes,
     )
     db.add(item)
-    
-    # Evento de timeline
-    serial_info = f" (SN: {payload.serial_number})" if payload.serial_number else ""
-    timeline_event = TicketTimeline(
-        ticket_id=wo.ticket_id,
-        author_id=current_user.id,
-        event_type=TicketTimelineEventType.ot_event,
-        content=f"Material agregado a OT #{wo.id}: Producto {payload.product_id} x{payload.quantity}{serial_info}",
-        meta_data={"work_order_id": wo.id, "product_id": payload.product_id, "quantity": payload.quantity},
-    )
-    db.add(timeline_event)
     
     db.commit()
     db.refresh(item)
@@ -1713,3 +1741,196 @@ def get_contact_attempts_stats(
         last_attempt=last_attempt,
         results_breakdown=results_breakdown,
     )
+
+
+# ============================================================
+# ENDPOINTS: Completar OT con inventario
+# ============================================================
+
+
+@router.post(
+    "/{work_order_id}/complete",
+    response_model=WorkOrderDetailResponse,
+    status_code=status.HTTP_200_OK,
+)
+def complete_work_order(
+    work_order_id: int,
+    payload: WorkOrderCompleteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Completar una OT procesando inventario y creando trazabilidad de activos.
+
+    Este endpoint reemplaza el flujo anterior de PATCH con status=completed.
+    Orquesta en una transacción:
+      - Descarga de stock BULK del vehículo del técnico
+      - Instalación de SERIALIZED (ConnectionAsset)
+      - Registro de StockMovement (auditoría)
+      - Timeline event
+      - Nota de conexión (opcional)
+
+    Si hay errores de inventario (stock insuficiente, serial no encontrado),
+    la transacción se revierte y se retorna error 422.
+    """
+    # Mapear action_code → ResolutionCategory
+    # Los action codes vienen del wizard paso 1 (WO Actions configurables)
+    # y deben traducirse a los valores del enum ResolutionCategory.
+    _ACTION_TO_CATEGORY = {
+        "no_realizada": ResolutionCategory.incomplete,
+    }
+    raw_category = payload.resolution_category
+    if raw_category and raw_category in _ACTION_TO_CATEGORY:
+        resolved_category = _ACTION_TO_CATEGORY[raw_category]
+    elif raw_category:
+        # Intentar usar el valor directamente (si ya es un valor válido del enum)
+        try:
+            resolved_category = ResolutionCategory(raw_category)
+        except (ValueError, LookupError):
+            resolved_category = ResolutionCategory.other
+    else:
+        resolved_category = None
+
+    # Cargar OT con items
+    wo = (
+        db.query(WorkOrder)
+        .options(joinedload(WorkOrder.work_order_items))
+        .filter(WorkOrder.id == work_order_id)
+        .first()
+    )
+    if not wo:
+        raise HTTPException(status_code=404, detail="WorkOrder no encontrada")
+
+    # Solo el técnico asignado o admin puede completar
+    if current_user.role not in ("admin", "super_user"):
+        if wo.technician_id and wo.technician_id != current_user.id:
+            raise HTTPException(
+                status_code=403,
+                detail="No tienes permisos para completar esta OT",
+            )
+
+    try:
+        wo = complete_work_order_with_inventory(
+            db=db,
+            work_order=wo,
+            current_user=current_user,
+            resolution_category=resolved_category.value if resolved_category else None,
+            resolution_notes=payload.resolution_notes,
+            photo_urls=payload.photo_urls,
+            connection_note=payload.connection_note,
+            installation_signal_dbm=payload.installation_signal_dbm,
+        )
+    except CompletionError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    db.commit()
+    db.refresh(wo)
+
+    # Audit log
+    try:
+        log_update(
+            db=db,
+            user_id=current_user.id,
+            entity_name="work_orders",
+            entity_id=wo.id,
+            old_values={"status": "pending_completion"},
+            new_values={
+                "status": wo.status.value,
+                "resolution_category": wo.resolution_category,
+                "item_count": len(wo.work_order_items),
+            },
+        )
+    except Exception as audit_error:
+        logger.error(f"❌ [AUDIT] Error al registrar cierre de OT {wo.id}: {audit_error}")
+
+    return get_work_order_detail(work_order_id, db, current_user)
+
+
+# ============================================================
+# ENDPOINTS: Connection Assets & Notes
+# ============================================================
+
+
+@router.get(
+    "/{work_order_id}/connection-assets",
+    response_model=ConnectionAssetsListResponse,
+)
+def get_work_order_connection_assets(
+    work_order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Obtener los activos instalados/retirados en la conexión asociada a esta OT."""
+    wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
+    if not wo:
+        raise HTTPException(status_code=404, detail="WorkOrder no encontrada")
+
+    ticket = db.query(Ticket).filter(Ticket.id == wo.ticket_id).first()
+    if not ticket or not ticket.connection_id:
+        return ConnectionAssetsListResponse(connection_id=0, assets=[])
+
+    assets = (
+        db.query(ConnectionAsset)
+        .filter(ConnectionAsset.connection_id == ticket.connection_id)
+        .order_by(ConnectionAsset.installed_at.desc())
+        .all()
+    )
+
+    return ConnectionAssetsListResponse(
+        connection_id=ticket.connection_id,
+        assets=[ConnectionAssetResponse.model_validate(a) for a in assets],
+    )
+
+
+@router.get(
+    "/{work_order_id}/connection-notes",
+    response_model=ConnectionNotesListResponse,
+)
+def get_work_order_connection_notes(
+    work_order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Obtener las notas de la conexión asociada a esta OT."""
+    wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
+    if not wo:
+        raise HTTPException(status_code=404, detail="WorkOrder no encontrada")
+
+    ticket = db.query(Ticket).filter(Ticket.id == wo.ticket_id).first()
+    if not ticket or not ticket.connection_id:
+        return ConnectionNotesListResponse(connection_id=0, notes=[])
+
+    notes = (
+        db.query(ConnectionNote)
+        .filter(ConnectionNote.connection_id == ticket.connection_id)
+        .order_by(ConnectionNote.is_pinned.desc(), ConnectionNote.created_at.desc())
+        .all()
+    )
+
+    return ConnectionNotesListResponse(
+        connection_id=ticket.connection_id,
+        notes=[ConnectionNoteResponse.model_validate(n) for n in notes],
+    )
+
+
+@router.post(
+    "/connection-notes",
+    response_model=ConnectionNoteResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_connection_note(
+    payload: ConnectionNoteCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Crear una nota de conexión (sin necesidad de OT activa)."""
+    note = ConnectionNote(
+        connection_id=payload.connection_id,
+        work_order_id=payload.work_order_id,
+        author_id=current_user.id,
+        note=payload.note,
+        is_pinned=payload.is_pinned,
+    )
+    db.add(note)
+    db.commit()
+    db.refresh(note)
+    return ConnectionNoteResponse.model_validate(note)

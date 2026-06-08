@@ -179,3 +179,11 @@ docker compose exec -it backend sh -c 'PYTHONPATH=/app/src python -m scripts.pos
 > | Migración Hesk | ~17 min |
 > | Backup | ~1 min |
 > | Post-migración | ~30 seg |
+# Apaga los contenedores de este entorno y elimina sus huérfanos de red
+docker compose down --remove-orphans
+# Reconstruye las imágenes ignorando la caché anterior
+docker compose build --no-cache
+# Levanta los servicios obligando a recrear los contenedores
+docker compose up -d --force-recreate
+# seeding de estructura inicial
+docker exec emerald_backend_staging python scripts/provision_seed_data.py

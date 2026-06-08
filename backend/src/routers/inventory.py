@@ -3,6 +3,7 @@ Inventory Router - API endpoints para gestión de inventario operativo
 Soporta almacenes móviles (camionetas) y seguimiento de seriales.
 """
 from typing import List, Optional
+from datetime import datetime
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -10,7 +11,8 @@ from sqlalchemy import select, and_, or_, func
 
 from src.database import get_db
 from src.models.inventory import (
-    Warehouse, Product, ProductCategory, StockBulk, SerialItem, StockMovement,
+    Warehouse, Product, ProductCategory, ProductGroup, ProductSpec,
+    StockBulk, SerialItem, StockMovement,
     WarehouseType, ProductType, MovementType, SerialItemStatus
 )
 from src.models.user import User
@@ -18,6 +20,8 @@ from src.schemas.inventory import (
     WarehouseCreate, WarehouseUpdate, WarehouseResponse,
     ProductCreate, ProductUpdate, ProductResponse,
     ProductCategoryResponse,
+    ProductGroupCreate, ProductGroupUpdate, ProductGroupResponse,
+    ProductSpecUpdate, ProductSpecResponse,
     SerialItemCreate, SerialItemUpdate, SerialItemResponse,
     StockMovementResponse, WarehouseStockResponse, StockItemDetail,
     StockTransferRequest, StockTransferResponse,
@@ -49,6 +53,17 @@ def _safe_user_name(user: Optional[User]) -> Optional[str]:
     if user is None:
         return None
     return user.full_name or user.username
+
+
+def _product_to_response(product: Product) -> ProductResponse:
+    """
+    Convierte un Product ORM a ProductResponse incluyendo
+    group_name (desde relación group) y specs (desde relación spec).
+    """
+    product_dict = product.__dict__.copy()
+    product_dict["group_name"] = product.group.name if product.group else None
+    product_dict["specs"] = product.spec.specs if product.spec else None
+    return ProductResponse(**product_dict)
 
 
 # ============================================
@@ -87,7 +102,7 @@ def get_stock_alerts(
         ))
         .outerjoin(SerialItem, and_(
             SerialItem.product_id == Product.id,
-            SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.USED])
+            SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.IN_VEHICLE])
         ))
         .group_by(Product.id, Product.name, Product.sku, Product.type, Product.category, Product.min_stock_alert)
         .having(
@@ -201,24 +216,6 @@ def create_warehouse(
     db.add(warehouse)
     db.commit()
     db.refresh(warehouse)
-    db.refresh(warehouse, attribute_names=["user"])
-    
-    # 🔒 AUDIT LOG: Registrar creación de warehouse
-    try:
-        log_create(
-            db=db,
-            user_id=_get_user_id_from_request(),
-            entity_name="warehouses",
-            entity_id=warehouse.id,
-            new_values={
-                "name": warehouse.name,
-                "type": warehouse.type.value,
-                "user_id": warehouse.user_id
-            }
-        )
-    except Exception as audit_error:
-        logger.error(f"❌ [AUDIT] Error al registrar creación de warehouse {warehouse.id}: {audit_error}")
-    
     return WarehouseResponse(
         **_exclude_vehicle(warehouse.__dict__),
         user_name=_safe_user_name(warehouse.user),
@@ -367,7 +364,7 @@ def delete_warehouse(
         select(func.count()).select_from(SerialItem).where(
             and_(
                 SerialItem.warehouse_id == warehouse_id,
-                SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.USED])
+                SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.IN_VEHICLE])
             )
         )
     ).scalar()
@@ -455,7 +452,7 @@ def get_warehouse_stock(
         select(SerialItem)
         .options(joinedload(SerialItem.product))
         .where(SerialItem.warehouse_id == warehouse_id)
-        .where(SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.USED]))
+        .where(SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.IN_VEHICLE]))
     )
     serial_items = db.execute(serial_stmt).scalars().all()
     
@@ -536,6 +533,7 @@ def list_products(
     type: Optional[ProductType] = Query(None, description="Filtrar por tipo (BULK o SERIALIZED)"),
     category: Optional[str] = Query(None, description="Filtrar por categoría"),
     search: Optional[str] = Query(None, description="Buscar por nombre o SKU"),
+    group_id: Optional[int] = Query(None, description="Filtrar por grupo de producto"),
     db: Session = Depends(get_db)
 ):
     """
@@ -545,14 +543,21 @@ def list_products(
     - type: BULK o SERIALIZED (opcional)
     - category: Categoría del producto (opcional)
     - search: Buscar en nombre o SKU (opcional)
+    - group_id: Filtrar por grupo de producto (opcional)
     """
-    stmt = select(Product)
+    stmt = select(Product).options(
+        joinedload(Product.group),
+        joinedload(Product.spec)
+    )
     
     if type:
         stmt = stmt.where(Product.type == type)
     
     if category:
         stmt = stmt.where(Product.category == category)
+    
+    if group_id:
+        stmt = stmt.where(Product.group_id == group_id)
     
     if search:
         search_pattern = f"%{search}%"
@@ -564,9 +569,9 @@ def list_products(
         )
     
     stmt = stmt.order_by(Product.category, Product.name)
-    products = db.execute(stmt).scalars().all()
+    products = db.execute(stmt).scalars().unique().all()
     
-    return [ProductResponse(**p.__dict__) for p in products]
+    return [_product_to_response(p) for p in products]
 
 
 @router.post("/products", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)
@@ -607,7 +612,13 @@ def create_product(
     except Exception as audit_error:
         logger.error(f"❌ [AUDIT] Error al registrar creación de producto {product.id}: {audit_error}")
     
-    return ProductResponse(**product.__dict__)
+    # Recargar con relaciones para la respuesta
+    product = db.execute(
+        select(Product).options(joinedload(Product.group), joinedload(Product.spec))
+        .where(Product.id == product.id)
+    ).scalar_one()
+    
+    return _product_to_response(product)
 
 
 # ============================================
@@ -707,7 +718,12 @@ def update_product(
     except Exception as audit_error:
         logger.error(f"❌ [AUDIT] Error al registrar actualización de producto {product.id}: {audit_error}")
     
-    return ProductResponse(**product.__dict__)
+    # Recargar con relaciones para la respuesta
+    product = db.execute(
+        select(Product).options(joinedload(Product.group), joinedload(Product.spec))
+        .where(Product.id == product.id)
+    ).scalar_one()
+    return _product_to_response(product)
 
 
 @router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -757,7 +773,7 @@ def delete_product(
         select(func.count()).select_from(SerialItem).where(
             and_(
                 SerialItem.product_id == product_id,
-                SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.USED])
+                SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.IN_VEHICLE])
             )
         )
     ).scalar()
@@ -1104,7 +1120,7 @@ def transfer_stock(
 def list_stock_movements(
     product_id: Optional[int] = Query(None, description="Filtrar por producto"),
     warehouse_id: Optional[int] = Query(None, description="Filtrar por warehouse (origen o destino)"),
-    movement_type: Optional[MovementType] = Query(None, description="Filtrar por tipo de movimiento"),
+    movement_type: Optional[List[MovementType]] = Query(None, description="Filtrar por tipo(s) de movimiento (separar por coma)"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db)
@@ -1136,7 +1152,7 @@ def list_stock_movements(
         )
     
     if movement_type:
-        stmt = stmt.where(StockMovement.movement_type == movement_type)
+        stmt = stmt.where(StockMovement.movement_type.in_(movement_type))
     
     stmt = stmt.order_by(StockMovement.date.desc()).offset(offset).limit(limit)
     movements = db.execute(stmt).scalars().all()
@@ -1270,3 +1286,134 @@ def create_stock_adjustment(
         new_quantity=new_quantity,
         message=f"Stock ajustado exitosamente. {previous_quantity} → {new_quantity} (+{payload.quantity})"
     )
+
+
+# ============================================
+# PRODUCT GROUP ENDPOINTS
+# ============================================
+
+
+@router.get("/product-groups", response_model=List[ProductGroupResponse])
+def list_product_groups(
+    active_only: bool = Query(True, description="Solo grupos activos"),
+    db: Session = Depends(get_db)
+):
+    """
+    Listar grupos de productos.
+    Ej: ONU/ONT, Router Domiciliario, Conectores, Cableado.
+    """
+    stmt = select(ProductGroup)
+    if active_only:
+        stmt = stmt.where(ProductGroup.is_active == True)
+    stmt = stmt.order_by(ProductGroup.name)
+    result = db.execute(stmt).scalars().all()
+    return [ProductGroupResponse.model_validate(g) for g in result]
+
+
+@router.post("/product-groups", response_model=ProductGroupResponse, status_code=status.HTTP_201_CREATED)
+def create_product_group(
+    payload: ProductGroupCreate,
+    db: Session = Depends(get_db)
+):
+    """Crear un nuevo grupo de productos."""
+    existing = db.execute(
+        select(ProductGroup).where(ProductGroup.name == payload.name)
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Grupo '{payload.name}' ya existe"
+        )
+    group = ProductGroup(**payload.model_dump())
+    db.add(group)
+    db.commit()
+    db.refresh(group)
+    return ProductGroupResponse.model_validate(group)
+
+
+@router.put("/product-groups/{group_id}", response_model=ProductGroupResponse)
+def update_product_group(
+    group_id: int,
+    payload: ProductGroupUpdate,
+    db: Session = Depends(get_db)
+):
+    """Actualizar un grupo de productos."""
+    group = db.get(ProductGroup, group_id)
+    if not group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Grupo no encontrado")
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(group, field, value)
+    db.commit()
+    db.refresh(group)
+    return ProductGroupResponse.model_validate(group)
+
+
+@router.delete("/product-groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_product_group(
+    group_id: int,
+    db: Session = Depends(get_db)
+):
+    """Eliminar un grupo de productos (solo si no tiene productos asociados)."""
+    group = db.get(ProductGroup, group_id)
+    if not group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Grupo no encontrado")
+    # Verificar si hay productos usando este grupo
+    product_count = db.execute(
+        select(func.count(Product.id)).where(Product.group_id == group_id)
+    ).scalar()
+    if product_count and product_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se puede eliminar el grupo: {product_count} producto(s) lo usan"
+        )
+    db.delete(group)
+    db.commit()
+
+
+# ============================================
+# PRODUCT SPEC ENDPOINTS
+# ============================================
+
+
+@router.get("/products/{product_id}/specs", response_model=ProductSpecResponse)
+def get_product_specs(
+    product_id: int,
+    db: Session = Depends(get_db)
+):
+    """Obtener especificaciones técnicas de un producto."""
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado")
+    spec = db.execute(
+        select(ProductSpec).where(ProductSpec.product_id == product_id)
+    ).scalar_one_or_none()
+    if not spec:
+        return ProductSpecResponse(product_id=product_id, specs=None, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+    return ProductSpecResponse.model_validate(spec)
+
+
+@router.put("/products/{product_id}/specs", response_model=ProductSpecResponse)
+def update_product_specs(
+    product_id: int,
+    payload: ProductSpecUpdate,
+    db: Session = Depends(get_db)
+):
+    """Crear o actualizar especificaciones técnicas de un producto."""
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado")
+    
+    spec = db.execute(
+        select(ProductSpec).where(ProductSpec.product_id == product_id)
+    ).scalar_one_or_none()
+    
+    if spec:
+        spec.specs = payload.specs
+    else:
+        spec = ProductSpec(product_id=product_id, specs=payload.specs)
+        db.add(spec)
+    
+    db.commit()
+    db.refresh(spec)
+    return ProductSpecResponse.model_validate(spec)

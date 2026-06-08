@@ -20,6 +20,7 @@ import {
   Network,
   Pencil,
   Check,
+  XCircle,
   X,
   Paperclip,
   File,
@@ -40,12 +41,14 @@ import {
 import ticketsService from '@/services/tickets.service';
 import api from '@/api/client';
 import workOrdersService from '@/services/workOrders.service';
+import workOrderTypesService from '@/services/workOrderTypes.service';
 import { engineeringService } from '@/services/engineering.service';
 import TicketHistoryCard from '@/components/tickets/TicketHistoryCard';
 import RepeatedIssueAlert from '@/components/tickets/RepeatedIssueAlert';
 import TicketTags from '@/components/tickets/TicketTags';
 import WorkOrderCompletedSummary from '@/components/work-orders/WorkOrderCompletedSummary';
 import CreateEngineeringTaskDialog from '@/components/engineering/CreateEngineeringTaskDialog';
+import ConnectionInfoPanel from '@/components/tickets/ConnectionInfoPanel';
 import { useAuth } from '@/context/AuthContext';
 import { hasPermission } from '@/utils/permissions';
 import ImageViewer from '@/components/ui/ImageViewer';
@@ -260,7 +263,7 @@ function TimelineItem({ event, index }) {
     const id = isNoc ? event.meta_data.engineering_task_id : event.meta_data.work_order_id;
     const status = isNoc
       ? (event.meta_data.engineering_task_status || 'backlog')
-      : (event.meta_data.status || 'pending_planning');
+      : (event.meta_data.status || event.meta_data.current_status || event.meta_data.work_order_status || 'pending_planning');
     const statusColorMap = {
       'pending_planning': 'bg-zinc-600 text-zinc-100',
       'assigned': 'bg-blue-600 text-blue-100',
@@ -287,11 +290,34 @@ function TimelineItem({ event, index }) {
       return labels[status] || status;
     };
     // Colores cyberpunk/retro-neón
-    const borderColor = isNoc ? 'border-emerald-700/80 hover:border-emerald-400/80 shadow-emerald-900/40' : 'border-cyan-500/70 hover:border-cyan-400/80 shadow-cyan-900/40';
-    const glow = isNoc ? 'shadow-[0_0_12px_2px_rgba(16,255,180,0.15)]' : 'shadow-[0_0_12px_2px_rgba(0,255,255,0.12)]';
-    const iconColor = isNoc ? 'text-emerald-400' : 'text-cyan-400';
-    const CardIcon = isNoc ? Wrench : FileText;
-    const cardTitle = isNoc ? `Tarea NOC #${id}` : `Orden de Trabajo #${id}`;
+    // Eventos de completado/falla tienen su propio color
+    const isCompletion = !isNoc && (status === 'completed' || status === 'failed');
+    const completionColor = status === 'completed' ? 'emerald' : 'red';
+    
+    let borderColor, glow, iconColor, boxShadowStyle;
+    if (isNoc) {
+      borderColor = 'border-emerald-700/80 hover:border-emerald-400/80 shadow-emerald-900/40';
+      glow = 'shadow-[0_0_12px_2px_rgba(16,255,180,0.15)]';
+      iconColor = 'text-emerald-400';
+      boxShadowStyle = '0 0 16px 2px rgba(16,255,180,0.18), 0 0 2px 1px #00ffb3 inset';
+    } else if (isCompletion) {
+      borderColor = `border-${completionColor}-500/70 hover:border-${completionColor}-400/80 shadow-${completionColor}-900/40`;
+      glow = `shadow-[0_0_12px_2px_rgba(${completionColor === 'emerald' ? '16,255,180' : '255,60,60'},0.15)]`;
+      iconColor = `text-${completionColor}-400`;
+      boxShadowStyle = completionColor === 'emerald'
+        ? '0 0 16px 2px rgba(16,255,180,0.18), 0 0 2px 1px #00ffb3 inset'
+        : '0 0 16px 2px rgba(255,60,60,0.18), 0 0 2px 1px #ff3333 inset';
+    } else {
+      borderColor = 'border-cyan-500/70 hover:border-cyan-400/80 shadow-cyan-900/40';
+      glow = 'shadow-[0_0_12px_2px_rgba(0,255,255,0.12)]';
+      iconColor = 'text-cyan-400';
+      boxShadowStyle = '0 0 16px 2px rgba(0,255,255,0.15), 0 0 2px 1px #00eaff inset';
+    }
+    
+    const CardIcon = isNoc ? Wrench : (isCompletion ? (status === 'completed' ? CheckCircle : XCircle) : FileText);
+    const cardTitle = isNoc ? `Tarea NOC #${id}` : (isCompletion
+      ? `OT #${id} — ${status === 'completed' ? 'Completada' : 'Fallida'}`
+      : `Orden de Trabajo #${id}`);
     const cardLink = isNoc ? `/app/engineering?task=${id}` : `/app/work-orders/${id}/execute`;
     const statusColor = statusColorMap[status] || 'bg-zinc-700 text-zinc-200';
     return (
@@ -306,15 +332,10 @@ function TimelineItem({ event, index }) {
           <div
             onClick={() => navigate(cardLink)}
             className={`cursor-pointer rounded-lg border ${borderColor} bg-zinc-900/40 p-4 hover:bg-zinc-900/70 transition-all ${glow} group`}
-            style={{ boxShadow: isNoc
-              ? '0 0 16px 2px rgba(16,255,180,0.18), 0 0 2px 1px #00ffb3 inset'
-              : '0 0 16px 2px rgba(0,255,255,0.15), 0 0 2px 1px #00eaff inset' }}
+            style={{ boxShadow: boxShadowStyle }}
           >
             <div className="flex items-start justify-between mb-2">
               <p className={`text-sm font-semibold ${iconColor} drop-shadow-[0_0_2px_rgba(0,255,180,0.5)]`}>{cardTitle}</p>
-              <span className={`px-2 py-1 rounded text-xs font-semibold ${statusColor} border border-zinc-800/60 shadow shadow-zinc-900/30`}>
-                {getStatusLabel(status)}
-              </span>
             </div>
             {isOtTask && event.meta_data?.description && (
               <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 mb-2">
@@ -345,9 +366,6 @@ function TimelineItem({ event, index }) {
       </div>
     );
   }
-    // DEBUG: Mostrar el evento completo en consola para inspección
-    console.log('DEBUG TIMELINE EVENT', event);
-  
   const eventIcons = {
     note: { icon: MessageSquare, color: 'text-blue-400' },
     status_change: { icon: AlertCircle, color: 'text-amber-400' },
@@ -632,6 +650,7 @@ export default function TicketDetailPage() {
   const [closeNote, setCloseNote] = useState('');
   const [infraNote, setInfraNote] = useState('');
   const [showCreateWODialog, setShowCreateWODialog] = useState(false);
+  const [otTypes, setOtTypes] = useState([]);
   const [woForm, setWoForm] = useState({ ot_type: 'repair', priority: 'medium', operational_instruction: '', latitude: null, longitude: null });
   const [mapsLink, setMapsLink] = useState('');
   const [isParsingMapLink, setIsParsingMapLink] = useState(false);
@@ -667,6 +686,9 @@ export default function TicketDetailPage() {
       const data = await ticketsService.getById(id);
       setTicket(data);
       
+      // Cargar tipos de OT desde DB
+      workOrderTypesService.getWorkOrderTypes(false).then(setOtTypes).catch(() => {});
+
       // Cargar historial si hay connection_id
       if (data.connection_id) {
         try {
@@ -1210,6 +1232,11 @@ export default function TicketDetailPage() {
                 const compactIds = new Set();
                 for (const ev of otEvents) {
                   const wid = ev.meta_data.work_order_id;
+                  // Evento de completado/falla NO se compacta (se ve como card neon)
+                  const evFinalStatus = ev.meta_data?.status;
+                  if (evFinalStatus === 'completed' || evFinalStatus === 'failed') {
+                    continue;
+                  }
                   const existing = firstEventPerWoId.get(wid);
                   if (!existing || new Date(ev.created_at) < new Date(existing.created_at)) {
                     if (existing) compactIds.add(existing.id);
@@ -1489,6 +1516,14 @@ export default function TicketDetailPage() {
             </div>
           )}
 
+          {/* Información de Conexión (Activos + Notas) */}
+          {ticket.connection_id && (
+            <ConnectionInfoPanel
+              ticketId={ticket.id}
+              connectionId={ticket.connection_id}
+            />
+          )}
+
           {/* Historial de Tickets de la Conexión */}
           {ticket.connection_id && (
             <div className="space-y-4">
@@ -1567,10 +1602,9 @@ export default function TicketDetailPage() {
                 onChange={(e) => setWoForm({ ...woForm, ot_type: e.target.value })}
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
-                <option value="repair">Reparación</option>
-                <option value="install">Instalación</option>
-                <option value="pickup">Retiro</option>
-                <option value="infrastructure">Infraestructura</option>
+                {otTypes.filter(t => t.is_active).map((type) => (
+                  <option key={type.id} value={type.code}>{type.name}</option>
+                ))}
               </select>
             </div>
             <div>

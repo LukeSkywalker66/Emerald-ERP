@@ -25,6 +25,7 @@ from src.routers.v1 import admin  # Administración y desbloqueo
 from src.routers.v2 import users as users_v2
 from src.routers.v2 import roles as roles_v2
 from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet, installation_types, audit, work_order_types, utils, dashboard as dashboard_router
+from src.routers import logistics as logistics_router
 from src.routers.tickets_v2_attachment import router as attachment_router
 from src.routers import settings as settings_router
 from src.routers.oraculo import router as oraculo_router
@@ -187,6 +188,13 @@ app.include_router(
     dashboard_router.router,
     prefix="/api/v2/dashboard",
     tags=["Dashboard"]
+)
+
+# Logistics Module (Material Deliveries & Receipts)
+app.include_router(
+    logistics_router.router,
+    prefix="/api/v2",
+    tags=["Logistics"]
 )
 
 @app.on_event("startup")

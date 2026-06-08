@@ -1,7 +1,7 @@
-# 🚀 LEER PRIMERO - Emerald ERP (Actualizado 02 Junio 2026)
+# 🚀 LEER PRIMERO - Emerald ERP (Actualizado 06 Junio 2026)
 
-**Última actualización:** 02 de Junio 2026, 10:00 hs  
-**Estado del proyecto:** Fase 5 (Geolocalización) + Monitoreo + Settings Completados ✅
+**Última actualización:** 06 de Junio 2026, 11:00 hs
+**Estado del proyecto:** Refurbish OT Module Completo ✅
 
 ---
 
@@ -9,7 +9,15 @@
 
 Emerald ERP es un sistema de gestión para ISP en Argentina. Stack: **Python 3.11 (FastAPI) + React 19 + Vite + PostgreSQL 15**.
 
-**Estado Actual (02 Jun 2026):**
+**Estado Actual (06 Jun 2026):**
+- ✅ **Refurbish OT Module** — Trazabilidad de activos, wizard 4 pasos, plantillas en Settings
+- ✅ **Trazabilidad de serializados** — ConnectionAssets, SerialItem lifecycle tracking
+- ✅ **Notas de conexión** — Técnicos dejan observaciones sobre conexiones
+- ✅ **MaterialSelector unificado** — Mismo componente en ejecución y wizard de cierre
+- ✅ **Backend completion engine** — `POST /work-orders/{id}/complete` con inventory effects
+- ✅ **WO Templates en Settings** — Admin configura materiales sugeridos por tipo de visita
+- ✅ **Wizard 4 pasos** — Resolución → Materiales → Fotos → Confirmación + Nota
+- ✅ **Widget en TicketDetailPage** — Equipos instalados + Notas de técnicos en conexión
 - ✅ **Fase 5 Geolocalización** — lat/lng en WorkOrders, parse-map-link, botón Google Maps
 - ✅ **Dashboard refactor** — datos reales de API (sin mock data)
 - ✅ **Monitoring Engine** — Service Monitors (Ping/HTTP/TCP/SSL) con Strategy Pattern
@@ -26,9 +34,9 @@ Emerald ERP es un sistema de gestión para ISP en Argentina. Stack: **Python 3.1
 - ✅ **Módulo de Flota** con inspecciones diarias
 - ✅ **Sistema de Auditoría Universal** (AuditLog)
 - ✅ **Auth JWT** con Refresh Tokens y Rate Limiting
-- 🚧 **MinIO** — Migración de almacenamiento de archivos (WIP)
+- ✅ **MinIO** — Migración de almacenamiento de archivos completada
 
-**Próximo paso crítico:** Finalizar integración MinIO para almacenamiento de archivos
+**Próximo paso crítico:** Testing y debugging del flujo completo de OT
 
 ---
 
@@ -179,6 +187,27 @@ docker logs -f emerald_backend
 ```bash
 cd backend && alembic upgrade head
 ```
+
+---
+
+---
+
+## 🏭 Provisioning de Datos Semilla
+
+Después de ejecutar migraciones Alembic en un entorno nuevo (staging/producción),
+ejecutar el script de provisioning para crear datos base:
+
+```bash
+docker exec emerald_backend python scripts/provision_seed_data.py
+```
+
+Este script es **IDEMPOTENTE** y crea:
+- **VIRTUAL warehouse** ("Equipos Instalados en Cliente") → para equipos serializados instalados
+- **Tipos de OT** → install_ftth, install_aire, repair, pickup, infrastructure
+- **Acciones de resolución (WO Actions)** → 15 acciones configurables por tipo de OT
+
+> ⚠️ El VIRTUAL warehouse es obligatorio para el cierre de OTs con inventario.
+> Sin él, el endpoint `POST /work-orders/{id}/complete` fallará con error 422.
 
 ---
 

@@ -32,7 +32,9 @@ import {
 } from '@/components/ui/dialog';
 import workOrdersService from '@/services/workOrders.service';
 import beholderService from '@/services/beholder.service';
-import * as inventoryService from '@/services/inventory.service';
+import workOrderTypesService from '@/services/workOrderTypes.service';
+import useMaterialSelector from '@/components/work-orders/useMaterialSelector';
+import MaterialSelectorForm from '@/components/work-orders/MaterialSelectorForm';
 import { useAuth } from '@/context/AuthContext';
 import CloseWorkOrderDialog from '@/components/work-orders/CloseWorkOrderDialog';
 import WorkOrderCompletedSummary from '@/components/work-orders/WorkOrderCompletedSummary';
@@ -95,7 +97,7 @@ function Timer({ startedAt }) {
 }
 
 // Material Item
-function MaterialItem({ item, onRemove }) {
+function MaterialItem({ item, onRemove, disabled }) {
   return (
     <div className="flex items-center justify-between p-2 rounded bg-zinc-800/50 border border-zinc-700/50">
       <div className="flex-1 min-w-0">
@@ -104,12 +106,14 @@ function MaterialItem({ item, onRemove }) {
         </p>
         <p className="text-xs text-zinc-500">Qty: {item.quantity}</p>
       </div>
-      <button
-        onClick={() => onRemove(item.id)}
-        className="p-1 hover:bg-zinc-700 rounded transition-colors text-zinc-400 hover:text-rose-400"
-      >
-        <X size={14} />
-      </button>
+      {!disabled && (
+        <button
+          onClick={() => onRemove(item.id)}
+          className="p-1 hover:bg-zinc-700 rounded transition-colors text-zinc-400 hover:text-rose-400"
+        >
+          <X size={14} />
+        </button>
+      )}
     </div>
   );
 }
@@ -128,38 +132,15 @@ export default function WorkOrderExecutionPage() {
   const [workOrder, setWorkOrder] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [otTypeMap, setOtTypeMap] = useState({});
 
   // Dialogs
   const [showMaterialDialog, setShowMaterialDialog] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [showLocationModal, setShowLocationModal] = useState(false);
 
-  // Warehouse (inventario del técnico)
-  const [currentWarehouse, setCurrentWarehouse] = useState(null);
-  const [warehouseLoading, setWarehouseLoading] = useState(false);
-  const [warehouseError, setWarehouseError] = useState(null);
-
-  // Inventario (productos, stock, seriales)
-  const [products, setProducts] = useState([]);
-  const [warehouseStock, setWarehouseStock] = useState(null);
-  const [selectedProduct, setSelectedProduct] = useState(null);
-  const [availableSerials, setAvailableSerials] = useState([]);
-  const [inventoryLoading, setInventoryLoading] = useState(false);
-  const [inventoryError, setInventoryError] = useState(null);
-
-  // Material form
-  const [materialForm, setMaterialForm] = useState({
-    product_id: '',
-    quantity: 1,
-    serial_number: '',
-    notes: '',
-  });
-
-  // Completion form - Note: logic handled in CloseWorkOrderDialog
-  // const [completionForm, setCompletionForm] = useState({
-  //   resolution_type: 'success',
-  //   resolution_notes: '',
-  // });
+  // Material selector compartido (hook unificado)
+  const materialState = useMaterialSelector(id);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -188,76 +169,19 @@ export default function WorkOrderExecutionPage() {
     }
   };
 
-  // Cargar warehouse + productos + stock cuando se abre el modal
+  // Cargar tipos de OT desde DB
   useEffect(() => {
-    if (!showMaterialDialog || !user?.id) {
-      console.log('⏭️ Skipping inventory load:', { showMaterialDialog, userId: user?.id });
-      return;
+    workOrderTypesService.getWorkOrderTypes(false)
+      .then((types) => setOtTypeMap(workOrderTypesService.buildTypeMap(types)))
+      .catch(() => {});
+  }, []);
+
+  // Cargar inventario cuando se abre el modal de materiales (usando hook compartido)
+  useEffect(() => {
+    if (showMaterialDialog) {
+      materialState.loadInventory();
     }
-
-    let isCancelled = false;
-
-    const loadInventoryData = async () => {
-      try {
-        console.log('🔄 Iniciando carga de inventario para user:', user.id, user.full_name);
-        
-        // Cargar warehouse del técnico
-        setWarehouseLoading(true);
-        setWarehouseError(null);
-        setInventoryLoading(true);
-        setInventoryError(null);
-
-        const myWarehouse = await inventoryService.getMyWarehouse(user.id);
-        console.log('📦 Warehouse obtenido:', myWarehouse);
-        if (isCancelled) return;
-
-        setCurrentWarehouse(myWarehouse || null);
-
-        if (!myWarehouse) {
-          console.warn('❌ No warehouse found for user:', user.id);
-          setWarehouseError('No tienes una camioneta asignada. Contacta a coordinación.');
-          setWarehouseLoading(false);
-          setInventoryLoading(false);
-          return;
-        }
-
-        // Cargar productos disponibles en el sistema
-        const productsData = await inventoryService.getProducts();
-        console.log('📦 Productos obtenidos:', productsData?.length, productsData);
-        if (isCancelled) return;
-        setProducts(productsData || []);
-
-        // Cargar stock del warehouse del técnico
-        const stockData = await inventoryService.getWarehouseStock(myWarehouse.id);
-        console.log('💾 Stock obtenido:', stockData);
-        if (isCancelled) return;
-        setWarehouseStock(stockData);
-
-        console.log(`✅ Inventario cargado para técnico ${user.full_name}:`, {
-          warehouse: myWarehouse,
-          productsCount: productsData?.length,
-          stockItems: stockData?.items?.length,
-        });
-      } catch (err) {
-        if (isCancelled) return;
-        console.error('Error cargando inventario:', err);
-        setInventoryError(err.message || 'Error al cargar el inventario. Intenta nuevamente.');
-        setCurrentWarehouse(null);
-        setWarehouseError(null);
-      } finally {
-        if (!isCancelled) {
-          setWarehouseLoading(false);
-          setInventoryLoading(false);
-        }
-      }
-    };
-
-    loadInventoryData();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [showMaterialDialog, user?.id]);
+  }, [showMaterialDialog]);
 
   const handleStartWork = async () => {
     try {
@@ -285,125 +209,24 @@ export default function WorkOrderExecutionPage() {
     }
   };
 
-  // Manejar cambio de producto: detectar BULK vs SERIALIZED y cargar seriales disponibles
-  const handleProductChange = (productId) => {
-    const product = products.find((p) => p.id === parseInt(productId));
-    setSelectedProduct(product);
-
-    setMaterialForm((prev) => ({
-      ...prev,
-      product_id: productId,
-      quantity: 1,
-      serial_number: '',
-    }));
-
-    // Si es SERIALIZED, cargar seriales disponibles en el warehouse del técnico
-    if (product && product.type === 'SERIALIZED' && warehouseStock) {
-      const stockItem = warehouseStock.items?.find((item) => item.product_id === product.id);
-      setAvailableSerials(stockItem?.serial_items || []);
-      console.log(`🔢 Seriales disponibles para ${product.name}:`, stockItem?.serial_items);
-    } else {
-      setAvailableSerials([]);
-    }
-  };
-
-  // Calcular cantidad máxima disponible según tipo de producto
-  const getMaxQuantity = () => {
-    if (!selectedProduct || !warehouseStock) return 0;
-
-    if (selectedProduct.type === 'BULK') {
-      const stockItem = warehouseStock.items?.find(
-        (item) => item.product_id === selectedProduct.id
-      );
-      return stockItem?.quantity || 0;
-    }
-
-    // Para SERIALIZED, el máximo es la cantidad de seriales disponibles
-    return availableSerials.length;
-  };
-
-  // Validar si el formulario tiene datos suficientes para agregar material
-  const isAddMaterialValid = () => {
-    if (!materialForm.product_id) return false;
-    if (!selectedProduct) return false;
-    if (!currentWarehouse) return false;
-
-    if (selectedProduct.type === 'BULK') {
-      const maxQty = getMaxQuantity();
-      const qty = parseInt(materialForm.quantity) || 0;
-      return qty > 0 && qty <= maxQty;
-    }
-
-    if (selectedProduct.type === 'SERIALIZED') {
-      return !!materialForm.serial_number;
-    }
-
-    return false;
-  };
-
-  const handleAddMaterial = async () => {
-    if (!isAddMaterialValid()) {
-      alert('Verifica los datos del material (cantidad o serial)');
-      return;
-    }
-
-    if (!currentWarehouse) {
-      alert('No tienes una camioneta asignada. Contacta a coordinación.');
-      return;
-    }
-
-    try {
-      setIsSubmitting(true);
-      const item = await workOrdersService.addWorkOrderItem(id, {
-        product_id: parseInt(materialForm.product_id),
-        quantity: selectedProduct.type === 'BULK' ? parseInt(materialForm.quantity) : 1,
-        serial_number: selectedProduct.type === 'SERIALIZED' ? materialForm.serial_number : null,
-        notes: materialForm.notes || null,
-        warehouse_id: currentWarehouse.id,
-      });
-
-      // Refrescar OT completa para sincronizar cantidades y seriales
+  const handleAddMaterialFromDialog = async () => {
+    const result = await materialState.addMaterial();
+    if (result.success) {
       await loadWorkOrder();
-
-      // Recargar stock después de agregar material
-      if (currentWarehouse) {
-        const updatedStock = await inventoryService.getWarehouseStock(currentWarehouse.id);
-        setWarehouseStock(updatedStock);
-      }
-
-      setMaterialForm({ product_id: '', quantity: 1, serial_number: '', notes: '' });
-      setSelectedProduct(null);
-      setAvailableSerials([]);
       setShowMaterialDialog(false);
-    } catch (err) {
-      alert('Error al agregar material: ' + err.message);
-    } finally {
-      setIsSubmitting(false);
+      materialState.resetForm();
     }
   };
 
   const handleRemoveMaterial = async (itemId) => {
     if (!confirm('¿Eliminar este material?')) return;
 
-    try {
-      await workOrdersService.removeWorkOrderItem(id, itemId);
+    const result = await materialState.removeMaterial(itemId);
+    if (result.success) {
       setWorkOrder((prev) => ({
         ...prev,
         items: prev.items.filter((i) => i.id !== itemId),
       }));
-
-      // Recargar stock para mantener cantidades y seriales actualizados
-      if (currentWarehouse) {
-        const updatedStock = await inventoryService.getWarehouseStock(currentWarehouse.id);
-        setWarehouseStock(updatedStock);
-
-        if (selectedProduct?.type === 'SERIALIZED') {
-          const stockItem = updatedStock.items?.find((itm) => itm.product_id === selectedProduct.id);
-          setAvailableSerials(stockItem?.serial_items || []);
-        }
-      }
-    } catch (err) {
-      alert('Error al eliminar material: ' + err.message);
     }
   };
 
@@ -498,7 +321,11 @@ export default function WorkOrderExecutionPage() {
     const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
     return scheduledDate < fiveMinAgo;
   })();
-  const typeConfig = OT_TYPE_ICONS[workOrder?.ot_type] || OT_TYPE_ICONS.repair;
+  // Type info desde DB (fallback a hardcoded)
+  const otTypeInfo = otTypeMap[workOrder?.ot_type];
+  const typeConfig = otTypeInfo
+    ? { icon: Wrench, label: otTypeInfo.name, color: otTypeInfo.color?.replace('bg-', 'text-') || 'text-emerald-400' }
+    : (OT_TYPE_ICONS[workOrder?.ot_type] || OT_TYPE_ICONS.repair);
   const TypeIcon = typeConfig.icon;
   const rawPriority =
     typeof workOrder?.ticket_info?.priority === 'string'
@@ -912,6 +739,7 @@ export default function WorkOrderExecutionPage() {
                     key={item.id}
                     item={item}
                     onRemove={handleRemoveMaterial}
+                    disabled={workOrder?.status === 'completed' || workOrder?.status === 'failed'}
                   />
                 ))}
               </div>
@@ -943,7 +771,7 @@ export default function WorkOrderExecutionPage() {
         </div>
       </div>
 
-      {/* Material Dialog */}
+      {/* Material Dialog (compartido) */}
       <Dialog open={showMaterialDialog} onOpenChange={setShowMaterialDialog}>
         <DialogContent
           className="bg-zinc-900 border-zinc-800 max-w-md"
@@ -955,145 +783,10 @@ export default function WorkOrderExecutionPage() {
           </DialogHeader>
 
           <div className="space-y-3 py-4">
-            {/* Loading indicator */}
-            {(warehouseLoading || inventoryLoading) && (
-              <div className="text-sm text-zinc-400 flex items-center gap-2">
-                <div className="animate-spin w-4 h-4 border-2 border-emerald-400 border-t-transparent rounded-full" />
-                Cargando inventario...
-              </div>
-            )}
-
-            {/* Error messages */}
-            {warehouseError && (
-              <div className="bg-rose-950/50 border border-rose-800 text-rose-200 text-sm rounded-lg p-3 min-h-16 flex items-center">
-                <div>
-                  <p className="font-semibold">⚠️ Error de Warehouse</p>
-                  <p className="text-xs mt-1">{warehouseError}</p>
-                </div>
-              </div>
-            )}
-
-            {inventoryError && (
-              <div className="bg-amber-950/50 border border-amber-800 text-amber-200 text-sm rounded-lg p-3 min-h-16 flex items-center">
-                <div>
-                  <p className="font-semibold">⚠️ Error de Inventario</p>
-                  <p className="text-xs mt-1">{inventoryError}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Warehouse confirmation */}
-            {!warehouseLoading && currentWarehouse && (
-              <div className="bg-emerald-950/30 border border-emerald-800/50 text-emerald-200 text-xs rounded-lg p-3">
-                📦 Stock de: <span className="font-semibold text-emerald-300">{currentWarehouse.name}</span>
-              </div>
-            )}
-
-            {/* Producto - Dropdown real */}
-            {!inventoryLoading && currentWarehouse && (
-              <div>
-                <label className="text-xs font-medium text-zinc-300 block mb-2">
-                  Producto *
-                </label>
-                {products.length > 0 ? (
-                  <select
-                    value={materialForm.product_id}
-                    onChange={(e) => handleProductChange(e.target.value)}
-                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                  >
-                    <option value="">Selecciona un producto...</option>
-                    {products.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.name} ({product.sku}) - {product.type === 'BULK' ? '📦' : '🔢'}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <div className="text-xs text-zinc-500 p-2">No hay productos disponibles</div>
-                )}
-              </div>
-            )}
-
-            {/* Info del producto seleccionado */}
-            {selectedProduct && (
-              <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-3">
-                <p className="text-xs text-zinc-400">
-                  Tipo:{' '}
-                  <span className="text-emerald-400 font-medium">
-                    {selectedProduct.type === 'BULK' ? '📦 A Granel' : '🔢 Serializado'}
-                  </span>
-                </p>
-                {selectedProduct.category && (
-                  <p className="text-xs text-zinc-400 mt-1">Categoría: {selectedProduct.category}</p>
-                )}
-              </div>
-            )}
-
-            {/* Cantidad (solo para BULK) */}
-            {selectedProduct && selectedProduct.type === 'BULK' && (
-              <div>
-                <label className="text-xs font-medium text-zinc-300 block mb-2">
-                  Cantidad *
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max={getMaxQuantity()}
-                  value={materialForm.quantity}
-                  onChange={(e) => setMaterialForm((prev) => ({ ...prev, quantity: e.target.value }))}
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                />
-                <p className="text-xs text-zinc-500 mt-1">
-                  Stock disponible: <span className="text-emerald-400 font-medium">{getMaxQuantity()} unidades</span>
-                </p>
-              </div>
-            )}
-
-            {/* Serial Number (solo para SERIALIZED) */}
-            {selectedProduct && selectedProduct.type === 'SERIALIZED' && (
-              <div>
-                <label className="text-xs font-medium text-zinc-300 block mb-2">
-                  Número de Serie *
-                </label>
-                {availableSerials.length > 0 ? (
-                  <select
-                    value={materialForm.serial_number}
-                    onChange={(e) => setMaterialForm((prev) => ({ ...prev, serial_number: e.target.value }))}
-                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                  >
-                    <option value="">Selecciona un serial...</option>
-                    {availableSerials.map((serial) => (
-                      <option key={serial.id} value={serial.serial_number}>
-                        {serial.serial_number} - {serial.status}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <div className="p-3 bg-amber-900/20 border border-amber-700/50 rounded-lg text-amber-200 text-xs">
-                    ⚠️ No hay seriales disponibles en tu inventario para este producto
-                  </div>
-                )}
-                <p className="text-xs text-zinc-500 mt-1">
-                  Disponibles: <span className="text-emerald-400 font-medium">{availableSerials.length}</span>
-                </p>
-              </div>
-            )}
-
-            {/* Notas (opcional) */}
-            {selectedProduct && (
-              <div>
-                <label className="text-xs font-medium text-zinc-300 block mb-2">
-                  Notas (opcional)
-                </label>
-                <textarea
-                  value={materialForm.notes}
-                  onChange={(e) => setMaterialForm((prev) => ({ ...prev, notes: e.target.value }))}
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                  rows={2}
-                  placeholder="Observaciones sobre el material..."
-                />
-              </div>
-            )}
+            <MaterialSelectorForm
+              materialState={materialState}
+              onAdd={handleAddMaterialFromDialog}
+            />
           </div>
 
           <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
@@ -1101,21 +794,12 @@ export default function WorkOrderExecutionPage() {
               variant="outline"
               onClick={() => {
                 setShowMaterialDialog(false);
-                setMaterialForm({ product_id: '', quantity: 1, serial_number: '', notes: '' });
-                setSelectedProduct(null);
-                setAvailableSerials([]);
+                materialState.resetForm();
               }}
-              disabled={isSubmitting || warehouseLoading || inventoryLoading}
+              disabled={materialState.isSubmitting || materialState.isLoading}
               className="w-full sm:w-auto"
             >
               Cancelar
-            </Button>
-            <Button
-              onClick={handleAddMaterial}
-              disabled={!isAddMaterialValid() || isSubmitting || warehouseLoading || inventoryLoading}
-              className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-700 disabled:opacity-50"
-            >
-              {isSubmitting ? 'Agregando...' : 'Agregar'}
             </Button>
           </DialogFooter>
         </DialogContent>

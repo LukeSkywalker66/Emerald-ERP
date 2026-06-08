@@ -156,17 +156,25 @@ export default function StockAdjustments() {
         setSubmitLoading(true);
         setError(null);
 
+        // Para productos compuestos, convertir a unidad base
+        let finalQty = parseFloat(formData.quantity);
+        const prod = products.find(p => p.id === parseInt(formData.product_id));
+        if (prod?.is_composite && prod?.unit_size) {
+          finalQty = finalQty * prod.unit_size;
+        }
+
         const result = await inventoryService.adjustStock({
           product_id: parseInt(formData.product_id),
           warehouse_id: parseInt(formData.warehouse_id),
-          quantity: parseInt(formData.quantity),
+          quantity: finalQty,
           movement_type: formData.movement_type,
           reference: formData.reference || null,
           notes: formData.notes || null,
         });
 
+        const typeLabel = formData.movement_type === 'PURCHASE' ? 'Compra' : 'Ajuste';
         setSuccessMessage(
-          `✅ Ajuste registrado correctamente. ID: ${result.movement_id}`
+          `✅ ${typeLabel} registrada correctamente. ID: ${result.movement_id}`
         );
         submissionOk = true;
       } catch (err) {
@@ -297,9 +305,14 @@ export default function StockAdjustments() {
                     ))}
                   </select>
                   {selectedProduct && (
-                    <p className="text-xs text-zinc-400 mt-2">
-                      Categoría: {selectedProduct.category}
-                    </p>
+                    <div className="text-xs text-zinc-400 mt-2 space-y-1">
+                      <p>Categoría: {selectedProduct.category}</p>
+                      {selectedProduct.is_composite && (
+                        <p className="text-emerald-400">
+                          Producto compuesto: 1 {selectedProduct.composite_unit_label || 'unidad'} = {selectedProduct.unit_size}{selectedProduct.unit_measure}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -444,7 +457,7 @@ export default function StockAdjustments() {
                   ) : (
                     <>
                       <ShoppingCart className="w-4 h-4" />
-                      Registrar Ajuste
+                      {formData.movement_type === 'PURCHASE' ? 'Registrar Compra' : 'Registrar Ajuste'}
                     </>
                   )}
                 </button>

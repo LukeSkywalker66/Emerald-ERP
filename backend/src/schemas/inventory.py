@@ -64,6 +64,12 @@ class ProductBase(BaseModel):
     category: Optional[str] = Field(None, max_length=100)
     min_stock_alert: int = Field(0, ge=0)
     description: Optional[str] = None
+    # Nuevos campos
+    group_id: Optional[int] = Field(None, description="ID del grupo de producto (ONU/ONT, Router, etc)")
+    unit_size: Optional[float] = Field(None, ge=0, description="Tamaño de 1 unidad compuesta (ej: 300 para bobina drop)")
+    unit_measure: Optional[str] = Field(None, max_length=20, description="Unidad de medida (m, units, pcs)")
+    is_composite: bool = Field(False, description="Producto compuesto que se fracciona al consumir")
+    composite_unit_label: Optional[str] = Field(None, max_length=50, description="Etiqueta de unidad compuesta (Bobina, Blister)")
 
 
 class ProductCreate(ProductBase):
@@ -79,6 +85,12 @@ class ProductUpdate(BaseModel):
     category: Optional[str] = Field(None, max_length=100)
     min_stock_alert: Optional[int] = Field(None, ge=0)
     description: Optional[str] = None
+    # Nuevos campos
+    group_id: Optional[int] = Field(None, description="ID del grupo de producto")
+    unit_size: Optional[float] = Field(None, ge=0, description="Tamaño de 1 unidad compuesta")
+    unit_measure: Optional[str] = Field(None, max_length=20, description="Unidad de medida")
+    is_composite: Optional[bool] = None
+    composite_unit_label: Optional[str] = Field(None, max_length=50, description="Etiqueta de unidad compuesta")
 
 
 class ProductResponse(ProductBase):
@@ -86,7 +98,60 @@ class ProductResponse(ProductBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    group_name: Optional[str] = Field(None, description="Nombre del grupo (populado via JOIN)")
+    specs: Optional[dict] = Field(None, description="Especificaciones técnicas (JSONB)")
     
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================
+# PRODUCT GROUP SCHEMAS
+# ============================================
+
+class ProductGroupBase(BaseModel):
+    """Schema base para grupo de producto."""
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = None
+    is_active: bool = True
+
+
+class ProductGroupCreate(ProductGroupBase):
+    """Schema para crear grupo de producto."""
+    pass
+
+
+class ProductGroupUpdate(BaseModel):
+    """Schema para actualizar grupo de producto."""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class ProductGroupResponse(ProductGroupBase):
+    """Schema de respuesta para grupo de producto."""
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================
+# PRODUCT SPEC SCHEMAS
+# ============================================
+
+class ProductSpecUpdate(BaseModel):
+    """Schema para actualizar especificaciones técnicas de un producto."""
+    specs: dict = Field(..., description="Especificaciones técnicas en JSON")
+
+
+class ProductSpecResponse(BaseModel):
+    """Schema de respuesta para especificaciones técnicas."""
+    product_id: int
+    specs: Optional[dict] = None
+    created_at: datetime
+    updated_at: datetime
+
     model_config = ConfigDict(from_attributes=True)
 
 

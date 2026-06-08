@@ -136,6 +136,15 @@ class WorkOrderListResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class WorkOrderCompleteRequest(BaseModel):
+    """Schema para completar una OT con inventario (POST /work-orders/{id}/complete)."""
+    resolution_category: Optional[str] = Field(None, description="Categoría de resolución")
+    resolution_notes: Optional[str] = Field(None, description="Notas de resolución")
+    photo_urls: Optional[List[str]] = Field(default_factory=list, description="Fotos de evidencia")
+    connection_note: Optional[str] = Field(None, description="Nota opcional para la conexión")
+    installation_signal_dbm: Optional[float] = Field(None, description="Nivel de señal óptica/RSSI al instalar (dBm)")
+
+
 class WorkOrderUpdate(BaseModel):
     """Schema para actualización de WorkOrder (usado por técnicos Y coordinadores)."""
     status: Optional[WorkOrderStatus] = None
@@ -183,6 +192,7 @@ class WorkOrderItemResponse(BaseModel):
     """Schema de respuesta para items de material."""
     id: int
     product_id: int
+    product_name: Optional[str] = None
     quantity: float
     serial_number: Optional[str] = None
     notes: Optional[str] = None
@@ -319,3 +329,58 @@ class TicketDetailResponse(TicketResponse):
     connection_details: Optional[ConnectionDetailsResponse] = None
     timeline: List[TimelineEventResponse] = Field(default_factory=list)
     work_orders: List[WorkOrderResponse] = Field(default_factory=list)
+
+
+# ===========================
+# SCHEMAS: Connection Assets & Notes
+# ===========================
+
+
+class ConnectionAssetResponse(BaseModel):
+    """Schema de respuesta para activos instalados en una conexión."""
+    id: int
+    connection_id: int
+    serial_item_id: int
+    product_id: int
+    serial_number: str
+    status: str
+    installed_at: datetime
+    removed_at: Optional[datetime] = None
+    installed_by_wo_id: Optional[int] = None
+    removed_by_wo_id: Optional[int] = None
+    notes: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ConnectionNoteCreate(BaseModel):
+    """Schema para crear una nota de conexión."""
+    connection_id: int = Field(..., description="ID de la conexión")
+    work_order_id: Optional[int] = Field(None, description="OT que genera la nota")
+    note: str = Field(..., min_length=1, max_length=2000, description="Contenido de la nota")
+    is_pinned: bool = Field(False, description="Si es una nota importante/destacada")
+
+
+class ConnectionNoteResponse(BaseModel):
+    """Schema de respuesta para notas de conexión."""
+    id: int
+    connection_id: int
+    work_order_id: Optional[int] = None
+    author_id: Optional[int] = None
+    note: str
+    is_pinned: bool
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ConnectionAssetsListResponse(BaseModel):
+    """Lista de activos de una conexión con metadatos."""
+    connection_id: int
+    assets: List[ConnectionAssetResponse] = Field(default_factory=list)
+
+
+class ConnectionNotesListResponse(BaseModel):
+    """Lista de notas de una conexión."""
+    connection_id: int
+    notes: List[ConnectionNoteResponse] = Field(default_factory=list)

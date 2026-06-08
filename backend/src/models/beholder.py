@@ -58,6 +58,12 @@ class Connection(Base):
     neighborhood_id = Column(Integer, ForeignKey("neighborhoods.id"), index=True, nullable=True)
     latitude = Column(Numeric(10, 8), nullable=True, comment="Latitud de la dirección de la conexión")
     longitude = Column(Numeric(10, 8), nullable=True, comment="Longitud de la dirección de la conexión")
+    installation_signal_dbm = Column(
+        Numeric(6, 2), nullable=True,
+        comment="Nivel de señal óptica/RSSI al momento de la instalación (dBm). "
+                "Para FTTH: potencia óptica. Para radio: nivel de señal. "
+                "Se captura al completar la OT de instalación."
+    )
 
     city = relationship("City", lazy="selectin")
     neighborhood = relationship("Neighborhood", lazy="selectin")

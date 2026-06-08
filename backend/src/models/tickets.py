@@ -119,9 +119,10 @@ class WorkOrderStatus(StrEnum):
 
 class WorkOrderType(StrEnum):
     """Tipos de órdenes de trabajo."""
-    repair = "repair"  # Reparación/Diagnóstico
-    install = "install"  # Instalación
-    pickup = "pickup"  # Retiro de equipo
+    install_ftth = "install_ftth"  # Instalación Fibra Óptica (FTTH)
+    install_aire = "install_aire"  # Instalación Aire/Antena
+    repair = "repair"              # Reclamo/Soporte técnico
+    pickup = "pickup"              # Baja/Retiro de equipo
     infrastructure = "infrastructure"  # Cuadrilla de infraestructura
 
 
@@ -925,6 +926,15 @@ class WorkOrderItem(Base, TimestampMixin):
         Text,
         nullable=True,
         comment="Observaciones sobre este material"
+    )
+
+    # Conexión asociada (para trazabilidad histórica BULK)
+    connection_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("connections.connection_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Conexión asociada (para consultar materiales BULK usados en una conexión)"
     )
 
     # Relationships
