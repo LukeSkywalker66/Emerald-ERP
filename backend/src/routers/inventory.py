@@ -12,7 +12,7 @@ from sqlalchemy import select, and_, or_, func
 from src.database import get_db
 from src.models.inventory import (
     Warehouse, Product, ProductCategory, ProductGroup, ProductSpec,
-    StockBulk, SerialItem, StockMovement,
+    StockBulk, SerialItem, StockMovement, PurchaseScanSession,
     WarehouseType, ProductType, MovementType, SerialItemStatus
 )
 from src.models.user import User
@@ -26,7 +26,10 @@ from src.schemas.inventory import (
     StockMovementResponse, WarehouseStockResponse, StockItemDetail,
     StockTransferRequest, StockTransferResponse,
     StockAdjustmentRequest, StockAdjustmentResponse,
-    StockAlertItem
+    StockAlertItem,
+    ScanCodeRequest, ScanCodeResponse,
+    ScanSerialRequest, ScanSerialResponse,
+    ScanSessionResponse, ScanSessionConfirmResponse,
 )
 from src.schemas.fleet import VehicleSummary
 from src.utils.audit import log_create, log_update, log_delete, get_entity_dict
@@ -64,6 +67,12 @@ def _product_to_response(product: Product) -> ProductResponse:
     product_dict["group_name"] = product.group.name if product.group else None
     product_dict["specs"] = product.spec.specs if product.spec else None
     return ProductResponse(**product_dict)
+
+
+def _exclude_vehicle(d: dict) -> dict:
+    """Excluir 'vehicle' del __dict__ del modelo ORM para evitar
+    TypeError por duplicado con el kwarg explícito vehicle=..."""
+    return {k: v for k, v in d.items() if k != 'vehicle'}
 
 
 # ============================================
@@ -162,11 +171,6 @@ def list_warehouses(
     stmt = stmt.order_by(Warehouse.type, Warehouse.name)
     warehouses = db.execute(stmt).scalars().all()
     
-    def _exclude_vehicle(d: dict) -> dict:
-        """Excluir 'vehicle' del __dict__ del modelo ORM para evitar
-        TypeError por duplicado con el kwarg explícito vehicle=..."""
-        return {k: v for k, v in d.items() if k != 'vehicle'}
-
     return [
         WarehouseResponse(
             **_exclude_vehicle(warehouse.__dict__),
@@ -196,8 +200,8 @@ def create_warehouse(
             detail="Los almacenes MOBILE deben crearse desde el módulo Flota"
         )
     
-    # Validar: CENTRAL/VIRTUAL no deben tener user_id
-    if payload.type in [WarehouseType.CENTRAL, WarehouseType.VIRTUAL] and payload.user_id:
+    # Validar: CENTRAL/AUXILIAR/VIRTUAL no deben tener user_id
+    if payload.type in [WarehouseType.CENTRAL, WarehouseType.AUXILIAR, WarehouseType.VIRTUAL] and payload.user_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Warehouses tipo {payload.type.value} no pueden tener user_id asignado"
@@ -269,8 +273,8 @@ def update_warehouse(
             detail="Warehouses tipo MOBILE requieren user_id (técnico asignado)"
         )
     
-    # Validar: CENTRAL/VIRTUAL no deben tener user_id
-    if final_type in [WarehouseType.CENTRAL, WarehouseType.VIRTUAL] and final_user_id is not None:
+    # Validar: CENTRAL/AUXILIAR/VIRTUAL no deben tener user_id
+    if final_type in [WarehouseType.CENTRAL, WarehouseType.AUXILIAR, WarehouseType.VIRTUAL] and final_user_id is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Warehouses tipo {final_type.value} no pueden tener user_id asignado"
@@ -1417,3 +1421,348 @@ def update_product_specs(
     db.commit()
     db.refresh(spec)
     return ProductSpecResponse.model_validate(spec)
+
+
+# ============================================
+# BARCODE SCAN ENDPOINTS (Compra Inteligente)
+# ============================================
+
+
+@router.post("/stock/scan", response_model=ScanCodeResponse)
+def scan_code(
+    payload: ScanCodeRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Escanea un código de barra en contexto de compra/ingreso de stock.
+    
+    Usa el BarcodeScannerEngine para identificar automáticamente:
+    - PRODUCT_CODE: código de producto (SKU)
+    - SERIAL_NUMBER: número de serie válido
+    - MAC_ADDRESS: descartado silenciosamente
+    - UNKNOWN: código no reconocido
+
+    Si se envía product_id, el motor valida el formato del serial
+    contra la tabla serial_formats (con fallback ITU-T G.984 para ONU/ONT).
+    """
+    from src.barcode_reader import BarcodeScannerEngine, ScanContext
+    from src.barcode_reader.validators import (
+        MacAddressFilter,
+        ProductCodeValidator,
+        SerialFormatValidator,
+        ITUTG984Validator,
+        GenericSerialValidator,
+    )
+
+    user_id = _get_user_id_from_request()
+    cleaned = payload.code.strip().upper()
+
+    # Construir engine con validadores.
+    # Si no hay producto seleccionado, incluimos ProductCodeValidator para identificar SKU.
+    # Si ya hay producto, cada scan es un intento de serial.
+    engine = BarcodeScannerEngine()
+    validators = [MacAddressFilter()]  # Prioridad 5: siempre descartar MAC
+    if not payload.product_id:
+        validators.append(ProductCodeValidator())  # Prioridad 10: identificar SKU
+    validators += [
+        SerialFormatValidator(),  # Prioridad 20: producto.serial_validation_regex
+        ITUTG984Validator(),      # Prioridad 30: ITU-T G.984
+        GenericSerialValidator(), # Prioridad 100: fallback
+    ]
+    engine.register_validators(*validators)
+
+    # Cargar patrones desde DB
+    engine.load_patterns(db)
+
+    # Construir contexto
+    context = ScanContext(
+        module="PURCHASE",
+        known_product_id=payload.product_id,
+    )
+
+    # Si hay product_id, obtener el nombre del grupo
+    if payload.product_id:
+        product = db.get(Product, payload.product_id)
+        if product:
+            context.known_group_name = product.group.name if product.group else None
+
+    # Identificar
+    result = engine.identify(cleaned, context, db=db)
+
+    # Si es MAC address, responder con error informativo
+    if result.type.name == "MAC_ADDRESS":
+        return ScanCodeResponse(
+            success=False,
+            scan_type="MAC_ADDRESS",
+            code=cleaned,
+            validated=False,
+            message="Dirección MAC detectada e ignorada. Escaneá el código de barras del producto.",
+        )
+
+    # NOTA: NO persistimos nada en DB hasta que el usuario confirma.
+    # La validación (MAC filter, SN format) ya ocurrió en el engine.
+    # El frontend mantiene el estado de la sesión de escaneo en memoria.
+
+    # Construir respuesta
+    product_name = None
+    product_sku = None
+    is_serialized = None
+
+    if result.product_id:
+        p = db.get(Product, result.product_id)
+        if p:
+            product_name = p.name
+            product_sku = p.sku
+            is_serialized = p.type == ProductType.SERIALIZED
+
+    return ScanCodeResponse(
+        success=result.is_acceptable(),
+        scan_type=result.type.name,
+        code=cleaned,
+        product_id=result.product_id,
+        product_name=product_name,
+        product_sku=product_sku,
+        is_serialized=is_serialized,
+        validated=result.validated,
+        message=result.message if result.validated else result.message or "Código no reconocido",
+    )
+
+
+@router.post("/stock/scan-serial", response_model=ScanSerialResponse)
+def scan_serial(
+    payload: ScanSerialRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Escanea un número de serie para un producto SERIALIZED en compra.
+    
+    - Valida el formato contra serial_formats (con fallback)
+    - Verifica duplicados en la sesión activa
+    - Mantiene contador en la sesión de escaneo
+    """
+    user_id = _get_user_id_from_request()
+    cleaned = payload.serial_number.strip().upper()
+
+    # Validar producto
+    product = db.get(Product, payload.product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    if product.type != ProductType.SERIALIZED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El producto '{product.name}' no es SERIALIZED"
+        )
+
+    # Validar almacén
+    warehouse = db.get(Warehouse, payload.warehouse_id)
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Almacén no encontrado")
+
+    # Validar formato usando el engine
+    from src.barcode_reader import BarcodeScannerEngine, ScanContext
+    from src.barcode_reader.validators import (
+        SerialFormatValidator,
+        ITUTG984Validator,
+        GenericSerialValidator,
+    )
+
+    engine = BarcodeScannerEngine()
+    engine.register_validators(
+        SerialFormatValidator(),
+        ITUTG984Validator(),
+        GenericSerialValidator(),
+    )
+    engine.load_patterns(db)
+
+    context = ScanContext(
+        module="PURCHASE",
+        known_product_id=payload.product_id,
+        known_group_name=product.group.name if product.group else None,
+    )
+    result = engine.identify(cleaned, context, db=db)
+
+    if not result.validated or result.type.name != "SERIAL_NUMBER":
+        return ScanSerialResponse(
+            success=False,
+            serial_number=cleaned,
+            product_id=payload.product_id,
+            product_name=product.name,
+            validated=False,
+            message=result.message or "Formato de serial no válido para este producto",
+        )
+
+    # Solo validamos, NO persistimos. El frontend trackea los seriales.
+    return ScanSerialResponse(
+        success=True,
+        serial_number=cleaned,
+        product_id=payload.product_id,
+        product_name=product.name,
+        session_count=0,
+        validated=True,
+        message=f"Serial {cleaned} validado (formato correcto)",
+    )
+
+
+@router.get("/stock/scan-session/{session_id}", response_model=ScanSessionResponse)
+def get_scan_session(
+    session_id: int,
+    db: Session = Depends(get_db)
+):
+    """Obtiene el estado actual de una sesión de escaneo."""
+    session = db.get(PurchaseScanSession, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión de escaneo no encontrada")
+
+    product_name = session.product.name if session.product else None
+    product_sku = session.product.sku if session.product else None
+
+    return ScanSessionResponse(
+        id=session.id,
+        warehouse_id=session.warehouse_id,
+        product_id=session.product_id,
+        product_name=product_name,
+        product_sku=product_sku,
+        scanned_sns=session.scanned_sns,
+        count=session.count,
+        is_complete=session.is_complete,
+        reference=session.reference,
+        notes=session.notes,
+        created_at=session.created_at,
+        updated_at=session.updated_at,
+    )
+
+
+@router.delete(
+    "/stock/scan-session/{session_id}/serial/{serial}",
+    response_model=dict,
+)
+def remove_serial_from_session(
+    session_id: int,
+    serial: str,
+    db: Session = Depends(get_db)
+):
+    """Elimina un serial de la sesión de escaneo."""
+    session = db.get(PurchaseScanSession, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión de escaneo no encontrada")
+    if session.is_complete:
+        raise HTTPException(
+            status_code=400,
+            detail="La sesión ya fue completada, no se puede modificar"
+        )
+
+    cleaned = serial.strip().upper()
+    if cleaned not in session.scanned_sns:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Serial {cleaned} no encontrado en la sesión"
+        )
+
+    session.scanned_sns = [s for s in session.scanned_sns if s != cleaned]
+    session.count = max(0, session.count - 1)
+    db.commit()
+
+    return {
+        "success": True,
+        "session_id": session_id,
+        "serial": cleaned,
+        "remaining": session.count,
+        "message": f"Serial {cleaned} eliminado de la sesión",
+    }
+
+
+@router.post(
+    "/stock/scan-session/{session_id}/confirm",
+    response_model=ScanSessionConfirmResponse,
+)
+def confirm_scan_session(
+    session_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Confirma una sesión de escaneo y ejecuta el ingreso masivo de seriales.
+    
+    Para cada serial en la sesión:
+    1. Crea un SerialItem en el almacén destino
+    2. Crea un StockMovement tipo PURCHASE
+    3. Marca la sesión como completa
+    """
+    user_id = _get_user_id_from_request()
+
+    session = db.get(PurchaseScanSession, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión de escaneo no encontrada")
+    if session.is_complete:
+        raise HTTPException(
+            status_code=400,
+            detail="La sesión ya fue completada"
+        )
+    if session.count == 0 or not session.scanned_sns:
+        raise HTTPException(
+            status_code=400,
+            detail="No hay seriales para confirmar en esta sesión"
+        )
+
+    product = db.get(Product, session.product_id)
+    warehouse = db.get(Warehouse, session.warehouse_id)
+    serials_created = 0
+    movements_created = 0
+
+    for sn in session.scanned_sns:
+        # Verificar que el serial no exista ya
+        existing = db.execute(
+            select(SerialItem).where(SerialItem.serial_number == sn)
+        ).scalar_one_or_none()
+
+        if existing:
+            logger.warning(
+                "Serial %s ya existe (id=%d), saltando",
+                sn, existing.id
+            )
+            continue
+
+        # Crear SerialItem
+        serial_item = SerialItem(
+            serial_number=sn,
+            product_id=session.product_id,
+            warehouse_id=session.warehouse_id,
+            status=SerialItemStatus.NEW,
+            notes=session.notes,
+        )
+        db.add(serial_item)
+        db.flush()
+        serials_created += 1
+
+        # Crear StockMovement
+        movement = StockMovement(
+            product_id=session.product_id,
+            from_warehouse_id=None,  # Es compra/alta
+            to_warehouse_id=session.warehouse_id,
+            quantity=1.0,
+            serial_item_id=serial_item.id,
+            movement_type=MovementType.PURCHASE,
+            reference=session.reference or f"Compra - Sesión #{session.id}",
+            notes=session.notes,
+            user_id=user_id,
+        )
+        db.add(movement)
+        movements_created += 1
+
+    # Marcar sesión como completa
+    session.is_complete = True
+    db.commit()
+
+    return ScanSessionConfirmResponse(
+        success=True,
+        session_id=session.id,
+        total_serials=session.count,
+        serials_created=serials_created,
+        movements_created=movements_created,
+        warehouse_name=warehouse.name if warehouse else None,
+        product_name=product.name if product else None,
+        message=(
+            f"Compra completada: {serials_created} seriales de "
+            f"'{product.name if product else 'N/A'}' ingresados "
+            f"en '{warehouse.name if warehouse else 'N/A'}'"
+        ),
+    )

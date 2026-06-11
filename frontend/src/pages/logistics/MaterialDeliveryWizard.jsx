@@ -8,6 +8,12 @@ import { useNavigate, useParams } from 'react-router-dom';
 import * as logisticsService from '@/services/logistics.service';
 import * as inventoryService from '@/services/inventory.service';
 import { getTeams } from '@/services/coordination.service';
+import {
+  BarcodeScanner,
+  SerialScanner,
+  ScannedSerialsList,
+} from '@/components/barcode-reader';
+import { useDeliveryScanner } from '@/hooks/useDeliveryScanner';
 
 const STEPS = [
   { id: 1, label: 'Cuadrilla', icon: Users },
@@ -42,13 +48,24 @@ export default function MaterialDeliveryWizard() {
   const [proposalGenerated, setProposalGenerated] = useState(false);
   const [generatingProposal, setGeneratingProposal] = useState(false);
 
-  // Step 3: Scan
-  const [scanMode, setScanMode] = useState('barcode'); // 'barcode' | 'serial'
+  // Step 3: Scan — usando máquina de estados inteligente
   const [barcodeInput, setBarcodeInput] = useState('');
   const [serialInput, setSerialInput] = useState('');
   const [scanningProduct, setScanningProduct] = useState(null);
   const [scannedItems, setScannedItems] = useState([]);
   const [scanComplete, setScanComplete] = useState(false);
+
+  // Máquina de estados inteligente para escaneo en delivery
+  const deliveryScanner = useDeliveryScanner({
+    proposalItems,
+    onItemScanned: (item) => {
+      setScannedItems(prev => [...prev, item]);
+      setBarcodeInput('');
+      setSerialInput('');
+    },
+    onError: (msg) => setError(msg),
+    enabled: !scanComplete,
+  });
 
   // Build proposal map: product_id -> { quantity, product_name }
   const proposalMap = {};
@@ -637,84 +654,38 @@ export default function MaterialDeliveryWizard() {
             </div>
           )}
 
-          {/* Barcode Scanner */}
-          <div className={`rounded-lg p-4 ${scanComplete ? 'bg-zinc-800/20 opacity-50' : 'bg-zinc-800/50'}`}>
-            <label className="block text-sm font-medium text-zinc-300 mb-2">
-              Código de Barra del Producto
-            </label>
-            <div className="flex space-x-2">
-              <input
-                type="text"
-                value={barcodeInput}
-                onChange={(e) => setBarcodeInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleBarcodeScan()}
-                placeholder={scanComplete ? 'Completado' : 'Escanear o ingresar SKU...'}
-                disabled={scanComplete}
-                className="flex-1 px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white font-mono text-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                autoFocus={!scanComplete}
-              />
-              <button
-                onClick={handleBarcodeScan}
-                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors"
-              >
-                <Scan className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
+          {/* Barcode Scanner (reutilizable) */}
+          <BarcodeScanner
+            onScan={(code) => {
+              setBarcodeInput(code);
+              // Pequeño delay para que se actualice el estado antes del handler
+              setTimeout(() => handleBarcodeScan(), 10);
+            }}
+            disabled={scanComplete}
+            placeholder={scanComplete ? 'Completado' : 'Escanear o ingresar SKU...'}
+            feedback={error ? { type: 'error', message: error } : null}
+            autoFocus={!scanComplete}
+          />
 
-          {/* Serial Scanner (shown after barcode scan of serialized product) */}
-          {scanMode === 'serial' && scanningProduct && (
-            <div className="bg-yellow-900/20 border border-yellow-800/50 rounded-lg p-4">
-              <label className="block text-sm font-medium text-yellow-300 mb-2">
-                Escanear Serial — {scanningProduct.product_name}
-              </label>
-              <div className="flex space-x-2">
-                <input
-                  type="text"
-                  value={serialInput}
-                  onChange={(e) => setSerialInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSerialScan()}
-                  placeholder="Escanear número de serie..."
-                  className="flex-1 px-4 py-3 bg-zinc-800 border border-yellow-700 rounded-lg text-white font-mono text-lg focus:outline-none focus:ring-2 focus:ring-yellow-500/50"
-                  autoFocus
-                />
-                <button
-                  onClick={handleSerialScan}
-                  className="px-6 py-3 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors"
-                >
-                  <Check className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
+          {/* Serial Scanner — controlado por la máquina de estados */}
+          {deliveryScanner.scanMode === 'WAITING_SERIAL' && (
+            <SerialScanner
+              productName={deliveryScanner.pendingProductName || ''}
+              onScan={(serial) => deliveryScanner.resolveScan(serial)}
+              onCancel={() => deliveryScanner.reset()}
+            />
           )}
 
-          {/* Scanned Items */}
-          {scannedItems.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium text-zinc-300 mb-3">Items Escaneados ({scannedItems.length})</h3>
-              <div className="bg-zinc-800/30 rounded-lg divide-y divide-zinc-800">
-                {scannedItems.map((item, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3">
-                    <div className="flex items-center space-x-3">
-                      <CheckCircle className="w-5 h-5 text-emerald-400" />
-                      <div>
-                        <p className="text-white text-sm">{item.product_name}</p>
-                        <p className="text-zinc-500 text-xs">
-                          {item.product_sku}
-                          {item.serial_number && ` • Serial: ${item.serial_number}`}
-                        </p>
-                      </div>
-                    </div>
-                    {item.is_serialized && !item.serial_number && (
-                      <span className="text-yellow-400 text-xs">Esperando serial...</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {scannedItems.length === 0 && (
+          {/* Scanned Items List (reutilizable) */}
+          {scannedItems.length > 0 ? (
+            <ScannedSerialsList
+              serials={scannedItems.map((item) =>
+                item.serial_number || `${item.product_name} (${item.product_sku})`
+              )}
+              readonly
+              emptyMessage="Los productos escaneados aparecerán aquí"
+            />
+          ) : (
             <div className="text-center py-8">
               <Scan className="w-16 h-16 text-zinc-700 mx-auto mb-4" />
               <p className="text-zinc-400">Usá la pistola lectora o ingresá el código manualmente</p>

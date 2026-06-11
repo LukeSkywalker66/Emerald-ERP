@@ -25,6 +25,7 @@ class WarehouseType(str, PyEnum):
     CENTRAL = "CENTRAL"      # Depósito principal
     MOBILE = "MOBILE"        # Camioneta de técnico
     VIRTUAL = "VIRTUAL"      # Para bajas, perdidos, clientes
+    AUXILIAR = "AUXILIAR"    # Depósito auxiliar/secundario
 
 
 class ProductType(str, PyEnum):
@@ -294,6 +295,13 @@ class Product(Base):
         String(50),
         nullable=True,
         comment="Etiqueta de la unidad compuesta (ej: Bobina, Blister, Cajita)"
+    )
+
+    # ========== NUEVO: Validación de seriales ==========
+    serial_validation_regex: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Regex para validar seriales al ingresar compras. Null = acepta cualquier formato."
     )
 
     min_stock_alert: Mapped[int] = mapped_column(
@@ -573,6 +581,146 @@ class StockMovement(Base):
 
     def __repr__(self):
         return f"<StockMovement(id={self.id}, type={self.movement_type.value}, product_id={self.product_id})>"
+
+
+class SerialFormat(Base):
+    """
+    Diccionario de formatos de número de serie por producto.
+    Permite configurar patrones regex por producto para que el
+    BarcodeScannerEngine valide seriales sin hardcodeo.
+
+    Si no hay patrón registrado para un producto, el motor cae a
+    validación por grupo (ITU-T G.984 para ONU/ONT) o genérica.
+    """
+    __tablename__ = "serial_formats"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    product_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("products.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="Producto asociado al patrón"
+    )
+    regex_pattern: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        comment="Patrón regex que debe cumplir el SN (ej: ^[A-Z0-9]{4}[A-Z0-9]{8}$)"
+    )
+    description: Mapped[Optional[str]] = mapped_column(
+        String(200),
+        nullable=True,
+        comment="Descripción legible del patrón"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("true"),
+        comment="Si el patrón está activo para validación"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    # Relaciones
+    product: Mapped["Product"] = relationship("Product", lazy="joined")
+
+    __table_args__ = (
+        UniqueConstraint("product_id", name="uq_serial_format_product"),
+    )
+
+    def __repr__(self):
+        return (
+            f"<SerialFormat(id={self.id}, product_id={self.product_id}, "
+            f"pattern='{self.regex_pattern}')>"
+        )
+
+
+class PurchaseScanSession(Base):
+    """
+    Sesión de escaneo activa para una compra/ingreso de stock.
+
+    Mantiene el estado de una sesión de escaneo de seriales:
+    - Lista de SNs escaneados (para deduplicación)
+    - Contador en tiempo real
+    - Referencia y notas de la compra
+
+    Al confirmar, se ejecuta el ingreso masivo de serial_items + stock_movements.
+    """
+    __tablename__ = "purchase_scan_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    warehouse_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("warehouses.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        comment="Almacén destino de los seriales"
+    )
+    product_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("products.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        comment="Producto serializado que se está escaneando"
+    )
+    scanned_sns: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        comment="Array de strings con SNs escaneados (para dedup)"
+    )
+    count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="Contador de seriales ingresados"
+    )
+    is_complete: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="True cuando el operador confirma la carga"
+    )
+    reference: Mapped[Optional[str]] = mapped_column(
+        String(200),
+        nullable=True,
+        comment="Referencia de la compra (factura, orden, remito)"
+    )
+    notes: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Notas adicionales de la compra"
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        comment="Usuario que realiza la compra"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+        onupdate=datetime.utcnow
+    )
+
+    # Relaciones
+    product: Mapped["Product"] = relationship("Product", lazy="joined")
+    warehouse: Mapped["Warehouse"] = relationship("Warehouse", lazy="joined")
+
+    def __repr__(self):
+        return (
+            f"<PurchaseScanSession(id={self.id}, product_id={self.product_id}, "
+            f"count={self.count}, complete={self.is_complete})>"
+        )
 
 
 class ConnectionAssetStatus(str, PyEnum):

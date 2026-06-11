@@ -70,6 +70,10 @@ class ProductBase(BaseModel):
     unit_measure: Optional[str] = Field(None, max_length=20, description="Unidad de medida (m, units, pcs)")
     is_composite: bool = Field(False, description="Producto compuesto que se fracciona al consumir")
     composite_unit_label: Optional[str] = Field(None, max_length=50, description="Etiqueta de unidad compuesta (Bobina, Blister)")
+    serial_validation_regex: Optional[str] = Field(
+        None, max_length=255,
+        description="Regex para validar seriales al registrar compras (ej: ^[A-Z0-9]{16}$)"
+    )
 
 
 class ProductCreate(ProductBase):
@@ -395,3 +399,110 @@ class StockAlertItem(BaseModel):
     deficit: float = Field(..., description="Cuánto falta para alcanzar el mínimo")
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================
+# BARCODE SCAN SCHEMAS (Escaneo inteligente)
+# ============================================
+
+
+class ScanCodeRequest(BaseModel):
+    """
+    Request para escanear un código de barra en contexto de compra.
+    El motor identifica automáticamente si es SKU o Serial.
+    """
+    code: str = Field(
+        ..., min_length=1, max_length=100,
+        description="Código escaneado (SKU o serial)"
+    )
+    product_id: Optional[int] = Field(
+        None, description="ID del producto (requerido si se espera serial)"
+    )
+    warehouse_id: Optional[int] = Field(
+        None, description="ID del almacén destino (para crear sesión)"
+    )
+
+
+class ScanCodeResponse(BaseModel):
+    """
+    Respuesta del escaneo inteligente.
+    El tipo de respuesta varía según lo identificado.
+    """
+    success: bool
+    scan_type: str = Field(
+        ..., description="Tipo identificado: PRODUCT_CODE | SERIAL_NUMBER | UNKNOWN"
+    )
+    code: str = Field(..., description="Código sanitizado")
+    product_id: Optional[int] = None
+    product_name: Optional[str] = None
+    product_sku: Optional[str] = None
+    is_serialized: Optional[bool] = None
+    validated: bool = False
+    message: str = ""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ScanSerialRequest(BaseModel):
+    """
+    Request para escanear un serial de producto SERIALIZED.
+    Se envía después de identificar el producto.
+    """
+    serial_number: str = Field(
+        ..., min_length=1, max_length=100,
+        description="Número de serie escaneado"
+    )
+    product_id: int = Field(
+        ..., description="ID del producto al que pertenece el serial"
+    )
+    warehouse_id: int = Field(
+        ..., description="ID del almacén destino"
+    )
+    reference: Optional[str] = Field(
+        None, max_length=200,
+        description="Referencia de compra (factura, orden)"
+    )
+    notes: Optional[str] = None
+
+
+class ScanSerialResponse(BaseModel):
+    """Respuesta del escaneo de serial."""
+    success: bool
+    serial_number: str
+    product_id: int
+    product_name: Optional[str] = None
+    already_scanned: bool = False
+    session_id: Optional[int] = None
+    session_count: int = 0
+    validated: bool = False
+    message: str = ""
+
+
+class ScanSessionResponse(BaseModel):
+    """Estado actual de una sesión de escaneo."""
+    id: int
+    warehouse_id: int
+    product_id: int
+    product_name: Optional[str] = None
+    product_sku: Optional[str] = None
+    scanned_sns: list = []
+    count: int
+    is_complete: bool
+    reference: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ScanSessionConfirmResponse(BaseModel):
+    """Respuesta de confirmación de sesión de escaneo."""
+    success: bool
+    session_id: int
+    total_serials: int
+    serials_created: int
+    movements_created: int
+    warehouse_name: Optional[str] = None
+    product_name: Optional[str] = None
+    message: str

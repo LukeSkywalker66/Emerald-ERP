@@ -1,6 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, ShoppingCart, AlertCircle, Loader } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Plus, ShoppingCart, AlertCircle, Loader, CheckCircle } from 'lucide-react';
 import * as inventoryService from '@/services/inventory.service';
+import {
+  BarcodeScanner,
+  SerialScanner,
+  ScanCounter,
+  ScannedSerialsList,
+} from '@/components/barcode-reader';
 
 /**
  * Página para registrar ajustes de stock (Compras, Correcciones)
@@ -24,6 +30,13 @@ export default function StockAdjustments() {
     reference: '',
     notes: '',
   });
+
+  // Scan session state (para productos SERIALIZED) - solo frontend, nada en DB
+  const [scanMode, setScanMode] = useState('barcode'); // 'barcode' | 'serial'
+  const [scanningProduct, setScanningProduct] = useState(null); // { product_id, product_name }
+  const [scannedSerials, setScannedSerials] = useState([]);
+  const [scanFeedback, setScanFeedback] = useState(null);
+  const [validatingSerial, setValidatingSerial] = useState(false);
 
   // Cargar datos iniciales
   useEffect(() => {
@@ -82,6 +95,157 @@ export default function StockAdjustments() {
     });
   };
 
+  // ---------------------------------------------------------------
+  // Scan handlers (para productos SERIALIZED)
+  // ---------------------------------------------------------------
+  const handleBarcodeScan = useCallback(async (code) => {
+    if (!formData.product_id || !formData.warehouse_id) {
+      setScanFeedback({ type: 'error', message: 'Primero seleccioná producto y almacén' });
+      return;
+    }
+
+    setScanFeedback({ type: 'info', message: `Identificando: ${code}...` });
+
+    try {
+      const response = await inventoryService.scanCode({
+        code,
+        product_id: parseInt(formData.product_id),
+        warehouse_id: parseInt(formData.warehouse_id),
+      });
+
+      if (!response.success) {
+        setScanFeedback({ type: 'error', message: response.message || 'Código no reconocido' });
+        return;
+      }
+
+      if (response.scan_type === 'PRODUCT_CODE') {
+        if (response.is_serialized) {
+          // Producto serializado: pasar a modo serial
+          setScanMode('serial');
+          setScanningProduct({
+            product_id: response.product_id,
+            product_name: response.product_name,
+          });
+          setScanFeedback({
+            type: 'success',
+            message: `${response.product_name} identificado. Escaneá el serial.`,
+          });
+        } else {
+          // Producto BULK: mostrar como antes
+          setScanFeedback({
+            type: 'success',
+            message: `Producto BULK detectado: ${response.product_name}. Usá el campo de cantidad.`,
+          });
+        }
+      } else if (response.scan_type === 'SERIAL_NUMBER') {
+        // Serial directamente escaneado - agregar a lista local
+        setScannedSerials((prev) => {
+          if (prev.includes(response.code)) {
+            setScanFeedback({ type: 'error', message: `Serial ${response.code} ya ingresado` });
+            return prev;
+          }
+          setScanFeedback({ type: 'success', message: `Serial ${response.code} registrado` });
+          return [...prev, response.code];
+        });
+      }
+    } catch (err) {
+      const msg = err.response?.data?.detail || err.message || 'Error al escanear';
+      setScanFeedback({ type: 'error', message: msg });
+    }
+  }, [formData.product_id, formData.warehouse_id]);
+
+  const handleSerialScan = useCallback(async (serial) => {
+    if (!formData.product_id || !formData.warehouse_id || !scanningProduct) return;
+
+    setValidatingSerial(true);
+    setScanFeedback({ type: 'info', message: `Validando serial: ${serial}...` });
+
+    try {
+      // Solo validamos, no persistimos nada en DB
+      await inventoryService.scanSerial({
+        serial_number: serial,
+        product_id: parseInt(formData.product_id),
+        warehouse_id: parseInt(formData.warehouse_id),
+      });
+
+      // Dedup local
+      setScannedSerials((prev) => {
+        if (prev.includes(serial)) {
+          setScanFeedback({ type: 'error', message: `Serial ${serial} ya ingresado` });
+          return prev;
+        }
+        setScanFeedback({ type: 'success', message: `✅ Serial ${serial} registrado (${prev.length + 1} total)` });
+        return [...prev, serial];
+      });
+    } catch (err) {
+      const msg = err.response?.data?.detail || err.message || 'Error al validar serial';
+      setScanFeedback({ type: 'error', message: msg });
+    } finally {
+      setValidatingSerial(false);
+    }
+  }, [formData.product_id, formData.warehouse_id]);
+
+  const handleRemoveSerial = useCallback((serial) => {
+    setScannedSerials((prev) => prev.filter((s) => s !== serial));
+  }, []);
+
+  const handleResetScanSession = useCallback(() => {
+    setScanMode('barcode');
+    setScanningProduct(null);
+    setScanFeedback(null);
+  }, []);
+
+  const handleConfirmScanSession = useCallback(async () => {
+    if (scannedSerials.length === 0) return;
+
+    setSubmitLoading(true);
+    setError(null);
+
+    try {
+      const productId = parseInt(formData.product_id);
+      const warehouseId = parseInt(formData.warehouse_id);
+      const warehouse = warehouses.find((w) => w.id === warehouseId);
+      const product = products.find((p) => p.id === productId);
+
+      // Crear SerialItems uno por uno (como el flujo original)
+      for (const serial of scannedSerials) {
+        await inventoryService.createSerialItem({
+          serial_number: serial,
+          product_id: productId,
+          warehouse_id: warehouseId,
+          status: 'NEW',
+          notes: formData.notes || formData.reference || null,
+        });
+      }
+
+      setSuccessMessage(
+        `✅ ${scannedSerials.length} equipo(s) registrado(s) en ${warehouse?.name || 'almacén'}`
+      );
+
+      // Resetear
+      setFormData({ product_id: '', warehouse_id: '', quantity: '', serial_numbers: '', movement_type: 'PURCHASE', reference: '', notes: '' });
+      setScannedSerials([]);
+      setScanMode('barcode');
+      setScanningProduct(null);
+      setScanFeedback(null);
+
+      // Recargar movimientos (si falla, no crashea la UI)
+      try {
+        const updatedMovements = await inventoryService.getMovements({ limit: 20 });
+        if (Array.isArray(updatedMovements)) setMovements(updatedMovements);
+      } catch (movErr) {
+        console.warn('No se pudieron recargar movimientos:', movErr);
+      }
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      const msg = typeof detail === 'string' ? detail
+        : (Array.isArray(detail) ? detail.map(d => d.msg || JSON.stringify(d)).join(', ') : 'Error al confirmar');
+      setError(String(msg));
+    } finally {
+      setSubmitLoading(false);
+    }
+  }, [scannedSerials.length]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -103,10 +267,10 @@ export default function StockAdjustments() {
     let submissionOk = false;
 
     if (isSerialized) {
-      const serials = (formData.serial_numbers || '')
-        .split(/\n|,/)
-        .map((s) => s.trim())
-        .filter(Boolean);
+      // Usar scannedSerials del escaneo inteligente
+      const serials = scannedSerials.length > 0
+        ? scannedSerials
+        : (formData.serial_numbers || '').split(/\n|,/).map(s => s.trim()).filter(Boolean);
 
       if (serials.length === 0) {
         setError('Ingresa al menos un número de serie.');
@@ -130,6 +294,11 @@ export default function StockAdjustments() {
         setSuccessMessage(
           `✅ ${serials.length} equipo(s) registrado(s) en ${warehouse?.name || 'almacén'}`
         );
+        // Resetear escaneo
+        setScannedSerials([]);
+        setScanMode('barcode');
+        setScanningProduct(null);
+        setScanFeedback(null);
         submissionOk = true;
       } catch (err) {
         console.error('Error registrando seriales:', err);
@@ -203,11 +372,10 @@ export default function StockAdjustments() {
     });
 
     // Recargar movimientos
-    const updatedMovements = await inventoryService.getMovements({
-      movement_type: 'PURCHASE,ADJUSTMENT',
-      limit: 20,
-    });
-    setMovements(updatedMovements);
+    try {
+      const updatedMovements = await inventoryService.getMovements({ limit: 20 });
+      if (Array.isArray(updatedMovements)) setMovements(updatedMovements);
+    } catch (e) { console.warn('No se pudieron recargar movimientos:', e); }
 
     // Limpiar mensaje después de 5s
     setTimeout(() => setSuccessMessage(null), 5000);
@@ -336,23 +504,46 @@ export default function StockAdjustments() {
                   </select>
                 </div>
 
-                {/* Cantidad */}
+                {/* Cantidad / Escaneo Inteligente */}
                 {isSerialized ? (
-                  <div>
+                  <div className="space-y-4">
                     <label className="block text-sm font-medium text-zinc-300 mb-2">
-                      Serial(es) *
+                      Escaneo de Seriales
                     </label>
-                    <textarea
-                      name="serial_numbers"
-                      value={formData.serial_numbers}
-                      onChange={handleInputChange}
-                      placeholder="Uno por línea o separados por coma"
-                      rows="3"
-                      className="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-sm resize-none"
+
+                    {/* Contador */}
+                    <ScanCounter
+                      count={scannedSerials.length}
+                      productName={selectedProduct?.name}
                     />
-                    <p className="text-xs text-zinc-400 mt-1">
-                      Cada serie se registra como compra individual.
-                    </p>
+
+                    {/* Serial scanner o Barcode scanner */}
+                    {scanMode === 'serial' && scanningProduct ? (
+                      <SerialScanner
+                        productName={scanningProduct.product_name}
+                        productSku={selectedProduct?.sku}
+                        onScan={handleSerialScan}
+                        onCancel={handleResetScanSession}
+                        validating={validatingSerial}
+                      />
+                    ) : (
+                      <BarcodeScanner
+                        onScan={handleBarcodeScan}
+                        disabled={false}
+                        placeholder="Escanear código de barra o serial..."
+                        feedback={scanFeedback}
+                        scanning={validatingSerial}
+                      />
+                    )}
+
+                    {/* Lista de seriales escaneados */}
+                    {scannedSerials.length > 0 && (
+                      <ScannedSerialsList
+                        serials={scannedSerials}
+                        onRemove={handleRemoveSerial}
+                      />
+                    )}
+
                   </div>
                 ) : (
                   <div>
@@ -443,24 +634,46 @@ export default function StockAdjustments() {
                   />
                 </div>
 
-                {/* Submit Button */}
-                <button
-                  type="submit"
-                  disabled={submitLoading}
-                  className="w-full mt-6 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-700 disabled:opacity-50 text-white font-semibold py-2 rounded transition-colors flex items-center justify-center gap-2"
-                >
-                  {submitLoading ? (
-                    <>
-                      <Loader className="w-4 h-4 animate-spin" />
-                      Registrando...
-                    </>
-                  ) : (
-                    <>
-                      <ShoppingCart className="w-4 h-4" />
-                      {formData.movement_type === 'PURCHASE' ? 'Registrar Compra' : 'Registrar Ajuste'}
-                    </>
-                  )}
-                </button>
+                {/* Buttons */}
+                <div className="flex gap-3 mt-6">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData({
+                        product_id: '', warehouse_id: '', quantity: '',
+                        serial_numbers: '', movement_type: 'PURCHASE',
+                        reference: '', notes: '',
+                      });
+                      setScannedSerials([]);
+                      setScanMode('barcode');
+                      setScanningProduct(null);
+                      setScanFeedback(null);
+                      setError(null);
+                      setSuccessMessage(null);
+                    }}
+                    disabled={submitLoading}
+                    className="flex-1 py-2 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 text-white font-semibold rounded transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submitLoading}
+                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-700 disabled:opacity-50 text-white font-semibold rounded transition-colors flex items-center justify-center gap-2"
+                  >
+                    {submitLoading ? (
+                      <>
+                        <Loader className="w-4 h-4 animate-spin" />
+                        Registrando...
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingCart className="w-4 h-4" />
+                        {formData.movement_type === 'PURCHASE' ? 'Registrar Compra' : 'Registrar Ajuste'}
+                      </>
+                    )}
+                  </button>
+                </div>
               </form>
             </div>
           </div>
@@ -507,9 +720,9 @@ export default function StockAdjustments() {
                     <tbody>
                       {movements.map((movement) => {
                         const badge = getMovementBadge(movement.movement_type);
-                        const moveDate = new Date(
-                          movement.created_at
-                        ).toLocaleDateString('es-AR');
+                        const moveDate = movement.date
+                          ? new Date(movement.date).toLocaleDateString('es-AR')
+                          : '-';
 
                         return (
                           <tr

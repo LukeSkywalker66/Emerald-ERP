@@ -376,25 +376,146 @@ def scan_barcode(
     payload: BarcodeScanRequest,
     db: Session = Depends(get_db)
 ):
-    """Escanear código de barra de un producto en una entrega."""
+    """
+    Escanear código de barra en una entrega de materiales.
+    
+    Usa el BarcodeScannerEngine para identificar automáticamente:
+    - PRODUCT_CODE: busca el SKU en el catálogo y lo agrega a la entrega
+    - SERIAL_NUMBER: auto-resuelve el producto desde serial_items
+    - MAC_ADDRESS: descartada con feedback
+    - UNKNOWN: código no reconocido
+    """
+    from src.barcode_reader import BarcodeScannerEngine, ScanContext
+    from src.barcode_reader.validators import (
+        MacAddressFilter,
+        ProductCodeValidator,
+        SerialFormatValidator,
+        ITUTG984Validator,
+        GenericSerialValidator,
+    )
+
     delivery = db.get(MaterialDelivery, delivery_id)
     if not delivery:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
-    # Buscar producto por SKU (case-insensitive)
-    sku_upper = payload.product_code.strip().upper()
-    product = db.execute(
-        select(Product).where(Product.sku.ilike(sku_upper))
-    ).scalar_one_or_none()
+    cleaned = payload.product_code.strip().upper()
 
-    if not product:
-        # Intentar por nombre (case-insensitive)
-        product = db.execute(
-            select(Product).where(Product.name.ilike(f"%{payload.product_code}%"))
+    # Construir engine
+    engine = BarcodeScannerEngine()
+    engine.register_validators(
+        MacAddressFilter(),      # Prioridad 5
+        ProductCodeValidator(),   # Prioridad 10
+        SerialFormatValidator(),  # Prioridad 20
+        ITUTG984Validator(),      # Prioridad 30
+        GenericSerialValidator(), # Prioridad 100
+    )
+    engine.load_patterns(db)
+
+    # Obtener items de la propuesta para validación
+    proposal_items = db.execute(
+        select(MaterialDeliveryItem).where(
+            MaterialDeliveryItem.delivery_id == delivery_id,
+            MaterialDeliveryItem.source == DeliveryItemSource.PROPOSAL,
+        )
+    ).scalars().all()
+    proposal_product_ids = frozenset(
+        item.product_id for item in proposal_items if item.product_id
+    )
+
+    context = ScanContext(
+        module="DELIVERY",
+        proposal_product_ids=proposal_product_ids or None,
+    )
+    result = engine.identify(cleaned, context, db=db)
+
+    # --- MAC ADDRESS: descartar ---
+    if result.type.name == "MAC_ADDRESS":
+        raise HTTPException(
+            status_code=400,
+            detail="Dirección MAC detectada e ignorada. Escaneá el código de barras del producto."
+        )
+
+    # --- UNKNOWN: no reconocido ---
+    if result.type.name == "UNKNOWN" or not result.validated:
+        raise HTTPException(
+            status_code=400,
+            detail=result.message or f"Código '{payload.product_code}' no reconocido"
+        )
+
+    # --- SERIAL NUMBER: auto-resolver producto ---
+    if result.type.name == "SERIAL_NUMBER":
+        serial_item = db.execute(
+            select(SerialItem).where(SerialItem.serial_number == cleaned)
         ).scalar_one_or_none()
 
+        if not serial_item:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Serial '{cleaned}' no encontrado en el sistema"
+            )
+
+        # Verificar disponibilidad
+        if serial_item.warehouse_id != delivery.warehouse_from_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Serial '{cleaned}' no está disponible en el depósito origen"
+            )
+
+        # Verificar duplicado en esta entrega
+        existing = db.execute(
+            select(MaterialDeliveryItem).where(
+                MaterialDeliveryItem.delivery_id == delivery_id,
+                MaterialDeliveryItem.serial_number == cleaned,
+            )
+        ).scalar_one_or_none()
+
+        if existing:
+            return BarcodeScanResponse(
+                success=True,
+                product_id=serial_item.product_id,
+                product_name=serial_item.product.name if serial_item.product else "",
+                product_sku=serial_item.product.sku if serial_item.product else "",
+                is_serialized=True,
+                already_scanned=True,
+                message=f"Serial '{cleaned}' ya fue escaneado en esta entrega"
+            )
+
+        # Agregar item con serial resuelto automáticamente
+        item = MaterialDeliveryItem(
+            delivery_id=delivery.id,
+            product_id=serial_item.product_id,
+            quantity_proposed=1.0,
+            quantity_delivered=1.0,
+            is_serialized=True,
+            serial_item_id=serial_item.id,
+            serial_number=cleaned,
+            source=DeliveryItemSource.MANUAL,
+        )
+        db.add(item)
+        db.commit()
+
+        product = serial_item.product
+        return BarcodeScanResponse(
+            success=True,
+            product_id=product.id,
+            product_name=f"{product.name} (auto-resuelto)" if product else cleaned,
+            product_sku=product.sku if product else "",
+            is_serialized=True,
+            already_scanned=False,
+            message=f"Serial '{cleaned}' → {product.name if product else 'producto'} agregado"
+        )
+
+    # --- PRODUCT_CODE: flujo existente mejorado ---
+    product = db.get(Product, result.product_id)
     if not product:
         raise HTTPException(status_code=404, detail=f"Producto '{payload.product_code}' no encontrado")
+
+    # Validar contra propuesta si existe
+    if proposal_product_ids and product.id not in proposal_product_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{product.name}' no está en la propuesta de entrega"
+        )
 
     # Verificar si ya está escaneado
     existing_item = db.execute(
@@ -407,7 +528,6 @@ def scan_barcode(
     already_scanned = existing_item is not None
 
     if not already_scanned:
-        # Agregar como item manual
         item = MaterialDeliveryItem(
             delivery_id=delivery.id,
             product_id=product.id,
@@ -437,14 +557,47 @@ def scan_serial(
     db: Session = Depends(get_db)
 ):
     """Escanear serial de un producto serializado en una entrega."""
+    from src.barcode_reader import BarcodeScannerEngine, ScanContext
+    from src.barcode_reader.validators import (
+        SerialFormatValidator,
+        ITUTG984Validator,
+        GenericSerialValidator,
+    )
+
     delivery = db.get(MaterialDelivery, delivery_id)
     if not delivery:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
+    cleaned = payload.serial_number.strip().upper()
+
+    # Validar formato del serial usando el engine
+    engine = BarcodeScannerEngine()
+    engine.register_validators(
+        SerialFormatValidator(),
+        ITUTG984Validator(),
+        GenericSerialValidator(),
+    )
+    engine.load_patterns(db)
+
+    # Obtener producto para contexto
+    product = db.get(Product, payload.product_id)
+    context = ScanContext(
+        module="DELIVERY",
+        known_product_id=payload.product_id,
+        known_group_name=product.group.name if product and product.group else None,
+    )
+    validation = engine.identify(cleaned, context, db=db)
+
+    if not validation.validated or validation.type.name != "SERIAL_NUMBER":
+        raise HTTPException(
+            status_code=400,
+            detail=validation.message or f"Formato de serial '{cleaned}' no válido para este producto"
+        )
+
     # Buscar serial item
     serial_item = db.execute(
         select(SerialItem).where(
-            SerialItem.serial_number == payload.serial_number,
+            SerialItem.serial_number == cleaned,
             SerialItem.product_id == payload.product_id,
         )
     ).scalar_one_or_none()
@@ -452,21 +605,21 @@ def scan_serial(
     if not serial_item:
         raise HTTPException(
             status_code=404,
-            detail=f"Serial '{payload.serial_number}' no encontrado para el producto"
+            detail=f"Serial '{cleaned}' no encontrado para el producto"
         )
 
     # Verificar que esté disponible en el warehouse origen
     if serial_item.warehouse_id != delivery.warehouse_from_id:
         raise HTTPException(
             status_code=400,
-            detail=f"Serial '{payload.serial_number}' no está disponible en el depósito origen"
+            detail=f"Serial '{cleaned}' no está disponible en el depósito origen"
         )
 
     # Verificar duplicado en esta entrega
     existing = db.execute(
         select(MaterialDeliveryItem).where(
             MaterialDeliveryItem.delivery_id == delivery_id,
-            MaterialDeliveryItem.serial_number == payload.serial_number,
+            MaterialDeliveryItem.serial_number == cleaned,
         )
     ).scalar_one_or_none()
 
@@ -474,10 +627,10 @@ def scan_serial(
         return SerialScanResponse(
             success=False,
             serial_item_id=serial_item.id,
-            serial_number=payload.serial_number,
+            serial_number=cleaned,
             product_name=serial_item.product.name if serial_item.product else "",
             already_scanned=True,
-            message=f"Serial '{payload.serial_number}' ya fue escaneado en esta entrega"
+            message=f"Serial '{cleaned}' ya fue escaneado en esta entrega"
         )
 
     # Agregar como item
@@ -488,7 +641,7 @@ def scan_serial(
         quantity_delivered=1.0,
         is_serialized=True,
         serial_item_id=serial_item.id,
-        serial_number=payload.serial_number,
+        serial_number=cleaned,
         source=DeliveryItemSource.MANUAL,
     )
     db.add(item)
@@ -643,15 +796,66 @@ def scan_receipt_item(
     payload: BarcodeScanRequest,
     db: Session = Depends(get_db)
 ):
-    """Escanear un producto para recepción de materiales."""
+    """Escanear un código para recepción de materiales (devolución).
+
+    Usa el BarcodeScannerEngine para identificar automáticamente:
+    - PRODUCT_CODE: busca SKU en catálogo
+    - SERIAL_NUMBER: auto-resuelve producto desde serial_items
+    - MAC_ADDRESS: descartada
+    """
+    from src.barcode_reader import BarcodeScannerEngine, ScanContext
+    from src.barcode_reader.validators import (
+        MacAddressFilter,
+        ProductCodeValidator,
+    )
+
     receipt = db.get(MaterialReceipt, receipt_id)
     if not receipt:
         raise HTTPException(status_code=404, detail="Recepción no encontrada")
 
-    product = db.execute(
-        select(Product).where(Product.sku == payload.product_code)
-    ).scalar_one_or_none()
+    cleaned = payload.product_code.strip().upper()
 
+    engine = BarcodeScannerEngine()
+    engine.register_validators(
+        MacAddressFilter(),
+        ProductCodeValidator(),
+    )
+    result = engine.identify(cleaned, ScanContext(module="RECEIPT"), db=db)
+
+    # MAC: descartar
+    if result.type.name == "MAC_ADDRESS":
+        raise HTTPException(
+            status_code=400,
+            detail="Dirección MAC detectada e ignorada"
+        )
+
+    # UNKNOWN
+    if result.type.name == "UNKNOWN" or not result.validated:
+        raise HTTPException(
+            status_code=400,
+            detail=result.message or f"Código '{payload.product_code}' no reconocido"
+        )
+
+    # SERIAL_NUMBER: auto-resolver producto
+    product_id = result.product_id
+    product_name = result.product_name or "Producto"
+
+    if result.type.name == "SERIAL_NUMBER" and not product_id:
+        # Intentar resolver desde serial_items
+        serial_item = db.execute(
+            select(SerialItem).where(SerialItem.serial_number == cleaned)
+        ).scalar_one_or_none()
+        if serial_item:
+            product_id = serial_item.product_id
+            product_name = serial_item.product.name if serial_item.product else "Producto"
+
+    if not product_id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No se pudo resolver el producto para '{cleaned}'"
+        )
+
+    product = db.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
@@ -665,11 +869,13 @@ def scan_receipt_item(
     db.add(item)
     db.commit()
 
+    resolve_note = " (auto-resuelto desde serial)" if result.type.name == "SERIAL_NUMBER" else ""
     return {
         "success": True,
         "product_id": product.id,
         "product_name": product.name,
-        "message": f"Producto '{product.name}' recibido"
+        "scan_type": result.type.name,
+        "message": f"Producto '{product.name}' recibido{resolve_note}",
     }
 
 

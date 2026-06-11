@@ -107,6 +107,8 @@ export default function WarehouseDetail() {
         return <Truck className="w-6 h-6 text-emerald-400" />;
       case 'VIRTUAL':
         return <Archive className="w-6 h-6 text-purple-400" />;
+      case 'AUXILIAR':
+        return <Archive className="w-6 h-6 text-amber-400" />;
       default:
         return <Package className="w-6 h-6 text-zinc-400" />;
     }
@@ -120,6 +122,8 @@ export default function WarehouseDetail() {
         return 'text-emerald-400';
       case 'VIRTUAL':
         return 'text-purple-400';
+      case 'AUXILIAR':
+        return 'text-amber-400';
       default:
         return 'text-zinc-400';
     }
@@ -170,6 +174,8 @@ export default function WarehouseDetail() {
                 ? 'bg-blue-900/30 text-blue-300 border-blue-800'
                 : warehouse.warehouse_type === 'MOBILE'
                 ? 'bg-emerald-900/30 text-emerald-300 border-emerald-800'
+                : warehouse.warehouse_type === 'AUXILIAR'
+                ? 'bg-amber-900/30 text-amber-300 border-amber-800'
                 : 'bg-purple-900/30 text-purple-300 border-purple-800'
             }`}>
               {warehouse.warehouse_type}
