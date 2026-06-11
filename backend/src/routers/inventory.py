@@ -1766,3 +1766,80 @@ def confirm_scan_session(
             f"en '{warehouse.name if warehouse else 'N/A'}'"
         ),
     )
+
+
+@router.get("/resolve-scan")
+def resolve_scan(
+    query: str = Query(..., min_length=1, description="Código escaneado"),
+    db: Session = Depends(get_db),
+):
+    """
+    Endpoint de resolución ciega de códigos escaneados.
+
+    Busca el código en:
+    0. MAC address → retorna type=mac (ignorar)
+    1. Product.sku → retorna producto
+    2. SerialItem.serial_number → retorna serial con producto asociado
+
+    No requiere delivery_id. Útil para pre-filtro en frontend y
+    validación antes de crear la entrega.
+    """
+    from src.barcode_reader.validators import _is_mac_address
+
+    cleaned = query.strip().upper()
+
+    # 0. Detectar MAC address primero (antes de buscar en DB)
+    if _is_mac_address(cleaned):
+        return {
+            "type": "mac",
+            "message": "Dirección MAC detectada — ignorada",
+        }
+
+    # 1. Buscar por SKU de producto
+    product = db.execute(
+        select(Product).where(Product.sku.ilike(cleaned))
+    ).scalar_one_or_none()
+
+    if product:
+        return {
+            "type": "product",
+            "product": {
+                "id": product.id,
+                "name": product.name,
+                "sku": product.sku,
+                "is_serialized": product.type == ProductType.SERIALIZED,
+                "serial_validation_regex": product.serial_validation_regex,
+            },
+        }
+
+    # 2. Buscar por serial number
+    serial_item = db.execute(
+        select(SerialItem).where(SerialItem.serial_number == cleaned)
+    ).scalar_one_or_none()
+
+    if serial_item:
+        if serial_item.status != SerialItemStatus.NEW:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Serial '{cleaned}' no está disponible (status: {serial_item.status.value})",
+            )
+        return {
+            "type": "serial",
+            "serial": {
+                "id": serial_item.id,
+                "serial_number": serial_item.serial_number,
+                "product_id": serial_item.product_id,
+                "warehouse_id": serial_item.warehouse_id,
+                "status": serial_item.status.value,
+            },
+            "product": {
+                "id": serial_item.product.id if serial_item.product else None,
+                "name": serial_item.product.name if serial_item.product else None,
+            } if serial_item.product else None,
+        }
+
+    # 3. No encontrado
+    raise HTTPException(
+        status_code=404,
+        detail=f"Código '{query}' no encontrado en el sistema",
+    )

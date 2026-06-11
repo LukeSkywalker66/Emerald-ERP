@@ -94,6 +94,8 @@ def _delivery_to_response(delivery: MaterialDelivery) -> MaterialDeliveryRespons
                 product_name=item.product.name if item.product else None,
                 product_sku=item.product.sku if item.product else None,
                 product_group_name=item.product.group.name if item.product and item.product.group else None,
+                serial_validation_regex=item.product.serial_validation_regex if item.product else None,
+                product_type=item.product.type.value if item.product and item.product.type else None,
             )
             for item in (delivery.items or [])
         ]

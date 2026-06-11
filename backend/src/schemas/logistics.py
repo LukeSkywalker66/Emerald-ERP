@@ -42,6 +42,8 @@ class MaterialDeliveryItemResponse(BaseModel):
     product_name: Optional[str] = None
     product_sku: Optional[str] = None
     product_group_name: Optional[str] = None
+    serial_validation_regex: Optional[str] = None
+    product_type: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -58,6 +58,7 @@ export default function MaterialDeliveryWizard() {
   // Máquina de estados inteligente para escaneo en delivery
   const deliveryScanner = useDeliveryScanner({
     proposalItems,
+    deliveryId: delivery?.id || null,
     onItemScanned: (item) => {
       setScannedItems(prev => [...prev, item]);
       setBarcodeInput('');
@@ -66,6 +67,10 @@ export default function MaterialDeliveryWizard() {
     onError: (msg) => setError(msg),
     enabled: !scanComplete,
   });
+
+  const handleScanCallback = useCallback((code) => {
+    deliveryScanner.resolveScan(code);
+  }, [deliveryScanner]);
 
   // Build proposal map: product_id -> { quantity, product_name }
   const proposalMap = {};
@@ -624,29 +629,35 @@ export default function MaterialDeliveryWizard() {
             )}
           </div>
 
-          {/* Proposal items tracking */}
+          {/* Proposal items tracking — con conteo X de Y */}
           {Object.keys(proposalMap).length > 0 && (
             <div className="bg-zinc-800/30 rounded-lg divide-y divide-zinc-800">
               {Object.entries(proposalMap).map(([pid, info]) => {
-                const scanned = scannedCounts[pid] || 0;
-                const done = scanned >= 1;
+                const scanned = deliveryScanner.scannedCounts?.[pid] || scannedCounts[pid] || 0;
+                const required = deliveryScanner.requiredCounts?.[pid] || info.quantity || 1;
+                const done = scanned >= required;
                 return (
                   <div key={pid} className="flex items-center justify-between p-3">
                     <div className="flex items-center space-x-3">
                       {done ? (
                         <CheckCircle className="w-5 h-5 text-emerald-400" />
+                      ) : scanned > 0 ? (
+                        <div className="w-5 h-5 rounded-full border-2 border-yellow-500/50 bg-yellow-500/20" />
                       ) : (
                         <div className="w-5 h-5 rounded-full border-2 border-zinc-600" />
                       )}
                       <div>
-                        <p className="text-white text-sm">{info.product_name}</p>
+                        <p className="text-white text-sm">
+                          {info.product_name}
+                          <span className="text-zinc-500 ml-1">({scanned} de {required})</span>
+                        </p>
                         {info.product_sku && (
                           <code className="text-zinc-500 text-xs">{info.product_sku}</code>
                         )}
                       </div>
                     </div>
-                    <span className={`text-sm font-medium ${done ? 'text-emerald-400' : 'text-zinc-500'}`}>
-                      {done ? 'Escaneado' : 'Pendiente'}
+                    <span className={`text-sm font-medium ${done ? 'text-emerald-400' : scanned > 0 ? 'text-yellow-400' : 'text-zinc-500'}`}>
+                      {done ? 'Completo' : scanned > 0 ? 'Parcial' : 'Pendiente'}
                     </span>
                   </div>
                 );
@@ -654,37 +665,59 @@ export default function MaterialDeliveryWizard() {
             </div>
           )}
 
-          {/* Barcode Scanner (reutilizable) */}
+          {/* Barcode Scanner (reutilizable) — solo activo en IDLE */}
           <BarcodeScanner
-            onScan={(code) => {
-              setBarcodeInput(code);
-              // Pequeño delay para que se actualice el estado antes del handler
-              setTimeout(() => handleBarcodeScan(), 10);
-            }}
-            disabled={scanComplete}
-            placeholder={scanComplete ? 'Completado' : 'Escanear o ingresar SKU...'}
-            feedback={error ? { type: 'error', message: error } : null}
-            autoFocus={!scanComplete}
+            onScan={handleScanCallback}
+            disabled={scanComplete || deliveryScanner.scanMode === 'WAITING_SERIAL'}
+            placeholder={
+              scanComplete ? 'Completado' :
+              deliveryScanner.scanMode === 'WAITING_SERIAL' ? 'Escaneá el serial arriba...' :
+              'Escanear o ingresar SKU...'
+            }
+            feedback={
+              deliveryScanner.lastFeedback
+                ? { type: deliveryScanner.lastFeedback.type, message: deliveryScanner.lastFeedback.message }
+                : error ? { type: 'error', message: error } : null
+            }
+            autoFocus={!scanComplete && deliveryScanner.scanMode !== 'WAITING_SERIAL'}
           />
 
           {/* Serial Scanner — controlado por la máquina de estados */}
           {deliveryScanner.scanMode === 'WAITING_SERIAL' && (
             <SerialScanner
-              productName={deliveryScanner.pendingProductName || ''}
-              onScan={(serial) => deliveryScanner.resolveScan(serial)}
+              productName={`${deliveryScanner.pendingProductName || ''} (${deliveryScanner.pendingRemaining || '?'} pend.)`}
+              onScan={handleScanCallback}
               onCancel={() => deliveryScanner.reset()}
             />
           )}
 
-          {/* Scanned Items List (reutilizable) */}
+          {/* Scanned Items List — con nombre, SKU y serial */}
           {scannedItems.length > 0 ? (
-            <ScannedSerialsList
-              serials={scannedItems.map((item) =>
-                item.serial_number || `${item.product_name} (${item.product_sku})`
-              )}
-              readonly
-              emptyMessage="Los productos escaneados aparecerán aquí"
-            />
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-zinc-300">Items Escaneados ({scannedItems.length})</h3>
+              <div className="bg-zinc-800/30 rounded-lg divide-y divide-zinc-800 max-h-60 overflow-y-auto">
+                {scannedItems.map((item, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 group hover:bg-zinc-800/50">
+                    <div className="flex items-center space-x-3 min-w-0">
+                      <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-white text-sm truncate">{item.product_name}</p>
+                        <p className="text-zinc-500 text-xs truncate">
+                          {item.product_sku && <code className="mr-2">{item.product_sku}</code>}
+                          {item.serial_number && <span className="text-emerald-400">SN: {item.serial_number}</span>}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setScannedItems(prev => prev.filter((_, i) => i !== idx))}
+                      className="p-1 text-zinc-600 hover:text-red-400 hover:bg-red-900/20 rounded opacity-0 group-hover:opacity-100 transition-all"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
           ) : (
             <div className="text-center py-8">
               <Scan className="w-16 h-16 text-zinc-700 mx-auto mb-4" />
