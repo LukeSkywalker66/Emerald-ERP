@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, ShoppingCart, AlertCircle, Loader, CheckCircle } from 'lucide-react';
 import * as inventoryService from '@/services/inventory.service';
 import {
@@ -37,6 +37,63 @@ export default function StockAdjustments() {
   const [scannedSerials, setScannedSerials] = useState([]);
   const [scanFeedback, setScanFeedback] = useState(null);
   const [validatingSerial, setValidatingSerial] = useState(false);
+  const scannedSerialsRef = useRef([]);
+  const lastAcceptedSerialRef = useRef({ serial: null, ts: 0 });
+  const warningDismissTimeoutRef = useRef(null);
+
+  const DUPLICATE_FEEDBACK_SUPPRESSION_MS = 1200;
+
+  useEffect(() => {
+    scannedSerialsRef.current = scannedSerials;
+  }, [scannedSerials]);
+
+  const appendSerialIfNew = useCallback((rawSerial) => {
+    const serial = String(rawSerial || '').trim().toUpperCase();
+    if (!serial) return { status: 'invalid', serial: '' };
+
+    const now = Date.now();
+    const alreadyExists = scannedSerialsRef.current.includes(serial);
+
+    if (alreadyExists) {
+      const lastAccepted = lastAcceptedSerialRef.current;
+      if (lastAccepted.serial === serial && now - lastAccepted.ts <= DUPLICATE_FEEDBACK_SUPPRESSION_MS) {
+        return { status: 'suppressed', serial };
+      }
+      return { status: 'duplicate', serial };
+    }
+
+    const next = [...scannedSerialsRef.current, serial];
+    scannedSerialsRef.current = next;
+    setScannedSerials(next);
+    lastAcceptedSerialRef.current = { serial, ts: now };
+    return { status: 'added', serial, total: next.length };
+  }, []);
+
+  const showTransientWarning = useCallback((message) => {
+    setScanFeedback({ type: 'warning', message });
+
+    if (warningDismissTimeoutRef.current) {
+      clearTimeout(warningDismissTimeoutRef.current);
+    }
+
+    warningDismissTimeoutRef.current = setTimeout(() => {
+      setScanFeedback((prev) => {
+        if (prev?.type === 'warning' && prev?.message === message) {
+          return null;
+        }
+        return prev;
+      });
+      warningDismissTimeoutRef.current = null;
+    }, 1500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (warningDismissTimeoutRef.current) {
+        clearTimeout(warningDismissTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Cargar datos iniciales
   useEffect(() => {
@@ -138,21 +195,40 @@ export default function StockAdjustments() {
           });
         }
       } else if (response.scan_type === 'SERIAL_NUMBER') {
-        // Serial directamente escaneado - agregar a lista local
-        setScannedSerials((prev) => {
-          if (prev.includes(response.code)) {
-            setScanFeedback({ type: 'error', message: `Serial ${response.code} ya ingresado` });
-            return prev;
-          }
-          setScanFeedback({ type: 'success', message: `Serial ${response.code} registrado` });
-          return [...prev, response.code];
+        // Unificar criterio: validar también contra backend de serial (dup global + formato)
+        const serialValidation = await inventoryService.scanSerial({
+          serial_number: response.code,
+          product_id: parseInt(formData.product_id),
+          warehouse_id: parseInt(formData.warehouse_id),
         });
+
+        if (!serialValidation.success) {
+          setScanFeedback({
+            type: 'error',
+            message: serialValidation.message || `Serial ${response.code} inválido`,
+          });
+          return;
+        }
+
+        const localResult = appendSerialIfNew(response.code);
+        if (localResult.status === 'added') {
+          setScanFeedback({ type: 'success', message: `✅ Serial ${localResult.serial} registrado (${localResult.total} total)` });
+          return;
+        }
+        if (localResult.status === 'duplicate') {
+          setScanFeedback({ type: 'error', message: `Serial ${localResult.serial} ya ingresado` });
+          return;
+        }
+        // status=suppressed: informar sin error para no pisar éxito con falso negativo
+        if (localResult.status === 'suppressed') {
+          showTransientWarning(`Lectura duplicada ignorada: ${localResult.serial}`);
+        }
       }
     } catch (err) {
       const msg = err.response?.data?.detail || err.message || 'Error al escanear';
       setScanFeedback({ type: 'error', message: msg });
     }
-  }, [formData.product_id, formData.warehouse_id]);
+  }, [formData.product_id, formData.warehouse_id, showTransientWarning]);
 
   const handleSerialScan = useCallback(async (serial) => {
     if (!formData.product_id || !formData.warehouse_id || !scanningProduct) return;
@@ -162,37 +238,53 @@ export default function StockAdjustments() {
 
     try {
       // Solo validamos, no persistimos nada en DB
-      await inventoryService.scanSerial({
+      const validation = await inventoryService.scanSerial({
         serial_number: serial,
         product_id: parseInt(formData.product_id),
         warehouse_id: parseInt(formData.warehouse_id),
       });
 
-      // Dedup local
-      setScannedSerials((prev) => {
-        if (prev.includes(serial)) {
-          setScanFeedback({ type: 'error', message: `Serial ${serial} ya ingresado` });
-          return prev;
-        }
-        setScanFeedback({ type: 'success', message: `✅ Serial ${serial} registrado (${prev.length + 1} total)` });
-        return [...prev, serial];
-      });
+      if (!validation.success) {
+        setScanFeedback({
+          type: 'error',
+          message: validation.message || `Serial ${serial} inválido`,
+        });
+        return;
+      }
+
+      // Dedup local con supresión de doble lectura inmediata
+      const localResult = appendSerialIfNew(serial);
+      if (localResult.status === 'added') {
+        setScanFeedback({ type: 'success', message: `✅ Serial ${localResult.serial} registrado (${localResult.total} total)` });
+        return;
+      }
+      if (localResult.status === 'duplicate') {
+        setScanFeedback({ type: 'error', message: `Serial ${localResult.serial} ya ingresado` });
+        return;
+      }
+      if (localResult.status === 'suppressed') {
+        showTransientWarning(`Lectura duplicada ignorada: ${localResult.serial}`);
+      }
     } catch (err) {
       const msg = err.response?.data?.detail || err.message || 'Error al validar serial';
       setScanFeedback({ type: 'error', message: msg });
     } finally {
       setValidatingSerial(false);
     }
-  }, [formData.product_id, formData.warehouse_id]);
+  }, [formData.product_id, formData.warehouse_id, showTransientWarning]);
 
   const handleRemoveSerial = useCallback((serial) => {
-    setScannedSerials((prev) => prev.filter((s) => s !== serial));
+    const normalized = String(serial || '').trim().toUpperCase();
+    const next = scannedSerialsRef.current.filter((s) => s !== normalized);
+    scannedSerialsRef.current = next;
+    setScannedSerials(next);
   }, []);
 
   const handleResetScanSession = useCallback(() => {
     setScanMode('barcode');
     setScanningProduct(null);
     setScanFeedback(null);
+    lastAcceptedSerialRef.current = { serial: null, ts: 0 };
   }, []);
 
   const handleConfirmScanSession = useCallback(async () => {
@@ -225,9 +317,11 @@ export default function StockAdjustments() {
       // Resetear
       setFormData({ product_id: '', warehouse_id: '', quantity: '', serial_numbers: '', movement_type: 'PURCHASE', reference: '', notes: '' });
       setScannedSerials([]);
+      scannedSerialsRef.current = [];
       setScanMode('barcode');
       setScanningProduct(null);
       setScanFeedback(null);
+      lastAcceptedSerialRef.current = { serial: null, ts: 0 };
 
       // Recargar movimientos (si falla, no crashea la UI)
       try {
@@ -296,9 +390,11 @@ export default function StockAdjustments() {
         );
         // Resetear escaneo
         setScannedSerials([]);
+        scannedSerialsRef.current = [];
         setScanMode('barcode');
         setScanningProduct(null);
         setScanFeedback(null);
+        lastAcceptedSerialRef.current = { serial: null, ts: 0 };
         submissionOk = true;
       } catch (err) {
         console.error('Error registrando seriales:', err);
@@ -645,9 +741,11 @@ export default function StockAdjustments() {
                         reference: '', notes: '',
                       });
                       setScannedSerials([]);
+                      scannedSerialsRef.current = [];
                       setScanMode('barcode');
                       setScanningProduct(null);
                       setScanFeedback(null);
+                      lastAcceptedSerialRef.current = { serial: null, ts: 0 };
                       setError(null);
                       setSuccessMessage(null);
                     }}

@@ -1,301 +1,525 @@
 /**
- * useDeliveryScanner — Máquina de estados para escaneo ciego en entregas.
+ * useDeliveryScanner — Máquina de estados estricta para escaneo en entregas.
  *
  * Estados: IDLE | WAITING_SERIAL
  *
- * El hook actúa como clasificador inteligente:
- * 1. Clasifica localmente usando datos de la propuesta (SKU, regex)
- * 2. Si no puede clasificar, delega al API /resolve-scan (resolución ciega)
- * 3. El API detecta MAC addresses y retorna type='mac'
- * 4. Nunca bloquea códigos desconocidos — siempre intenta resolver
+ * Arquitectura en dos capas:
+ * - Capa 1 (clasificación): el frontend solo mantiene contexto de propuesta y
+ *   el estado WAITING_SERIAL. No decide disponibilidad real.
+ * - Capa 2 (API): la API es la única fuente de verdad para existencia,
+ *   duplicados y validación contra el depósito origen cuando existe delivery.
  *
  * Reglas estrictas:
- * 1. Bloqueo por isProcessing (promise guard, no debounce)
- * 2. Clasificación local solo por SKU o serial_validation_regex de la propuesta
- * 3. Sin hardcodear patrones MAC — el API los detecta
- *
- * @param {Object}   options
- * @param {Array}    options.proposalItems   - Items de la propuesta
- * @param {Function} options.onItemScanned   - Callback(item) cuando se escanea un ítem
- * @param {Function} options.onError         - Callback(msg) para errores
- * @param {boolean}  options.enabled         - Si el hook está activo
+ * 1. Bloqueo de concurrencia por isProcessing ref (NO debounce, NO setTimeout).
+ * 2. Anti-duplicados por serial_item_id (Set en ref).
+ * 3. Sin hardcodeo de patrones MAC en el hook.
+ * 4. Sin validación de existencia exclusivamente en el frontend.
  */
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef } from "react";
+import api from "@/api/client";
 
-// Audio feedback
+// ─── Audio feedback ───────────────────────────────────────────────────────────
+
 function playBeep(type) {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination); gain.gain.value = 0.1;
-    if (type === 'success') { osc.frequency.value = 880; osc.type = 'sine'; setTimeout(() => { osc.frequency.value = 1100; }, 80); }
-    else if (type === 'error') { osc.frequency.value = 200; osc.type = 'square'; }
-    else { osc.frequency.value = 600; osc.type = 'triangle'; }
-    osc.start(); gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    gain.gain.value = 0.1;
+    if (type === "success") {
+      osc.frequency.value = 880;
+      osc.type = "sine";
+      setTimeout(() => { osc.frequency.value = 1100; }, 80);
+    } else if (type === "error") {
+      osc.frequency.value = 200;
+      osc.type = "square";
+    } else {
+      osc.frequency.value = 600;
+      osc.type = "triangle";
+    }
+    osc.start();
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
     osc.stop(ctx.currentTime + 0.15);
   } catch (_) {}
 }
 
-/**
- * Clasificador local: intenta identificar el código usando datos de la propuesta.
- * Retorna { type: 'sku'|'serial', product_id, item } o null si no puede clasificar.
- */
-function classifyLocal(code, proposalItems) {
-  const upper = (code || '').toUpperCase();
-  for (const item of proposalItems) {
-    // A) Match exacto de SKU
-    if (item.product_sku?.toUpperCase() === upper) {
-      return { type: 'sku', product_id: item.product_id, item };
-    }
-    // B) Match contra serial_validation_regex del producto
-    if (item.serial_validation_regex) {
-      try {
-        if (new RegExp(item.serial_validation_regex).test(upper)) {
-          return { type: 'serial', product_id: item.product_id, item };
-        }
-      } catch (_) {}
-    }
-  }
-  return null;
-}
+// ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useDeliveryScanner({
   proposalItems = [],
+  deliveryId = null,
   onItemScanned,
   onError,
   enabled = true,
 } = {}) {
-  const [scanMode, setScanMode] = useState('IDLE'); // IDLE | WAITING_SERIAL
-  const [pendingProductId, setPendingProductId] = useState(null);
-  const [pendingProductName, setPendingProductName] = useState(null);
+  const [scanMode, setScanMode] = useState("IDLE"); // "IDLE" | "WAITING_SERIAL"
+  const [pendingProduct, setPendingProduct] = useState(null); // { id, name, requirementKey, groupId }
   const [pendingRemaining, setPendingRemaining] = useState(0);
   const [lastFeedback, setLastFeedback] = useState(null);
-  const feedbackTimer = useRef(null);
+
   const isProcessing = useRef(false);
-
-  // Contadores de requeridos por producto (desde proposalItems)
-  const requiredCounts = {};
-  proposalItems.forEach(item => {
-    const pid = item.product_id; if (!pid) return;
-    requiredCounts[pid] = (requiredCounts[pid] || 0) + (item.suggested_quantity || item.quantity_proposed || item.quantity_delivered || 1);
-  });
+  const scannedSerialIds = useRef(new Set()); // Anti-duplicados por serial_item_id
   const scannedCounts = useRef({});
-  const getRemaining = (pid) => (requiredCounts[pid] || 0) - (scannedCounts.current[pid] || 0);
+  const feedbackTimer = useRef(null);
 
-  // Auto-dismiss feedback after 4s
+  const productToGroup = {};
+  const requirementByProduct = {};
+  const requirementByGroup = {};
+  const requirementLabels = {};
+  const requiredCounts = {};
+
+  proposalItems.forEach((item) => {
+    if (item.product_id == null) return;
+    const qty = item.suggested_quantity ?? item.quantity_proposed ?? item.quantity_delivered ?? 1;
+    const isGroupReq = item.is_group_requirement && item.group_id != null;
+    const key = isGroupReq ? `GROUP:${item.group_id}` : `PRODUCT:${item.product_id}`;
+    const label = isGroupReq && item.group_name ? `Grupo ${item.group_name}` : (item.product_name || `Producto #${item.product_id}`);
+
+    requiredCounts[key] = (requiredCounts[key] || 0) + qty;
+    requirementLabels[key] = requirementLabels[key] || label;
+    requirementByProduct[item.product_id] = key;
+    if (item.group_id != null) {
+      requirementByGroup[item.group_id] = key;
+      productToGroup[item.product_id] = item.group_id;
+    }
+  });
+
+  const resolveRequirementKey = useCallback((productId, groupId = null) => {
+    if (groupId != null && requirementByGroup[groupId]) return requirementByGroup[groupId];
+    return requirementByProduct[productId] || null;
+  }, [proposalItems]);
+
+  const resolveRequirementLabel = useCallback((requirementKey, fallback = "Producto") => {
+    return requirementLabels[requirementKey] || fallback;
+  }, [proposalItems]);
+
+  const getRemaining = useCallback((requirementKey) => {
+    return Math.max(0, (requiredCounts[requirementKey] || 0) - (scannedCounts.current[requirementKey] || 0));
+  }, [proposalItems]);
+
   const setTimedFeedback = useCallback((fb) => {
     setLastFeedback(fb);
     if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
     if (fb) feedbackTimer.current = setTimeout(() => setLastFeedback(null), 4000);
   }, []);
 
-  /**
-   * Busca info de un producto en los proposalItems.
-   */
-  const getProposalProductInfo = useCallback((productId) => {
-    const item = proposalItems.find(i => i.product_id === productId);
-    if (!item) return null;
-    return {
-      id: item.product_id,
-      name: item.product_name,
-      sku: item.product_sku,
-      is_serialized: item.is_serialized,
-    };
-  }, [proposalItems]);
+  const registerLocalSerial = useCallback((payload) => {
+    scannedSerialIds.current.add(payload.serial_item_id);
+    const key = payload.requirement_key || resolveRequirementKey(payload.product_id, payload.product_group_id);
+    if (key == null) return 0;
+    scannedCounts.current[key] = (scannedCounts.current[key] || 0) + 1;
+    onItemScanned?.(payload);
+    return getRemaining(key);
+  }, [getRemaining, onItemScanned, resolveRequirementKey]);
 
-  /**
-   * Resuelve un código escaneado.
-   * Flujo:
-   * 1. Clasificación local (SKU / regex serial)
-   * 2. Si clasificado → ruteo inmediato
-   * 3. Si no clasificado → API /resolve-scan (resolución ciega)
-   */
-  const resolveScan = useCallback(async (code) => {
-    // Regla 1: bloqueo por promesa activa
-    if (isProcessing.current) return;
-    isProcessing.current = true;
+  const registerLocalBulk = useCallback((payload) => {
+    const key = payload.requirement_key || resolveRequirementKey(payload.product_id, payload.product_group_id);
+    if (key == null) return 0;
+    scannedCounts.current[key] = (scannedCounts.current[key] || 0) + 1;
+    onItemScanned?.(payload);
+    return getRemaining(key);
+  }, [getRemaining, onItemScanned, resolveRequirementKey]);
 
-    try {
-      // ─── Capa 1: Clasificación local ───
-      const local = classifyLocal(code, proposalItems);
+  const handleApiError = useCallback((err, fallbackMessage) => {
+    playBeep("error");
+    const msg = err.response?.data?.detail ?? fallbackMessage;
+    setTimedFeedback({ type: "error", message: msg });
+    onError?.(msg);
+  }, [onError, setTimedFeedback]);
 
-      // ─── Caso A: Clasificado como SKU ───
-      if (local && local.type === 'sku') {
-        const info = getProposalProductInfo(local.product_id);
-        if (!info) {
-          // Producto en propuesta pero sin datos → resolver por API
-          // (no debería pasar, pero fallback)
-        } else if (info.is_serialized) {
-          // Producto serializado → entrar en WAITING_SERIAL
-          const remaining = getRemaining(info.id);
-          playBeep('info');
-          setScanMode('WAITING_SERIAL');
-          setPendingProductId(info.id);
-          setPendingProductName(info.name);
-          setPendingRemaining(remaining > 0 ? remaining : 1);
-          setTimedFeedback({ type: 'info', message: `${info.name}. Faltan ${remaining > 0 ? remaining : 1} serial(es).` });
-          isProcessing.current = false;
-          return;
-        } else {
-          // Producto no serializado → agregar directo
-          playBeep('success');
-          scannedCounts.current[info.id] = (scannedCounts.current[info.id] || 0) + 1;
-          onItemScanned?.({ product_id: info.id, product_name: info.name, product_sku: info.sku });
-          setTimedFeedback({ type: 'success', message: `${info.name} agregado.` });
-          isProcessing.current = false;
-          return;
-        }
-      }
+  const resolveScan = useCallback(
+    async (code) => {
+      if (enabled === false) return;
+      // Bloqueo de concurrencia — gobernado por el ciclo de vida de la promesa
+      if (isProcessing.current) return;
+      isProcessing.current = true;
 
-      // ─── Caso B: Clasificado como Serial (regex match) ───
-      if (local && local.type === 'serial') {
-        const info = getProposalProductInfo(local.product_id);
+      try {
+        const upper = (code ?? "").trim().toUpperCase();
+        if (upper.length === 0) return;
 
-        if (scanMode === 'WAITING_SERIAL') {
-          // Validar que el serial pertenece al producto esperado
-          if (local.product_id === pendingProductId) {
-            playBeep('success');
-            const pid = pendingProductId;
-            scannedCounts.current[pid] = (scannedCounts.current[pid] || 0) + 1;
-            const remaining = getRemaining(pid);
-            onItemScanned?.({
-              product_id: pid, product_name: pendingProductName,
-              serial_number: code, is_serialized: true,
-            });
-            if (remaining > 0) {
-              setPendingRemaining(remaining);
-              setTimedFeedback({ type: 'success', message: `Serial confirmado. Faltan ${remaining}.` });
-            } else {
-              setTimedFeedback({ type: 'success', message: `¡Completo para ${pendingProductName}!` });
-              setScanMode('IDLE'); setPendingProductId(null); setPendingProductName(null); setPendingRemaining(0);
+        setLastFeedback(null);
+
+        // ─── WAITING_SERIAL: validar serial para producto pendiente ─────────
+        if (scanMode === "WAITING_SERIAL" && pendingProduct != null) {
+          if (deliveryId != null) {
+            try {
+              const resolvedResp = await api.get(
+                "/v2/inventory/resolve-scan?query=" + encodeURIComponent(upper)
+              );
+              const resolved = resolvedResp.data;
+
+              if (resolved.type !== "serial") {
+                playBeep("error");
+                setTimedFeedback({
+                  type: "error",
+                  message: "Se esperaba un serial válido.",
+                });
+                return;
+              }
+
+              const scannedGroupId = resolved.product?.group_id ?? null;
+              const requirementKey = resolveRequirementKey(resolved.serial.product_id, scannedGroupId);
+              const sameRequirement = pendingProduct.requirementKey === requirementKey;
+              if (sameRequirement === false) {
+                playBeep("error");
+                setTimedFeedback({
+                  type: "error",
+                  message: "Serial incorrecto. Se esperaba un serial del requerimiento activo.",
+                });
+                onError?.("Serial incorrecto para el requerimiento activo.");
+                return;
+              }
+
+              const response = await api.post(
+                `/v2/logistics/deliveries/${deliveryId}/scan-serial`,
+                {
+                  product_id: resolved.serial.product_id,
+                  serial_number: resolved.serial.serial_number,
+                }
+              );
+              const result = response.data;
+
+              if (result.already_scanned) {
+                playBeep("error");
+                setTimedFeedback({ type: "error", message: result.message });
+                onError?.(result.message);
+                return;
+              }
+
+              if (scannedSerialIds.current.has(result.serial_item_id)) {
+                playBeep("error");
+                setTimedFeedback({ type: "error", message: "Este serial ya fue escaneado." });
+                onError?.("Este serial ya fue escaneado.");
+                return;
+              }
+
+              const remaining = registerLocalSerial({
+                product_id: resolved.serial.product_id,
+                product_name: result.product_name || resolved.product?.name || pendingProduct.name,
+                serial_number: result.serial_number,
+                delivery_item_id: result.delivery_item_id ?? null,
+                serial_item_id: result.serial_item_id,
+                product_group_id: scannedGroupId,
+                requirement_key: pendingProduct.requirementKey,
+                is_serialized: true,
+              });
+
+              playBeep("success");
+              setScanMode("IDLE");
+              setPendingProduct(null);
+              setPendingRemaining(0);
+              if (remaining <= 0) {
+                setTimedFeedback({ type: "success", message: "Completo para " + (pendingProduct.name || result.product_name || "requerimiento") + "!" });
+              } else {
+                setTimedFeedback({ type: "success", message: result.message || ("Serial confirmado. Faltan " + remaining + ".") });
+              }
+              return;
+            } catch (err) {
+              handleApiError(err, "Error validando serial en el depósito origen.");
+              return;
             }
-            isProcessing.current = false;
-            return;
-          } else {
-            // Serial de otro producto → warning
-            playBeep('error');
-            setTimedFeedback({ type: 'error', message: `Serial de ${info?.name || 'otro producto'}. Se esperaba: ${pendingProductName}` });
-            isProcessing.current = false;
+          }
+        }
+
+        // ─── Capa 2: Validación de existencia en la API ─────────────────────
+        // La API es la única fuente de verdad para clasificación del código.
+        let resolved;
+        try {
+          const response = await api.get(
+            "/v2/inventory/resolve-scan?query=" + encodeURIComponent(upper)
+          );
+          resolved = response.data;
+        } catch (err) {
+          if (err.response?.status === 404 || err.response?.status === 400) {
+            handleApiError(err, "Código no reconocido.");
             return;
           }
-        } else {
-          // IDLE + serial detectado → agregar directo (el regex ya identificó el producto)
-          if (info) {
-            playBeep('success');
-            scannedCounts.current[info.id] = (scannedCounts.current[info.id] || 0) + 1;
-            onItemScanned?.({
-              product_id: info.id, product_name: info.name,
-              serial_number: code, is_serialized: true,
+          throw err; // error de red u otro → catch externo
+        }
+
+        // ─── Tipo: Producto ─────────────────────────────────────────────────
+        if (resolved.type === "product") {
+          const p = resolved.product;
+
+          const requirementKey = resolveRequirementKey(p.id, p.group_id ?? null);
+          if (requirementKey == null) {
+            playBeep("error");
+            setTimedFeedback({
+              type: "error",
+              message: p.name + " no forma parte de esta propuesta.",
             });
-            setTimedFeedback({ type: 'success', message: `Serial → ${info.name}` });
-            isProcessing.current = false;
             return;
           }
-          // Si no hay info del producto, caer a API
-        }
-      }
 
-      // ─── Capa 2: API de resolución ciega ───
-      const { default: api } = await import('@/api/client');
-      const response = await api.get(`/v2/inventory/resolve-scan?query=${encodeURIComponent(code)}`);
-      const resolved = response.data;
+          if (p.is_serialized) {
+            const remaining = getRemaining(requirementKey);
+            if (remaining <= 0) {
+              playBeep("error");
+              const msg = p.name + " ya alcanzó la cantidad requerida.";
+              setTimedFeedback({ type: "error", message: msg });
+              onError?.(msg);
+              return;
+            }
+            playBeep("info");
+            const requirementLabel = resolveRequirementLabel(requirementKey, p.name);
+            setScanMode("WAITING_SERIAL");
+            setPendingProduct({
+              id: p.id,
+              name: requirementLabel,
+              groupId: p.group_id ?? productToGroup[p.id] ?? null,
+              requirementKey,
+            });
+            setPendingRemaining(remaining);
+            setTimedFeedback({
+              type: "info",
+              message: requirementLabel + " — escaneá " + remaining + " serial(es).",
+            });
+          } else {
+            if ((scannedCounts.current[requirementKey] || 0) >= (requiredCounts[requirementKey] || 0)) {
+              playBeep("error");
+              const msg = p.name + " ya alcanzó la cantidad requerida.";
+              setTimedFeedback({ type: "error", message: msg });
+              onError?.(msg);
+              return;
+            }
 
-      // ─── API: MAC address ───
-      if (resolved.type === 'mac') {
-        playBeep('error');
-        setTimedFeedback({ type: 'error', message: 'Dirección MAC detectada — ignorada.' });
-        return;
-      }
+            if (deliveryId != null) {
+              try {
+                const response = await api.post(
+                  `/v2/logistics/deliveries/${deliveryId}/scan-barcode`,
+                  { product_code: upper, quantity: 1 }
+                );
+                const result = response.data;
+                playBeep(result.already_scanned ? "info" : "success");
+                registerLocalBulk({
+                  product_id: p.id,
+                  product_name: p.name,
+                  product_sku: p.sku,
+                  product_group_id: p.group_id ?? null,
+                  requirement_key: requirementKey,
+                  is_serialized: false,
+                });
+                setTimedFeedback({
+                  type: result.already_scanned ? "info" : "success",
+                  message: result.message || (p.name + " agregado."),
+                });
+                return;
+              } catch (err) {
+                handleApiError(err, "Producto no disponible en el depósito origen.");
+                return;
+              }
+            }
 
-      // ─── API: Producto ───
-      if (resolved.type === 'product') {
-        const p = resolved.product;
-        if (p.is_serialized) {
-          const remaining = getRemaining(p.id);
-          playBeep('info');
-          setScanMode('WAITING_SERIAL'); setPendingProductId(p.id);
-          setPendingProductName(p.name); setPendingRemaining(remaining > 0 ? remaining : 1);
-          setTimedFeedback({ type: 'info', message: `${p.name}. Faltan ${remaining > 0 ? remaining : 1} serial(es).` });
-        } else {
-          playBeep('success');
-          scannedCounts.current[p.id] = (scannedCounts.current[p.id] || 0) + 1;
-          onItemScanned?.({ product_id: p.id, product_name: p.name, product_sku: p.sku });
-          setTimedFeedback({ type: 'success', message: `${p.name} agregado.` });
-        }
-        return;
-      }
-
-      // ─── API: Serial ───
-      if (resolved.type === 'serial') {
-        const pid = resolved.serial?.product_id;
-        const pname = resolved.product?.name;
-        const sid = resolved.serial?.id;
-
-        // Dedup: verificar que este serial_item_id no fue ya escaneado
-        if (sid && scannedCounts.current[`_sn_${sid}`]) {
-          playBeep('error');
-          setTimedFeedback({ type: 'error', message: 'Este serial ya fue escaneado.' });
+            playBeep("success");
+            registerLocalBulk({
+              product_id: p.id,
+              product_name: p.name,
+              product_sku: p.sku,
+              product_group_id: p.group_id ?? null,
+              requirement_key: requirementKey,
+              is_serialized: false,
+            });
+            setTimedFeedback({ type: "success", message: p.name + " agregado." });
+          }
           return;
         }
 
-        if (scanMode === 'WAITING_SERIAL') {
-          if (pid === pendingProductId) {
-            playBeep('success');
-            scannedCounts.current[pid] = (scannedCounts.current[pid] || 0) + 1;
-            if (sid) scannedCounts.current[`_sn_${sid}`] = 1;
-            const remaining = getRemaining(pid);
-            onItemScanned?.({
-              product_id: pid, product_name: pendingProductName,
-              serial_number: resolved.serial.serial_number, is_serialized: true,
+        // ─── Tipo: Serial ───────────────────────────────────────────────────
+        if (resolved.type === "serial") {
+          const { serial, product } = resolved;
+
+          // Status debe ser NEW (la API ya retorna 400 si no, pero validamos localmente también)
+          if (serial.status !== "NEW") {
+            playBeep("error");
+            setTimedFeedback({
+              type: "error",
+              message: "Serial no disponible (estado: " + serial.status + ").",
             });
-            if (remaining > 0) {
-              setPendingRemaining(remaining);
-              setTimedFeedback({ type: 'success', message: `Serial confirmado. Faltan ${remaining}.` });
-            } else {
-              setTimedFeedback({ type: 'success', message: `¡Completo para ${pendingProductName}!` });
-              setScanMode('IDLE'); setPendingProductId(null); setPendingProductName(null); setPendingRemaining(0);
-            }
-          } else {
-            playBeep('error');
-            onError?.(`Serial incorrecto. Se esperaba serial de: ${pendingProductName}`);
+            return;
           }
-        } else {
-          // IDLE + serial encontrado por API → agregar directo
-          scannedCounts.current[pid] = (scannedCounts.current[pid] || 0) + 1;
-          if (sid) scannedCounts.current[`_sn_${sid}`] = 1;
-          playBeep('success');
-          onItemScanned?.({
-            product_id: pid, product_name: pname,
-            serial_number: resolved.serial.serial_number, is_serialized: true,
+
+          // El producto del serial debe estar en la propuesta
+          const serialGroupId = product?.group_id ?? productToGroup[serial.product_id] ?? null;
+          const requirementKey = resolveRequirementKey(serial.product_id, serialGroupId);
+          if (requirementKey == null) {
+            playBeep("error");
+            setTimedFeedback({
+              type: "error",
+              message: "Este serial pertenece a un producto fuera de la propuesta.",
+            });
+            return;
+          }
+
+          // Anti-duplicado local por serial_item_id
+          if (scannedSerialIds.current.has(serial.id)) {
+            playBeep("error");
+            setTimedFeedback({ type: "error", message: "Este serial ya fue escaneado." });
+            return;
+          }
+
+          // En WAITING_SERIAL, el serial debe pertenecer al producto esperado
+          if (scanMode === "WAITING_SERIAL" && pendingProduct != null) {
+            if (pendingProduct.requirementKey !== requirementKey) {
+              playBeep("error");
+              setTimedFeedback({
+                type: "error",
+                message: "Serial incorrecto. Se esperaba serial del requerimiento activo.",
+              });
+              return;
+            }
+          }
+
+          if ((scannedCounts.current[requirementKey] || 0) >= (requiredCounts[requirementKey] || 0)) {
+            playBeep("error");
+            const msg = (product?.name ?? "Producto") + " ya alcanzó la cantidad requerida.";
+            setTimedFeedback({ type: "error", message: msg });
+            onError?.(msg);
+            return;
+          }
+
+          if (deliveryId != null) {
+            try {
+              const response = await api.post(
+                `/v2/logistics/deliveries/${deliveryId}/scan-serial`,
+                {
+                  product_id: serial.product_id,
+                  serial_number: serial.serial_number,
+                }
+              );
+              const result = response.data;
+
+              if (result.already_scanned) {
+                playBeep("error");
+                setTimedFeedback({ type: "error", message: result.message });
+                onError?.(result.message);
+                return;
+              }
+
+              const remaining = registerLocalSerial({
+                product_id: serial.product_id,
+                product_name: product?.name ?? result.product_name ?? pendingProduct?.name ?? "Producto",
+                serial_number: result.serial_number,
+                delivery_item_id: result.delivery_item_id ?? null,
+                serial_item_id: result.serial_item_id,
+                product_group_id: serialGroupId,
+                requirement_key: requirementKey,
+                is_serialized: true,
+              });
+
+              playBeep("success");
+              if (scanMode === "WAITING_SERIAL") {
+                setScanMode("IDLE");
+                setPendingProduct(null);
+                setPendingRemaining(0);
+              }
+              if (remaining <= 0) {
+                setTimedFeedback({
+                  type: "success",
+                  message: "Completo para " + (product?.name ?? result.product_name ?? "Producto") + "!",
+                });
+              } else {
+                setTimedFeedback({
+                  type: "success",
+                  message: result.message || ("Serial confirmado. Faltan " + remaining + "."),
+                });
+              }
+              return;
+            } catch (err) {
+              handleApiError(err, "Serial no disponible en el depósito origen.");
+              return;
+            }
+          }
+
+          // Registrar serial
+          const pid = serial.product_id;
+          const remaining = registerLocalSerial({
+            product_id: pid,
+            product_name: product?.name ?? pendingProduct?.name ?? "Producto",
+            serial_number: serial.serial_number,
+            delivery_item_id: null,
+            serial_item_id: serial.id,
+            product_group_id: serialGroupId,
+            requirement_key: requirementKey,
+            is_serialized: true,
           });
-          setTimedFeedback({ type: 'success', message: `Serial directo → ${pname || 'producto'}.` });
+          const productName = product?.name ?? pendingProduct?.name ?? "Producto";
+
+          playBeep("success");
+          if (scanMode === "WAITING_SERIAL") {
+            setScanMode("IDLE");
+            setPendingProduct(null);
+            setPendingRemaining(0);
+          }
+          if (remaining <= 0) {
+            setTimedFeedback({
+              type: "success",
+              message: "Completo para " + productName + "!",
+            });
+          } else {
+            setTimedFeedback({
+              type: "success",
+              message: "Serial confirmado. Faltan " + remaining + ".",
+            });
+          }
+          return;
         }
-        return;
+
+        // Tipo de respuesta desconocido
+        playBeep("error");
+        setTimedFeedback({ type: "error", message: "Respuesta inesperada del servidor." });
+
+      } catch (err) {
+        handleApiError(err, "Error de comunicación con el servidor.");
+      } finally {
+        isProcessing.current = false;
       }
-
-      // ─── API: tipo desconocido ───
-      playBeep('error');
-      setTimedFeedback({ type: 'error', message: 'Código no reconocido por el sistema.' });
-
-    } catch (err) {
-      playBeep('error');
-      const msg = err.response?.data?.detail || err.message || 'Error al resolver';
-      onError?.(msg);
-    } finally {
-      isProcessing.current = false;
-    }
-  }, [scanMode, pendingProductId, pendingProductName, proposalItems, onItemScanned, onError, getProposalProductInfo]);
+    },
+    [deliveryId, enabled, getRemaining, handleApiError, onError, pendingProduct, productToGroup, proposalItems, registerLocalBulk, registerLocalSerial, requiredCounts, resolveRequirementKey, resolveRequirementLabel, scanMode, setTimedFeedback]
+  );
 
   const reset = useCallback(() => {
-    setScanMode('IDLE'); setPendingProductId(null);
-    setPendingProductName(null); setPendingRemaining(0);
+    setScanMode("IDLE");
+    setPendingProduct(null);
+    setPendingRemaining(0);
     setTimedFeedback(null);
-  }, []);
+    scannedSerialIds.current.clear();
+    scannedCounts.current = {};
+  }, [setTimedFeedback]);
+
+  const removeScannedItem = useCallback(async (item) => {
+    if (!item) return;
+
+    const key = item.requirement_key || resolveRequirementKey(item.product_id, item.product_group_id ?? null);
+    if (key != null && scannedCounts.current[key] != null) {
+      scannedCounts.current[key] = Math.max(0, scannedCounts.current[key] - 1);
+    }
+
+    if (item.serial_item_id != null) {
+      scannedSerialIds.current.delete(item.serial_item_id);
+    }
+
+    if (deliveryId != null && item.delivery_item_id != null) {
+      try {
+        await api.delete(`/v2/logistics/deliveries/${deliveryId}/items/${item.delivery_item_id}`);
+      } catch (err) {
+        handleApiError(err, "No se pudo deshacer el escaneo en el servidor.");
+      }
+    }
+  }, [deliveryId, handleApiError, resolveRequirementKey]);
 
   return {
-    scanMode, pendingProductId, pendingProductName, pendingRemaining,
-    scannedCounts: scannedCounts.current, requiredCounts,
-    lastFeedback, resolveScan, reset,
+    scanMode,
+    pendingProductId: pendingProduct?.id ?? null,
+    pendingProductName: pendingProduct?.name ?? null,
+    pendingRemaining,
+    scannedCounts: scannedCounts.current,
+    requiredCounts,
+    lastFeedback,
+    resolveScan,
+    removeScannedItem,
+    reset,
   };
 }

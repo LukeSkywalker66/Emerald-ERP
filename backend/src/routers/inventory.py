@@ -1591,6 +1591,23 @@ def scan_serial(
             message=result.message or "Formato de serial no válido para este producto",
         )
 
+    # Regla de compra: un SN existente en cualquier ubicación/estado
+    # ya pertenece a una compra previa y no puede registrarse nuevamente.
+    existing = db.execute(
+        select(SerialItem).where(SerialItem.serial_number == cleaned)
+    ).scalar_one_or_none()
+    if existing is not None:
+        existing_wh = db.get(Warehouse, existing.warehouse_id) if existing.warehouse_id else None
+        where_label = existing_wh.name if existing_wh else f"warehouse_id={existing.warehouse_id}"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"El serial {cleaned} ya fue ingresado previamente "
+                f"(estado: {existing.status.value}, ubicación: {where_label}). "
+                f"No se puede registrar nuevamente como compra."
+            ),
+        )
+
     # Solo validamos, NO persistimos. El frontend trackea los seriales.
     return ScanSerialResponse(
         success=True,
@@ -1777,23 +1794,14 @@ def resolve_scan(
     Endpoint de resolución ciega de códigos escaneados.
 
     Busca el código en:
-    0. MAC address → retorna type=mac (ignorar)
-    1. Product.sku → retorna producto
-    2. SerialItem.serial_number → retorna serial con producto asociado
+    1. Product.sku → retorna type=product
+    2. SerialItem.serial_number → retorna type=serial con producto asociado
+    Si no se encuentra → HTTP 404.
 
-    No requiere delivery_id. Útil para pre-filtro en frontend y
-    validación antes de crear la entrega.
+    El endpoint es agnóstico al tipo de código: no detecta MACs ni basura.
+    Esa responsabilidad corresponde al pre-filtro del frontend (Capa 1).
     """
-    from src.barcode_reader.validators import _is_mac_address
-
     cleaned = query.strip().upper()
-
-    # 0. Detectar MAC address primero (antes de buscar en DB)
-    if _is_mac_address(cleaned):
-        return {
-            "type": "mac",
-            "message": "Dirección MAC detectada — ignorada",
-        }
 
     # 1. Buscar por SKU de producto
     product = db.execute(
@@ -1807,6 +1815,8 @@ def resolve_scan(
                 "id": product.id,
                 "name": product.name,
                 "sku": product.sku,
+                "group_id": product.group_id,
+                "group_name": product.group.name if product.group else None,
                 "is_serialized": product.type == ProductType.SERIALIZED,
                 "serial_validation_regex": product.serial_validation_regex,
             },
@@ -1835,6 +1845,9 @@ def resolve_scan(
             "product": {
                 "id": serial_item.product.id if serial_item.product else None,
                 "name": serial_item.product.name if serial_item.product else None,
+                "sku": serial_item.product.sku if serial_item.product else None,
+                "group_id": serial_item.product.group_id if serial_item.product else None,
+                "group_name": serial_item.product.group.name if serial_item.product and serial_item.product.group else None,
             } if serial_item.product else None,
         }
 

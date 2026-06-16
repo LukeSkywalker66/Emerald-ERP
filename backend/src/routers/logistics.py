@@ -322,7 +322,7 @@ def add_delivery_item(
         is_serialized=payload.is_serialized,
         serial_item_id=payload.serial_item_id,
         serial_number=payload.serial_number,
-        source=DeliveryItemSource.MANUAL,
+        source=payload.source or DeliveryItemSource.MANUAL,
         notes=payload.notes,
     )
     db.add(item)
@@ -423,6 +423,21 @@ def scan_barcode(
     proposal_product_ids = frozenset(
         item.product_id for item in proposal_items if item.product_id
     )
+    proposal_group_ids = frozenset(
+        gid for gid in db.execute(
+            select(Product.group_id).where(Product.id.in_(proposal_product_ids))
+        ).scalars().all()
+        if gid is not None
+    ) if proposal_product_ids else frozenset()
+
+    def _is_allowed_by_proposal(product_id: int, group_id: Optional[int]) -> bool:
+        if not proposal_product_ids:
+            return True
+        if product_id in proposal_product_ids:
+            return True
+        if group_id is not None and group_id in proposal_group_ids:
+            return True
+        return False
 
     context = ScanContext(
         module="DELIVERY",
@@ -463,6 +478,13 @@ def scan_barcode(
                 detail=f"Serial '{cleaned}' no está disponible en el depósito origen"
             )
 
+        serial_group_id = serial_item.product.group_id if serial_item.product else None
+        if not _is_allowed_by_proposal(serial_item.product_id, serial_group_id):
+            raise HTTPException(
+                status_code=400,
+                detail=f"El serial '{cleaned}' pertenece a un producto fuera de la propuesta"
+            )
+
         # Verificar duplicado en esta entrega
         existing = db.execute(
             select(MaterialDeliveryItem).where(
@@ -477,6 +499,10 @@ def scan_barcode(
                 product_id=serial_item.product_id,
                 product_name=serial_item.product.name if serial_item.product else "",
                 product_sku=serial_item.product.sku if serial_item.product else "",
+                delivery_item_id=existing.id,
+                serial_item_id=serial_item.id,
+                serial_number=cleaned,
+                product_group_id=serial_group_id,
                 is_serialized=True,
                 already_scanned=True,
                 message=f"Serial '{cleaned}' ya fue escaneado en esta entrega"
@@ -495,6 +521,7 @@ def scan_barcode(
         )
         db.add(item)
         db.commit()
+        db.refresh(item)
 
         product = serial_item.product
         return BarcodeScanResponse(
@@ -502,6 +529,10 @@ def scan_barcode(
             product_id=product.id,
             product_name=f"{product.name} (auto-resuelto)" if product else cleaned,
             product_sku=product.sku if product else "",
+            delivery_item_id=item.id,
+            serial_item_id=serial_item.id,
+            serial_number=cleaned,
+            product_group_id=serial_group_id,
             is_serialized=True,
             already_scanned=False,
             message=f"Serial '{cleaned}' → {product.name if product else 'producto'} agregado"
@@ -513,42 +544,46 @@ def scan_barcode(
         raise HTTPException(status_code=404, detail=f"Producto '{payload.product_code}' no encontrado")
 
     # Validar contra propuesta si existe
-    if proposal_product_ids and product.id not in proposal_product_ids:
+    if not _is_allowed_by_proposal(product.id, product.group_id):
         raise HTTPException(
             status_code=400,
             detail=f"'{product.name}' no está en la propuesta de entrega"
         )
 
-    # Verificar si ya está escaneado
-    existing_item = db.execute(
-        select(MaterialDeliveryItem).where(
-            MaterialDeliveryItem.delivery_id == delivery_id,
-            MaterialDeliveryItem.product_id == product.id,
+    if product.type == ProductType.SERIALIZED:
+        return BarcodeScanResponse(
+            success=True,
+            product_id=product.id,
+            product_name=product.name,
+            product_sku=product.sku,
+            product_group_id=product.group_id,
+            is_serialized=True,
+            already_scanned=False,
+            message=f"Producto '{product.name}' identificado. Escaneá el serial."
+        )
+
+    available_bulk = db.execute(
+        select(StockBulk).where(
+            StockBulk.warehouse_id == delivery.warehouse_from_id,
+            StockBulk.product_id == product.id,
         )
     ).scalar_one_or_none()
 
-    already_scanned = existing_item is not None
-
-    if not already_scanned:
-        item = MaterialDeliveryItem(
-            delivery_id=delivery.id,
-            product_id=product.id,
-            quantity_proposed=payload.quantity or 1.0,
-            quantity_delivered=payload.quantity or 1.0,
-            is_serialized=product.type == ProductType.SERIALIZED,
-            source=DeliveryItemSource.MANUAL,
+    if not available_bulk or available_bulk.quantity <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{product.name}' no tiene stock disponible en el depósito origen"
         )
-        db.add(item)
-        db.commit()
 
     return BarcodeScanResponse(
         success=True,
         product_id=product.id,
         product_name=product.name,
         product_sku=product.sku,
-        is_serialized=product.type == ProductType.SERIALIZED,
-        already_scanned=already_scanned,
-        message=f"Producto '{product.name}' {'ya estaba' if already_scanned else 'agregado'} exitosamente"
+        product_group_id=product.group_id,
+        is_serialized=False,
+        already_scanned=False,
+        message=f"Producto '{product.name}' validado en depósito origen"
     )
 
 
@@ -596,19 +631,48 @@ def scan_serial(
             detail=validation.message or f"Formato de serial '{cleaned}' no válido para este producto"
         )
 
+    proposal_items = db.execute(
+        select(MaterialDeliveryItem).where(
+            MaterialDeliveryItem.delivery_id == delivery_id,
+            MaterialDeliveryItem.source == DeliveryItemSource.PROPOSAL,
+        )
+    ).scalars().all()
+    proposal_product_ids = frozenset(item.product_id for item in proposal_items if item.product_id)
+    proposal_group_ids = frozenset(
+        gid for gid in db.execute(
+            select(Product.group_id).where(Product.id.in_(proposal_product_ids))
+        ).scalars().all()
+        if gid is not None
+    ) if proposal_product_ids else frozenset()
+
+    if proposal_product_ids:
+        if payload.product_id not in proposal_product_ids and not (product and product.group_id in proposal_group_ids):
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{product.name if product else payload.product_id}' no está en la propuesta de entrega"
+            )
+
     # Buscar serial item
     serial_item = db.execute(
         select(SerialItem).where(
             SerialItem.serial_number == cleaned,
-            SerialItem.product_id == payload.product_id,
         )
     ).scalar_one_or_none()
 
     if not serial_item:
         raise HTTPException(
             status_code=404,
-            detail=f"Serial '{cleaned}' no encontrado para el producto"
+            detail=f"Serial '{cleaned}' no encontrado en el sistema"
         )
+
+    if serial_item.product_id != payload.product_id:
+        if product and serial_item.product and product.group_id and serial_item.product.group_id == product.group_id:
+            pass
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Serial '{cleaned}' no corresponde al producto esperado"
+            )
 
     # Verificar que esté disponible en el warehouse origen
     if serial_item.warehouse_id != delivery.warehouse_from_id:
@@ -628,6 +692,7 @@ def scan_serial(
     if existing:
         return SerialScanResponse(
             success=False,
+            delivery_item_id=existing.id,
             serial_item_id=serial_item.id,
             serial_number=cleaned,
             product_name=serial_item.product.name if serial_item.product else "",
@@ -648,9 +713,11 @@ def scan_serial(
     )
     db.add(item)
     db.commit()
+    db.refresh(item)
 
     return SerialScanResponse(
         success=True,
+        delivery_item_id=item.id,
         serial_item_id=serial_item.id,
         serial_number=payload.serial_number,
         product_name=serial_item.product.name if serial_item.product else "",
@@ -945,17 +1012,81 @@ def confirm_receipt(
 # ============================================
 
 
+@router.get("/team-schedule-dates")
+def get_team_schedule_dates(
+    team_id: int = Query(..., description="ID de la cuadrilla"),
+    days: int = Query(14, ge=1, le=60, description="Horizonte en días desde hoy"),
+    db: Session = Depends(get_db),
+):
+    """
+    Devuelve las fechas con OTs programadas para una cuadrilla en el horizonte dado.
+    Usado por el wizard para pintar el selector de días con indicadores de carga.
+    Retorna una lista de objetos {date, work_orders_count, ot_types}.
+    """
+    from datetime import timezone, timedelta
+    from src.models.tickets import WorkOrder, WorkOrderStatus
+
+    today = date.today()
+    horizon_end = today + timedelta(days=days - 1)
+
+    start_dt = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
+    end_dt = datetime.combine(horizon_end, datetime.max.time(), tzinfo=timezone.utc)
+
+    rows = db.execute(
+        select(
+            func.date_trunc("day", WorkOrder.scheduled_start).label("day"),
+            func.count(WorkOrder.id).label("count"),
+        )
+        .where(
+            WorkOrder.team_id == team_id,
+            WorkOrder.scheduled_start >= start_dt,
+            WorkOrder.scheduled_start <= end_dt,
+            WorkOrder.status.in_([
+                WorkOrderStatus.scheduled,
+                WorkOrderStatus.in_progress,
+                WorkOrderStatus.pending_planning,
+                WorkOrderStatus.coordinated,
+            ]),
+        )
+        .group_by(func.date_trunc("day", WorkOrder.scheduled_start))
+        .order_by(func.date_trunc("day", WorkOrder.scheduled_start))
+    ).all()
+
+    result = []
+    for row in rows:
+        # row.day es datetime UTC desde date_trunc
+        d = row.day.date() if hasattr(row.day, "date") else row.day
+        result.append({
+            "date": d.isoformat(),
+            "work_orders_count": row.count,
+        })
+
+    return {"team_id": team_id, "dates": result}
+
+
 @router.get("/proposal-preview", response_model=DeliveryProposalResponse)
 def preview_proposal(
     team_id: int = Query(..., description="ID de la cuadrilla"),
-    date_str: Optional[str] = Query(None, description="Fecha YYYY-MM-DD (default: hoy)"),
+    date_str: Optional[str] = Query(None, description="Fecha única YYYY-MM-DD"),
+    dates: Optional[str] = Query(None, description="Fechas separadas por coma: YYYY-MM-DD,YYYY-MM-DD"),
     db: Session = Depends(get_db)
 ):
-    """Vista previa de la propuesta de materiales sin crear una entrega."""
-    target_date = None
-    if date_str:
+    """
+    Vista previa de la propuesta de materiales sin crear una entrega.
+    Acepta 'dates' (coma-separado) para acumular OTs de múltiples fechas,
+    o 'date_str' para una fecha única (retrocompatibilidad).
+    Si ninguna se pasa, auto-detecta la próxima jornada con OTs.
+    """
+    target_dates: Optional[list] = None
+
+    if dates:
         try:
-            target_date = date.fromisoformat(date_str)
+            target_dates = [date.fromisoformat(d.strip()) for d in dates.split(",") if d.strip()]
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de fechas inválido. Usar YYYY-MM-DD,YYYY-MM-DD")
+    elif date_str:
+        try:
+            target_dates = [date.fromisoformat(date_str)]
         except ValueError:
             raise HTTPException(status_code=400, detail="Formato de fecha inválido. Usar YYYY-MM-DD")
 
@@ -963,7 +1094,7 @@ def preview_proposal(
         proposal = generate_delivery_proposal(
             db=db,
             team_id=team_id,
-            target_date=target_date
+            target_dates=target_dates,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -974,6 +1105,7 @@ def preview_proposal(
         vehicle_name=proposal["vehicle_name"],
         work_orders_count=proposal["work_orders_count"],
         generated_at=proposal["generated_at"],
+        effective_date=proposal.get("effective_date"),
         items=[
             DeliveryProposalItem(**item)
             for item in proposal["items"]

@@ -95,7 +95,12 @@ class DeliveryProposalItem(BaseModel):
     """Item de propuesta generada (antes de guardar)."""
     product_id: int
     product_name: str
-    product_sku: str
+    product_sku: Optional[str] = None
+    group_id: Optional[int] = None
+    group_name: Optional[str] = None
+    is_group_requirement: bool = False
+    serial_validation_regex: Optional[str] = None
+    product_type: Optional[str] = None
     is_composite: bool = False
     unit_size: Optional[float] = None
     unit_measure: Optional[str] = None
@@ -115,6 +120,7 @@ class DeliveryProposalResponse(BaseModel):
     vehicle_name: str
     work_orders_count: int
     generated_at: datetime
+    effective_date: Optional[str] = None  # Fecha real usada (puede ser != hoy)
     items: List[DeliveryProposalItem]
 
 
@@ -134,6 +140,10 @@ class BarcodeScanResponse(BaseModel):
     product_id: int
     product_name: str
     product_sku: str
+    delivery_item_id: Optional[int] = None
+    serial_item_id: Optional[int] = None
+    serial_number: Optional[str] = None
+    product_group_id: Optional[int] = None
     is_serialized: bool
     already_scanned: bool = False
     message: str
@@ -148,6 +158,7 @@ class SerialScanRequest(BaseModel):
 class SerialScanResponse(BaseModel):
     """Respuesta de un escaneo de serial."""
     success: bool
+    delivery_item_id: Optional[int] = None
     serial_item_id: int
     serial_number: str
     product_name: str
