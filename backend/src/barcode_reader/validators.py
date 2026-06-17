@@ -5,6 +5,7 @@ a specific type of code identification.
 """
 from __future__ import annotations
 import logging
+import re
 from typing import Optional
 
 from sqlalchemy import select
@@ -285,6 +286,64 @@ class MacAddressFilter:
             )
 
         return None
+
+
+# ============================================
+# Tracked Unit Validator
+# ============================================
+
+
+class TrackedUnitValidator:
+    """
+    Identifica códigos generados por Emerald para unidades trazables.
+
+    Formato esperado: AAA-YYYY-NNNNN
+    Ej: DRP-2026-00001
+    """
+
+    name: str = "tracked_unit"
+    priority: int = 15
+    _pattern = re.compile(r"^[A-Z]{3}-\d{4}-\d+$")
+
+    def validate(self, code: str, context: ScanContext) -> Optional[ScanResult]:
+        if not code or not code.strip():
+            return None
+
+        cleaned = code.strip().upper()
+        if not self._pattern.match(cleaned):
+            return None
+
+        db: Session = getattr(context, "_db", None)
+        if db is None:
+            return None
+
+        try:
+            from src.models.inventory import SerialItem
+
+            serial_item = db.execute(
+                select(SerialItem).where(SerialItem.serial_number == cleaned)
+            ).scalar_one_or_none()
+
+            if serial_item is None:
+                return None
+
+            return ScanResult(
+                type=ScanType.SERIAL_NUMBER,
+                raw_value=code,
+                cleaned_value=cleaned,
+                product_id=serial_item.product_id,
+                product_name=serial_item.product.name if serial_item.product else None,
+                product_sku=serial_item.product.sku if serial_item.product else None,
+                group_id=serial_item.product.group_id if serial_item.product else None,
+                group_name=serial_item.product.group.name if serial_item.product and serial_item.product.group else None,
+                confidence=Confidence.HIGH,
+                validated=True,
+                validator_name=self.name,
+                message=f"Unidad trazable identificada: {cleaned}",
+            )
+        except Exception as exc:
+            logger.error("TrackedUnitValidator error: %s", exc, exc_info=True)
+            return None
 
 
 # ============================================

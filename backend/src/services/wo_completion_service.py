@@ -246,26 +246,46 @@ def _process_bulk_item(
         .first()
     )
 
-    if not stock_entry or stock_entry.quantity < item.quantity:
+    quantity_to_deduct = item.quantity
+    quantity_in_base = item.quantity
+
+    if product.is_composite:
+        if not product.unit_size or product.unit_size <= 0:
+            raise CompletionError(
+                f"El producto compuesto {product.name} no tiene unit_size válido"
+            )
+        # La OT sigue reportando unidades base (metros); el stock físico
+        # ya está normalizado en unidades compuestas.
+        quantity_to_deduct = item.quantity / product.unit_size
+
+    if not stock_entry or stock_entry.quantity < quantity_to_deduct:
         raise CompletionError(
             f"Stock insuficiente de {product.name}: "
             f"disponible {stock_entry.quantity if stock_entry else 0}, "
-            f"requerido {item.quantity}"
+            f"requerido {quantity_to_deduct}"
         )
 
     # Descontar stock
-    stock_entry.quantity -= item.quantity
+    stock_entry.quantity -= quantity_to_deduct
+
+    if product.is_composite:
+        notes_suffix = (
+            f" | consumo reportado: {quantity_in_base} {product.unit_measure or 'base'}"
+            f" => descuento: {quantity_to_deduct} {product.composite_unit_label or 'unidad compuesta'}"
+        )
+    else:
+        notes_suffix = f" | consumo: {item.quantity}"
 
     # Registrar movimiento
     movement = StockMovement(
         product_id=item.product_id,
         from_warehouse_id=stock_entry.warehouse_id,
         to_warehouse_id=None,
-        quantity=item.quantity,
+        quantity=quantity_to_deduct,
         movement_type=MovementType.CONSUMPTION,
         reference=f"OT #{work_order_id}",
         user_id=user_id,
-        notes=f"Consumo: {product.name} x{item.quantity}",
+        notes=f"Consumo: {product.name} x{quantity_to_deduct}{notes_suffix}",
     )
     db.add(movement)
 

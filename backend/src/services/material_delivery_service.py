@@ -9,6 +9,7 @@ Calcula los materiales necesarios para una cuadrilla basándose en:
 """
 from __future__ import annotations
 from datetime import datetime, date, timedelta
+import math
 from typing import List, Optional, Tuple
 import logging
 
@@ -242,29 +243,56 @@ def generate_delivery_proposal(
         if not product:
             continue
 
-        available = (
+        # Frontera de dominio:
+        # - Las plantillas siguen expresando requerimientos en unidades base.
+        # - El traductor convierte a unidades compuestas solo para productos
+        #   is_composite, usando ceil para pedir bobinas/blisters enteros.
+        available_base = (
             mobile_group_stock.get(req["group_id"], 0.0)
-            if req.get("group_id")
+            if req.get("group_id") and product.type == ProductType.SERIALIZED
             else mobile_stock.get(pid, 0.0)
         )
-        required = req["required_qty"]
-        deficit = required - available
+        required_base = req["required_qty"]
 
-        if deficit <= 0:
-            continue  # Ya tiene suficiente en el móvil
-
-        # Aplicar redondeo para productos compuestos
+        display_unit = "u."
+        required_total = required_base
+        available_for_display = available_base
+        deficit = required_base - available_base
         suggested_qty = deficit
         suggested_composite_units = None
-        if product.is_composite and product.unit_size and product.unit_size > 0:
-            import math
-            composite_units = math.ceil(deficit / product.unit_size)
-            suggested_qty = composite_units * product.unit_size
-            suggested_composite_units = composite_units
-            
-            composite_label = product.composite_unit_label or "unidad(es)"
-            logger.info(f"  → {product.name}: {deficit} {product.unit_measure} "
-                       f"≈ {composite_units} {composite_label}")
+        required_base_total = None
+        available_base_total = None
+
+        if product.is_composite:
+            if not product.unit_size or product.unit_size <= 0:
+                raise ValueError(
+                    f"El producto compuesto '{product.name}' no tiene unit_size válido."
+                )
+
+            required_total = required_base / product.unit_size
+            available_for_display = available_base
+            deficit = required_total - available_for_display
+            if deficit <= 0:
+                continue
+
+            suggested_composite_units = math.ceil(deficit)
+            suggested_qty = float(suggested_composite_units)
+            required_base_total = required_base
+            available_base_total = available_base * product.unit_size
+            display_unit = product.composite_unit_label or "u."
+
+            logger.info(
+                f"  → {product.name}: {required_base} {product.unit_measure or 'base'} "
+                f"≈ {required_total} {display_unit}; disponible {available_for_display} {display_unit}, "
+                f"sugerido {suggested_composite_units} {display_unit}"
+            )
+
+        else:
+            if deficit <= 0:
+                continue  # Ya tiene suficiente en el móvil
+
+            if product.unit_measure:
+                display_unit = product.unit_measure
 
         # Para SERIALIZED, seleccionar modelo preferido
         preferred_model_id = req.get("preferred_model_id")
@@ -294,8 +322,11 @@ def generate_delivery_proposal(
             "unit_size": product.unit_size,
             "unit_measure": product.unit_measure,
             "composite_unit_label": product.composite_unit_label,
-            "available_in_mobile": available,
-            "required_total": required,
+            "display_unit": display_unit,
+            "required_base_total": required_base_total,
+            "available_in_mobile_base": available_base_total,
+            "available_in_mobile": available_for_display,
+            "required_total": required_total,
             "deficit": deficit,
             "suggested_quantity": suggested_qty,
             "suggested_composite_units": suggested_composite_units,

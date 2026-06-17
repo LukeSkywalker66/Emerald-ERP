@@ -290,6 +290,31 @@ export const confirmReceipt = async (receiptId) => {
   }
 };
 
+/**
+ * Obtener etiquetas SVG para unidades trazables generadas.
+ * @param {number[]} serialItemIds
+ * @returns {Promise<Array<{serial_item_id:number, serial_number:string, barcode_svg:string}>>}
+ */
+export const getTrackedUnitLabels = async (serialItemIds = []) => {
+  try {
+    const params = new URLSearchParams();
+    serialItemIds
+      .filter((id) => Number.isFinite(Number(id)))
+      .forEach((id) => params.append('serial_item_ids', String(id)));
+
+    const query = params.toString();
+    const url = query
+      ? `${BASE_URL}/tracked-units/labels?${query}`
+      : `${BASE_URL}/tracked-units/labels`;
+
+    const { data } = await api.get(url);
+    return data || [];
+  } catch (error) {
+    console.error('❌ Error fetching tracked unit labels:', error);
+    throw error;
+  }
+};
+
 
 export default {
   // Deliveries
@@ -314,4 +339,5 @@ export default {
   createReceipt,
   scanReceiptItem,
   confirmReceipt,
+  getTrackedUnitLabels,
 };

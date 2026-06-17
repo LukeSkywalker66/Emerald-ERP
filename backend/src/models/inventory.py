@@ -304,11 +304,11 @@ class Product(Base):
         comment="Regex para validar seriales al ingresar compras. Null = acepta cualquier formato."
     )
 
-    min_stock_alert: Mapped[int] = mapped_column(
-        Integer,
+    min_stock_alert: Mapped[float] = mapped_column(
+        Float,
         nullable=False,
         server_default="0",
-        comment="Cantidad mínima antes de alertar"
+        comment="Cantidad mínima antes de alertar (en unidades del stock del producto)"
     )
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -407,7 +407,7 @@ class StockBulk(Base):
         Float,
         nullable=False,
         server_default="0",
-        comment="Puede ser metros de cable, unidades, etc."
+        comment="Cantidad stockeada (para compuestos = unidades compuestas; para no compuestos = unidad natural del producto)"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
@@ -444,6 +444,22 @@ class SerialItem(Base):
         index=True
     )
     mac_address: Mapped[Optional[str]] = mapped_column(String(17), nullable=True)
+    is_generated_barcode: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+        comment="True si el código fue generado por Emerald (no serial OEM)"
+    )
+    initial_quantity: Mapped[Optional[float]] = mapped_column(
+        Float,
+        nullable=True,
+        comment="Cantidad inicial para unidades compuestas (ej: 300m)"
+    )
+    remaining_quantity: Mapped[Optional[float]] = mapped_column(
+        Float,
+        nullable=True,
+        comment="Saldo restante para unidades compuestas (ej: 150m)"
+    )
     product_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("products.id", ondelete="CASCADE"),
@@ -494,6 +510,11 @@ class SerialItem(Base):
     warehouse: Mapped["Warehouse"] = relationship("Warehouse", back_populates="serial_items")
     ticket_related: Mapped[Optional["Ticket"]] = relationship("Ticket", foreign_keys=[ticket_related_id])
     movements: Mapped[List["StockMovement"]] = relationship("StockMovement", back_populates="serial_item")
+    consumption_logs: Mapped[List["ConsumptionLog"]] = relationship(
+        "ConsumptionLog",
+        back_populates="tracked_unit",
+        cascade="all, delete-orphan"
+    )
 
     def __repr__(self):
         return f"<SerialItem(id={self.id}, serial='{self.serial_number}', status={self.status.value})>"
@@ -581,6 +602,131 @@ class StockMovement(Base):
 
     def __repr__(self):
         return f"<StockMovement(id={self.id}, type={self.movement_type.value}, product_id={self.product_id})>"
+
+
+class BarcodeSequence(Base):
+    """
+    Secuencia para generación de códigos de barra propios por prefijo y año.
+    """
+    __tablename__ = "barcode_sequences"
+    __table_args__ = (
+        UniqueConstraint("prefix", "year", name="uq_barcode_seq_prefix_year"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    product_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("products.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Producto asociado a la secuencia (opcional)"
+    )
+    prefix: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        index=True,
+        comment="Prefijo legible (ej: BOB, CNT, CBL)"
+    )
+    year: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        index=True,
+        comment="Año de la secuencia"
+    )
+    last_sequence: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default="0",
+        comment="Último correlativo utilizado"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+        onupdate=datetime.utcnow
+    )
+
+    product: Mapped[Optional["Product"]] = relationship("Product", lazy="joined")
+
+    def __repr__(self):
+        return (
+            f"<BarcodeSequence(id={self.id}, prefix='{self.prefix}', year={self.year}, "
+            f"last_sequence={self.last_sequence})>"
+        )
+
+
+class ConsumptionLog(Base):
+    """
+    Historial de consumo fraccionado para unidades trazables.
+    """
+    __tablename__ = "consumption_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    tracked_unit_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("serial_items.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="Unidad trazable consumida (serial_items.id)"
+    )
+    work_order_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("work_orders.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="OT donde se registró el consumo"
+    )
+    quantity_consumed: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        comment="Cantidad consumida en unidades base"
+    )
+    quantity_before: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        comment="Saldo antes del consumo"
+    )
+    quantity_after: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        comment="Saldo después del consumo"
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        comment="Usuario que registró el consumo"
+    )
+    warehouse_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("warehouses.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        comment="Almacén donde ocurrió el consumo"
+    )
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+        index=True
+    )
+
+    tracked_unit: Mapped["SerialItem"] = relationship("SerialItem", back_populates="consumption_logs")
+    user: Mapped["User"] = relationship("User", foreign_keys=[user_id], lazy="joined")
+    warehouse: Mapped["Warehouse"] = relationship("Warehouse", foreign_keys=[warehouse_id], lazy="joined")
+
+    def __repr__(self):
+        return (
+            f"<ConsumptionLog(id={self.id}, tracked_unit_id={self.tracked_unit_id}, "
+            f"consumed={self.quantity_consumed}, after={self.quantity_after})>"
+        )
 
 
 class SerialFormat(Base):

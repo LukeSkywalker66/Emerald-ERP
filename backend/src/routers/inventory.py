@@ -33,6 +33,7 @@ from src.schemas.inventory import (
 )
 from src.schemas.fleet import VehicleSummary
 from src.utils.audit import log_create, log_update, log_delete, get_entity_dict
+from src.services.barcode_generator_service import BarcodeGeneratorService
 
 router = APIRouter(tags=["inventory"])
 logger = logging.getLogger("uvicorn.error")
@@ -89,6 +90,9 @@ def get_stock_alerts(
     En lugar de que el frontend haga N×M consultas (productos × warehouses),
     esta única query agrega stock BULK y cuenta seriales por producto,
     comparando contra min_stock_alert.
+
+    Para productos compuestos, el stock y el mínimo ya deben estar
+    normalizados a unidades compuestas (bobinas/blisters/cajas).
     
     **Retorna:** Lista de productos cuyo stock total es menor a su mínimo configurado.
     """
@@ -434,6 +438,9 @@ def get_warehouse_stock(
     Devuelve lista unificada:
     - **BULK**: Muestra cantidad
     - **SERIALIZED**: Muestra conteo y lista de seriales disponibles
+
+    Para productos compuestos, quantity ya representa unidades compuestas
+    (bobinas/blisters/cajas). El frontend no debe inferir metros aquí.
     """
     warehouse = db.get(Warehouse, warehouse_id)
     if not warehouse:
@@ -486,6 +493,11 @@ def get_warehouse_stock(
                 product_sku=bulk.product.sku,
                 product_type=bulk.product.type,
                 category=bulk.product.category,
+                is_composite=bulk.product.is_composite,
+                unit_size=bulk.product.unit_size,
+                unit_measure=bulk.product.unit_measure,
+                composite_unit_label=bulk.product.composite_unit_label,
+                display_unit=(bulk.product.composite_unit_label or "u.") if bulk.product.is_composite else "u.",
                 quantity=bulk.quantity,
                 serial_items=None,
                 serial_count=None
@@ -513,6 +525,11 @@ def get_warehouse_stock(
                 product_sku=sku,
                 product_type=ProductType.SERIALIZED,
                 category=category,
+                is_composite=False,
+                unit_size=None,
+                unit_measure=None,
+                composite_unit_label=None,
+                display_unit="u.",
                 quantity=None,
                 serial_items=serials,
                 serial_count=len(serials)
@@ -1188,6 +1205,8 @@ def create_stock_adjustment(
     **Endpoint para ajustes de inventario** (compras, ingresos, correcciones).
     
     Permite ingresar stock BULK a un warehouse específico.
+    Para productos compuestos, `quantity` debe venir en unidades compuestas
+    (bobinas/blisters/cajas), no en metros ni unidades base.
     
     **Casos de uso:**
     - Compra de materiales (MovementType.PURCHASE)
@@ -1199,10 +1218,12 @@ def create_stock_adjustment(
     - Warehouse debe existir
     - Cantidad debe ser > 0
     
-    **Comportamiento:**
-    - Si stock_bulk existe para ese warehouse+producto → suma cantidad
-    - Si NO existe → crea nuevo registro
-    - Siempre crea movimiento en stock_movements para auditoría
+        **Comportamiento:**
+        - Flujo normal: si stock_bulk existe para ese warehouse+producto → suma cantidad
+        - Flujo normal: si NO existe → crea nuevo registro
+        - Si `generate_barcodes=true` y el producto es compuesto:
+            genera unidades trazables (SerialItem) sin incrementar stock_bulk
+        - Siempre crea movimientos en stock_movements para auditoría
     """
     user_id = _get_user_id_from_request()
     
@@ -1235,6 +1256,69 @@ def create_stock_adjustment(
             detail="Solo se permiten movement_type PURCHASE o ADJUSTMENT para ajustes de stock"
         )
     
+    # Flujo de serialización propia para compuestos (Tracked Units)
+    if payload.generate_barcodes:
+        if not product.is_composite:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="generate_barcodes solo aplica a productos compuestos"
+            )
+
+        if payload.movement_type != MovementType.PURCHASE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="generate_barcodes requiere movement_type PURCHASE"
+            )
+
+        if float(payload.quantity).is_integer() is False:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Para generar códigos, la cantidad debe ser un entero de unidades"
+            )
+
+        count = int(payload.quantity)
+        generator = BarcodeGeneratorService()
+        serial_items = generator.generate_batch(
+            product_id=product.id,
+            count=count,
+            warehouse_id=warehouse.id,
+            db=db,
+        )
+
+        movement_ids: List[int] = []
+        for serial_item in serial_items:
+            movement = StockMovement(
+                product_id=product.id,
+                from_warehouse_id=None,
+                to_warehouse_id=warehouse.id,
+                quantity=1.0,
+                serial_item_id=serial_item.id,
+                movement_type=payload.movement_type,
+                reference=payload.reference or f"Compra serializada - {payload.movement_type.value}",
+                notes=payload.notes,
+                user_id=user_id,
+            )
+            db.add(movement)
+            db.flush()
+            movement_ids.append(movement.id)
+
+        db.commit()
+
+        return StockAdjustmentResponse(
+            success=True,
+            movement_id=movement_ids[0] if movement_ids else None,
+            stock_bulk_id=None,
+            previous_quantity=0.0,
+            new_quantity=0.0,
+            tracked_units_created=len(serial_items),
+            generated_serial_item_ids=[s.id for s in serial_items],
+            generated_barcodes=[s.serial_number for s in serial_items],
+            message=(
+                f"Compra serializada exitosa: {len(serial_items)} unidad(es) trazable(s) "
+                f"generada(s) para '{product.name}'"
+            ),
+        )
+
     # Buscar si ya existe stock_bulk para este warehouse + producto
     existing_stock = db.execute(
         select(StockBulk).where(
@@ -1288,6 +1372,9 @@ def create_stock_adjustment(
         stock_bulk_id=stock_bulk_id,
         previous_quantity=previous_quantity,
         new_quantity=new_quantity,
+        tracked_units_created=0,
+        generated_serial_item_ids=[],
+        generated_barcodes=[],
         message=f"Stock ajustado exitosamente. {previous_quantity} → {new_quantity} (+{payload.quantity})"
     )
 
@@ -1449,6 +1536,7 @@ def scan_code(
     from src.barcode_reader.validators import (
         MacAddressFilter,
         ProductCodeValidator,
+        TrackedUnitValidator,
         SerialFormatValidator,
         ITUTG984Validator,
         GenericSerialValidator,
@@ -1464,6 +1552,7 @@ def scan_code(
     validators = [MacAddressFilter()]  # Prioridad 5: siempre descartar MAC
     if not payload.product_id:
         validators.append(ProductCodeValidator())  # Prioridad 10: identificar SKU
+    validators.append(TrackedUnitValidator())  # Prioridad 15: unidades trazables
     validators += [
         SerialFormatValidator(),  # Prioridad 20: producto.serial_validation_regex
         ITUTG984Validator(),      # Prioridad 30: ITU-T G.984
@@ -1561,6 +1650,7 @@ def scan_serial(
     # Validar formato usando el engine
     from src.barcode_reader import BarcodeScannerEngine, ScanContext
     from src.barcode_reader.validators import (
+        TrackedUnitValidator,
         SerialFormatValidator,
         ITUTG984Validator,
         GenericSerialValidator,
@@ -1568,6 +1658,7 @@ def scan_serial(
 
     engine = BarcodeScannerEngine()
     engine.register_validators(
+        TrackedUnitValidator(),
         SerialFormatValidator(),
         ITUTG984Validator(),
         GenericSerialValidator(),

@@ -31,9 +31,11 @@ from src.schemas.logistics import (
     DeliveryProposalRequest, DeliveryProposalResponse, DeliveryProposalItem,
     BarcodeScanRequest, BarcodeScanResponse,
     SerialScanRequest, SerialScanResponse,
+    TrackedUnitLabelResponse,
     MaterialReceiptCreate, MaterialReceiptResponse,
     MaterialReceiptItemCreate, MaterialReceiptItemResponse,
 )
+from src.services.barcode_generator_service import BarcodeGeneratorService
 from src.services.material_delivery_service import (
     generate_delivery_proposal,
     create_delivery_from_proposal,
@@ -391,6 +393,7 @@ def scan_barcode(
     from src.barcode_reader.validators import (
         MacAddressFilter,
         ProductCodeValidator,
+        TrackedUnitValidator,
         SerialFormatValidator,
         ITUTG984Validator,
         GenericSerialValidator,
@@ -407,6 +410,7 @@ def scan_barcode(
     engine.register_validators(
         MacAddressFilter(),      # Prioridad 5
         ProductCodeValidator(),   # Prioridad 10
+        TrackedUnitValidator(),   # Prioridad 15
         SerialFormatValidator(),  # Prioridad 20
         ITUTG984Validator(),      # Prioridad 30
         GenericSerialValidator(), # Prioridad 100
@@ -596,6 +600,7 @@ def scan_serial(
     """Escanear serial de un producto serializado en una entrega."""
     from src.barcode_reader import BarcodeScannerEngine, ScanContext
     from src.barcode_reader.validators import (
+        TrackedUnitValidator,
         SerialFormatValidator,
         ITUTG984Validator,
         GenericSerialValidator,
@@ -610,6 +615,7 @@ def scan_serial(
     # Validar formato del serial usando el engine
     engine = BarcodeScannerEngine()
     engine.register_validators(
+        TrackedUnitValidator(),
         SerialFormatValidator(),
         ITUTG984Validator(),
         GenericSerialValidator(),
@@ -876,6 +882,7 @@ def scan_receipt_item(
     from src.barcode_reader.validators import (
         MacAddressFilter,
         ProductCodeValidator,
+        TrackedUnitValidator,
     )
 
     receipt = db.get(MaterialReceipt, receipt_id)
@@ -888,6 +895,7 @@ def scan_receipt_item(
     engine.register_validators(
         MacAddressFilter(),
         ProductCodeValidator(),
+        TrackedUnitValidator(),
     )
     result = engine.identify(cleaned, ScanContext(module="RECEIPT"), db=db)
 
@@ -1005,6 +1013,44 @@ def confirm_receipt(
     ).scalar_one()
 
     return _receipt_to_response(receipt)
+
+
+@router.get("/tracked-units/labels", response_model=List[TrackedUnitLabelResponse])
+def get_tracked_unit_labels(
+    serial_item_ids: List[int] = Query(..., description="IDs de serial_items para etiquetar"),
+    db: Session = Depends(get_db),
+):
+    """Devuelve SVG CODE128 para imprimir etiquetas de unidades trazables."""
+    if not serial_item_ids:
+        raise HTTPException(status_code=400, detail="Debes enviar al menos un serial_item_id")
+
+    serials = db.execute(
+        select(SerialItem).where(SerialItem.id.in_(serial_item_ids))
+    ).scalars().all()
+
+    by_id = {s.id: s for s in serials}
+    missing = [sid for sid in serial_item_ids if sid not in by_id]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"SerialItem no encontrado: {missing}")
+
+    generator = BarcodeGeneratorService()
+    response: List[TrackedUnitLabelResponse] = []
+    for serial_item_id in serial_item_ids:
+        serial = by_id[serial_item_id]
+        if not serial.is_generated_barcode:
+            raise HTTPException(
+                status_code=400,
+                detail=f"SerialItem {serial_item_id} no es código generado por Emerald"
+            )
+        response.append(
+            TrackedUnitLabelResponse(
+                serial_item_id=serial.id,
+                serial_number=serial.serial_number,
+                barcode_svg=generator.render_svg(serial.serial_number),
+            )
+        )
+
+    return response
 
 
 # ============================================

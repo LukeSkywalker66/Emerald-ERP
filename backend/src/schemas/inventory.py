@@ -62,7 +62,7 @@ class ProductBase(BaseModel):
     sku: str = Field(..., min_length=1, max_length=50, description="Código único")
     type: ProductType
     category: Optional[str] = Field(None, max_length=100)
-    min_stock_alert: int = Field(0, ge=0)
+    min_stock_alert: float = Field(0, ge=0)
     description: Optional[str] = None
     # Nuevos campos
     group_id: Optional[int] = Field(None, description="ID del grupo de producto (ONU/ONT, Router, etc)")
@@ -87,7 +87,7 @@ class ProductUpdate(BaseModel):
     sku: Optional[str] = Field(None, min_length=1, max_length=50)
     type: Optional[ProductType] = None
     category: Optional[str] = Field(None, max_length=100)
-    min_stock_alert: Optional[int] = Field(None, ge=0)
+    min_stock_alert: Optional[float] = Field(None, ge=0)
     description: Optional[str] = None
     # Nuevos campos
     group_id: Optional[int] = Field(None, description="ID del grupo de producto")
@@ -294,6 +294,11 @@ class StockItemDetail(BaseModel):
     product_sku: str
     product_type: ProductType
     category: Optional[str] = None
+    is_composite: bool = False
+    unit_size: Optional[float] = None
+    unit_measure: Optional[str] = None
+    composite_unit_label: Optional[str] = None
+    display_unit: str = Field("u.", description="Unidad visible para el stock (u. por defecto, bobinas/blisters para compuestos)")
     
     # Para BULK
     quantity: Optional[float] = None
@@ -356,10 +361,17 @@ class StockAdjustmentRequest(BaseModel):
     """
     Request para ajustes de inventario (compras, ingresos, ajustes).
     Permite agregar stock BULK a un warehouse específico.
+
+    Para productos compuestos, `quantity` representa unidades compuestas
+    (bobinas, blisters, cajas), no unidades base.
     """
     product_id: int = Field(..., description="ID del producto BULK")
     warehouse_id: int = Field(..., description="ID del warehouse destino")
-    quantity: float = Field(..., gt=0, description="Cantidad a ingresar (debe ser > 0)")
+    quantity: float = Field(..., gt=0, description="Cantidad a ingresar. Para compuestos se expresa en unidades compuestas.")
+    generate_barcodes: bool = Field(
+        False,
+        description="Si es true y el producto es compuesto, genera SerialItems con códigos propios en lugar de incrementar stock_bulk."
+    )
     movement_type: MovementType = Field(
         default=MovementType.PURCHASE,
         description="Tipo de movimiento: PURCHASE (compra) o ADJUSTMENT (ajuste)"
@@ -371,10 +383,13 @@ class StockAdjustmentRequest(BaseModel):
 class StockAdjustmentResponse(BaseModel):
     """Respuesta de un ajuste de stock exitoso."""
     success: bool
-    movement_id: int = Field(..., description="ID del movimiento creado")
-    stock_bulk_id: int = Field(..., description="ID del registro de stock_bulk (creado o actualizado)")
+    movement_id: Optional[int] = Field(None, description="ID de movimiento principal creado")
+    stock_bulk_id: Optional[int] = Field(None, description="ID del registro de stock_bulk (creado o actualizado)")
     previous_quantity: float = Field(..., description="Cantidad anterior en stock")
     new_quantity: float = Field(..., description="Cantidad nueva después del ajuste")
+    tracked_units_created: int = Field(0, description="Cantidad de unidades trazables generadas")
+    generated_serial_item_ids: List[int] = Field(default_factory=list, description="IDs de serial_items generados")
+    generated_barcodes: List[str] = Field(default_factory=list, description="Códigos de barra generados")
     message: str
     
     model_config = ConfigDict(from_attributes=True)
@@ -395,7 +410,7 @@ class StockAlertItem(BaseModel):
     product_type: ProductType
     category: Optional[str] = None
     total_stock: float = Field(..., description="Suma total del stock en todos los warehouses")
-    min_stock_alert: int = Field(..., description="Mínimo configurado antes de alertar")
+    min_stock_alert: float = Field(..., description="Mínimo configurado antes de alertar")
     deficit: float = Field(..., description="Cuánto falta para alcanzar el mínimo")
 
     model_config = ConfigDict(from_attributes=True)

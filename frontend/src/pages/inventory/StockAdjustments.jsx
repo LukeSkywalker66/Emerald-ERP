@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, ShoppingCart, AlertCircle, Loader, CheckCircle } from 'lucide-react';
+import { Plus, ShoppingCart, AlertCircle, Loader, Printer } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import * as inventoryService from '@/services/inventory.service';
 import {
   BarcodeScanner,
@@ -13,13 +14,14 @@ import {
  * Formulario simple + tabla histórica de movimientos
  */
 export default function StockAdjustments() {
+  const navigate = useNavigate();
   const [warehouses, setWarehouses] = useState([]);
   const [products, setProducts] = useState([]);
   const [movements, setMovements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [successMessage, setSuccessMessage] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null); // { text: string, generatedSerialItemIds?: number[] }
 
   const [formData, setFormData] = useState({
     product_id: '',
@@ -27,6 +29,7 @@ export default function StockAdjustments() {
     quantity: '',
     serial_numbers: '',
     movement_type: 'PURCHASE',
+    generate_barcodes: false,
     reference: '',
     notes: '',
   });
@@ -145,7 +148,12 @@ export default function StockAdjustments() {
         const product = products.find((p) => p.id === parseInt(value));
         if (product?.type === 'SERIALIZED') {
           updated.movement_type = 'PURCHASE';
+          updated.generate_barcodes = false;
         }
+      }
+
+      if (name === 'movement_type' && value !== 'PURCHASE' && value !== 'IN') {
+        updated.generate_barcodes = false;
       }
 
       return updated;
@@ -310,12 +318,12 @@ export default function StockAdjustments() {
         });
       }
 
-      setSuccessMessage(
-        `✅ ${scannedSerials.length} equipo(s) registrado(s) en ${warehouse?.name || 'almacén'}`
-      );
+      setSuccessMessage({
+        text: `✅ ${scannedSerials.length} equipo(s) registrado(s) en ${warehouse?.name || 'almacén'}`,
+      });
 
       // Resetear
-      setFormData({ product_id: '', warehouse_id: '', quantity: '', serial_numbers: '', movement_type: 'PURCHASE', reference: '', notes: '' });
+      setFormData({ product_id: '', warehouse_id: '', quantity: '', serial_numbers: '', movement_type: 'PURCHASE', generate_barcodes: false, reference: '', notes: '' });
       setScannedSerials([]);
       scannedSerialsRef.current = [];
       setScanMode('barcode');
@@ -385,9 +393,9 @@ export default function StockAdjustments() {
           });
         }
 
-        setSuccessMessage(
-          `✅ ${serials.length} equipo(s) registrado(s) en ${warehouse?.name || 'almacén'}`
-        );
+        setSuccessMessage({
+          text: `✅ ${serials.length} equipo(s) registrado(s) en ${warehouse?.name || 'almacén'}`,
+        });
         // Resetear escaneo
         setScannedSerials([]);
         scannedSerialsRef.current = [];
@@ -421,26 +429,31 @@ export default function StockAdjustments() {
         setSubmitLoading(true);
         setError(null);
 
-        // Para productos compuestos, convertir a unidad base
-        let finalQty = parseFloat(formData.quantity);
-        const prod = products.find(p => p.id === parseInt(formData.product_id));
-        if (prod?.is_composite && prod?.unit_size) {
-          finalQty = finalQty * prod.unit_size;
-        }
+        // La cantidad ingresada ya viaja como unidades del stock del producto.
+        const finalQty = parseFloat(formData.quantity);
 
         const result = await inventoryService.adjustStock({
           product_id: parseInt(formData.product_id),
           warehouse_id: parseInt(formData.warehouse_id),
           quantity: finalQty,
           movement_type: formData.movement_type,
+          generate_barcodes: Boolean(formData.generate_barcodes),
           reference: formData.reference || null,
           notes: formData.notes || null,
         });
 
         const typeLabel = formData.movement_type === 'PURCHASE' ? 'Compra' : 'Ajuste';
-        setSuccessMessage(
-          `✅ ${typeLabel} registrada correctamente. ID: ${result.movement_id}`
-        );
+        const generatedSerialIds = Array.isArray(result?.generated_serial_item_ids)
+          ? result.generated_serial_item_ids
+          : [];
+        const generatedTotal = Number(result?.tracked_units_created || generatedSerialIds.length || 0);
+
+        setSuccessMessage({
+          text: generatedTotal > 0
+            ? `✅ ${typeLabel} serializada correctamente. ${generatedTotal} etiqueta(s) listas para imprimir.`
+            : `✅ ${typeLabel} registrada correctamente. ID: ${result.movement_id}`,
+          generatedSerialItemIds: generatedSerialIds,
+        });
         submissionOk = true;
       } catch (err) {
         console.error('Error submitting adjustment:', err);
@@ -463,6 +476,7 @@ export default function StockAdjustments() {
       quantity: '',
       serial_numbers: '',
       movement_type: 'PURCHASE',
+      generate_barcodes: false,
       reference: '',
       notes: '',
     });
@@ -500,6 +514,16 @@ export default function StockAdjustments() {
     (w) => w.id === parseInt(formData.warehouse_id)
   );
   const isSerialized = selectedProduct?.type === 'SERIALIZED';
+  const canGenerateBarcodes = !isSerialized
+    && selectedProduct?.is_composite
+    && (formData.movement_type === 'PURCHASE' || formData.movement_type === 'IN');
+  const getDisplayUnit = (product) => {
+    if (!product) return 'u.';
+    if (product.is_composite) {
+      return product.composite_unit_label || 'u.';
+    }
+    return product.unit_measure || 'u.';
+  };
 
   if (loading) {
     return (
@@ -544,8 +568,22 @@ export default function StockAdjustments() {
               )}
 
               {successMessage && (
-                <div className="mb-4 p-4 bg-emerald-500/20 border border-emerald-500/50 rounded-lg text-emerald-400 text-sm">
-                  {successMessage}
+                <div className="mb-4 p-4 bg-emerald-500/20 border border-emerald-500/50 rounded-lg text-emerald-300 text-sm space-y-3">
+                  <p>{successMessage.text}</p>
+
+                  {Array.isArray(successMessage.generatedSerialItemIds) && successMessage.generatedSerialItemIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const idsCsv = successMessage.generatedSerialItemIds.join(',');
+                        navigate(`/app/logistics/print-labels?serial_item_ids=${encodeURIComponent(idsCsv)}`);
+                      }}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded bg-emerald-500 text-zinc-950 font-semibold hover:bg-emerald-400 transition-colors"
+                    >
+                      <Printer className="w-4 h-4" />
+                      🖨️ Imprimir Etiquetas Ahora
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -573,7 +611,7 @@ export default function StockAdjustments() {
                       <p>Categoría: {selectedProduct.category}</p>
                       {selectedProduct.is_composite && (
                         <p className="text-emerald-400">
-                          Producto compuesto: 1 {selectedProduct.composite_unit_label || 'unidad'} = {selectedProduct.unit_size}{selectedProduct.unit_measure}
+                          Producto compuesto: ingresá cantidades en {getDisplayUnit(selectedProduct)}.
                         </p>
                       )}
                     </div>
@@ -644,7 +682,7 @@ export default function StockAdjustments() {
                 ) : (
                   <div>
                     <label className="block text-sm font-medium text-zinc-300 mb-2">
-                      Cantidad *
+                      Cantidad * {selectedProduct?.is_composite ? `(${getDisplayUnit(selectedProduct)})` : ''}
                     </label>
                     <input
                       type="number"
@@ -699,6 +737,31 @@ export default function StockAdjustments() {
                   </div>
                 )}
 
+                {canGenerateBarcodes && (
+                  <div className="p-3 rounded border border-emerald-600/40 bg-zinc-800/60">
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="generate_barcodes"
+                        checked={Boolean(formData.generate_barcodes)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setFormData((prev) => ({ ...prev, generate_barcodes: checked }));
+                        }}
+                        className="mt-0.5 w-4 h-4"
+                      />
+                      <span>
+                        <span className="text-sm text-emerald-300 font-semibold">
+                          ¿Generar códigos de barra individuales?
+                        </span>
+                        <span className="block text-xs text-zinc-400 mt-1">
+                          En compras de compuestos, crea unidades trazables con etiqueta en lugar de incrementar stock bulk.
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                )}
+
                 {/* Referencia */}
                 <div>
                   <label className="block text-sm font-medium text-zinc-300 mb-2">
@@ -738,6 +801,7 @@ export default function StockAdjustments() {
                       setFormData({
                         product_id: '', warehouse_id: '', quantity: '',
                         serial_numbers: '', movement_type: 'PURCHASE',
+                        generate_barcodes: false,
                         reference: '', notes: '',
                       });
                       setScannedSerials([]);

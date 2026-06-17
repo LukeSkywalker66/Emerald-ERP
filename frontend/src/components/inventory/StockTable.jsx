@@ -67,6 +67,14 @@ export default function StockTable({
     );
   };
 
+  const getDisplayUnit = (item) => {
+    if (!item) return 'u.';
+    if (item.product_type === 'BULK') {
+      return item.display_unit || item.composite_unit_label || item.unit_measure || 'u.';
+    }
+    return 'u.';
+  };
+
   if (!items || items.length === 0) {
     return (
       <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-12 text-center">
@@ -140,7 +148,7 @@ export default function StockTable({
                         <span className="text-2xl font-bold text-emerald-400">
                           {item.quantity}
                         </span>
-                        <span className="text-zinc-400 text-sm">m</span>
+                        <span className="text-zinc-400 text-sm">{getDisplayUnit(item)}</span>
                       </>
                     ) : (
                       <>

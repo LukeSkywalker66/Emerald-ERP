@@ -105,6 +105,9 @@ class DeliveryProposalItem(BaseModel):
     unit_size: Optional[float] = None
     unit_measure: Optional[str] = None
     composite_unit_label: Optional[str] = None
+    display_unit: str = Field("u.", description="Unidad visible para esta propuesta")
+    required_base_total: Optional[float] = Field(None, description="Requerimiento original en unidades base de la plantilla")
+    available_in_mobile_base: Optional[float] = Field(None, description="Stock disponible en unidades base, solo para trazabilidad")
     available_in_mobile: float = 0
     required_total: float = 0
     deficit: float = 0
@@ -164,6 +167,13 @@ class SerialScanResponse(BaseModel):
     product_name: str
     already_scanned: bool = False
     message: str
+
+
+class TrackedUnitLabelResponse(BaseModel):
+    """Respuesta para impresión de etiquetas de unidades trazables."""
+    serial_item_id: int
+    serial_number: str
+    barcode_svg: str
 
 
 # ============================================
