@@ -1278,12 +1278,19 @@ def create_stock_adjustment(
 
         count = int(payload.quantity)
         generator = BarcodeGeneratorService()
-        serial_items = generator.generate_batch(
-            product_id=product.id,
-            count=count,
-            warehouse_id=warehouse.id,
-            db=db,
-        )
+        try:
+            serial_items = generator.generate_batch(
+                product_id=product.id,
+                count=count,
+                warehouse_id=warehouse.id,
+                db=db,
+            )
+        except ValueError as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            )
 
         movement_ids: List[int] = []
         for serial_item in serial_items:

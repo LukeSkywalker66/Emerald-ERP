@@ -135,6 +135,10 @@ class BarcodeScanRequest(BaseModel):
     """Schema para escanear un código de barra de producto."""
     product_code: str = Field(..., description="SKU o código de barra del producto")
     quantity: Optional[float] = Field(1.0, ge=0.1, description="Cantidad (para BULK)")
+    force_add_outside_proposal: bool = Field(
+        False,
+        description="Permite agregar ítems fuera de propuesta aceptada cuando el operador lo confirma"
+    )
 
 
 class BarcodeScanResponse(BaseModel):
@@ -156,6 +160,10 @@ class SerialScanRequest(BaseModel):
     """Schema para escanear un serial de producto serializado."""
     product_id: int
     serial_number: str
+    force_add_outside_proposal: bool = Field(
+        False,
+        description="Permite agregar serial fuera de propuesta aceptada cuando el operador lo confirma"
+    )
 
 
 class SerialScanResponse(BaseModel):

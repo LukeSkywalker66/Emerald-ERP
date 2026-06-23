@@ -52,6 +52,7 @@ export function useDeliveryScanner({
   deliveryId = null,
   onItemScanned,
   onError,
+  onProposalConflict,
   enabled = true,
 } = {}) {
   const [scanMode, setScanMode] = useState("IDLE"); // "IDLE" | "WAITING_SERIAL"
@@ -85,6 +86,8 @@ export function useDeliveryScanner({
       productToGroup[item.product_id] = item.group_id;
     }
   });
+
+  const hasAcceptedProposal = Object.keys(requiredCounts).length > 0;
 
   const resolveRequirementKey = useCallback((productId, groupId = null) => {
     if (groupId != null && requirementByGroup[groupId]) return requirementByGroup[groupId];
@@ -129,6 +132,50 @@ export function useDeliveryScanner({
     onError?.(msg);
   }, [onError, setTimedFeedback]);
 
+  const confirmProposalOverride = useCallback(async (detail) => {
+    const fallbackMessage = detail?.message
+      || "El item no pertenece a la propuesta de entrega aceptada en el paso anterior, ¿Desea agregarlo de todas formas?";
+
+    if (onProposalConflict) {
+      return Boolean(await onProposalConflict({
+        code: detail?.code || "OUTSIDE_ACCEPTED_PROPOSAL",
+        message: fallbackMessage,
+        detail,
+      }));
+    }
+
+    return window.confirm(fallbackMessage);
+  }, [onProposalConflict]);
+
+  const postWithProposalOverride = useCallback(async (url, payload) => {
+    try {
+      const response = await api.post(url, payload);
+      return response.data;
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      const code = detail?.code;
+
+      if (err?.response?.status === 409 && code === "OUTSIDE_ACCEPTED_PROPOSAL") {
+        const confirmed = await confirmProposalOverride(detail);
+        if (!confirmed) {
+          setTimedFeedback({
+            type: "info",
+            message: "Operación cancelada por el operador.",
+          });
+          return null;
+        }
+
+        const forcedResponse = await api.post(url, {
+          ...payload,
+          force_add_outside_proposal: true,
+        });
+        return forcedResponse.data;
+      }
+
+      throw err;
+    }
+  }, [confirmProposalOverride, setTimedFeedback]);
+
   const resolveScan = useCallback(
     async (code) => {
       if (enabled === false) return;
@@ -161,7 +208,11 @@ export function useDeliveryScanner({
               }
 
               const scannedGroupId = resolved.product?.group_id ?? null;
-              const requirementKey = resolveRequirementKey(resolved.serial.product_id, scannedGroupId);
+              let requirementKey = resolveRequirementKey(resolved.serial.product_id, scannedGroupId);
+              if (!requirementKey && !hasAcceptedProposal) {
+                requirementKey = `PRODUCT:${resolved.serial.product_id}`;
+              }
+
               const sameRequirement = pendingProduct.requirementKey === requirementKey;
               if (sameRequirement === false) {
                 playBeep("error");
@@ -173,14 +224,17 @@ export function useDeliveryScanner({
                 return;
               }
 
-              const response = await api.post(
+              const result = await postWithProposalOverride(
                 `/v2/logistics/deliveries/${deliveryId}/scan-serial`,
                 {
                   product_id: resolved.serial.product_id,
                   serial_number: resolved.serial.serial_number,
                 }
               );
-              const result = response.data;
+
+              if (!result) {
+                return;
+              }
 
               if (result.already_scanned) {
                 playBeep("error");
@@ -244,19 +298,16 @@ export function useDeliveryScanner({
         if (resolved.type === "product") {
           const p = resolved.product;
 
-          const requirementKey = resolveRequirementKey(p.id, p.group_id ?? null);
+          let requirementKey = resolveRequirementKey(p.id, p.group_id ?? null);
+          const isProposalRequirement = requirementKey != null && requiredCounts[requirementKey] != null;
+
           if (requirementKey == null) {
-            playBeep("error");
-            setTimedFeedback({
-              type: "error",
-              message: p.name + " no forma parte de esta propuesta.",
-            });
-            return;
+            requirementKey = `PRODUCT:${p.id}`;
           }
 
           if (p.is_serialized) {
-            const remaining = getRemaining(requirementKey);
-            if (remaining <= 0) {
+            const remaining = isProposalRequirement ? getRemaining(requirementKey) : 1;
+            if (isProposalRequirement && remaining <= 0) {
               playBeep("error");
               const msg = p.name + " ya alcanzó la cantidad requerida.";
               setTimedFeedback({ type: "error", message: msg });
@@ -264,7 +315,9 @@ export function useDeliveryScanner({
               return;
             }
             playBeep("info");
-            const requirementLabel = resolveRequirementLabel(requirementKey, p.name);
+            const requirementLabel = isProposalRequirement
+              ? resolveRequirementLabel(requirementKey, p.name)
+              : p.name;
             setScanMode("WAITING_SERIAL");
             setPendingProduct({
               id: p.id,
@@ -278,7 +331,7 @@ export function useDeliveryScanner({
               message: requirementLabel + " — escaneá " + remaining + " serial(es).",
             });
           } else {
-            if ((scannedCounts.current[requirementKey] || 0) >= (requiredCounts[requirementKey] || 0)) {
+            if (isProposalRequirement && (scannedCounts.current[requirementKey] || 0) >= (requiredCounts[requirementKey] || 0)) {
               playBeep("error");
               const msg = p.name + " ya alcanzó la cantidad requerida.";
               setTimedFeedback({ type: "error", message: msg });
@@ -288,11 +341,15 @@ export function useDeliveryScanner({
 
             if (deliveryId != null) {
               try {
-                const response = await api.post(
+                const result = await postWithProposalOverride(
                   `/v2/logistics/deliveries/${deliveryId}/scan-barcode`,
                   { product_code: upper, quantity: 1 }
                 );
-                const result = response.data;
+
+                if (!result) {
+                  return;
+                }
+
                 playBeep(result.already_scanned ? "info" : "success");
                 registerLocalBulk({
                   product_id: p.id,
@@ -343,14 +400,11 @@ export function useDeliveryScanner({
 
           // El producto del serial debe estar en la propuesta
           const serialGroupId = product?.group_id ?? productToGroup[serial.product_id] ?? null;
-          const requirementKey = resolveRequirementKey(serial.product_id, serialGroupId);
+          let requirementKey = resolveRequirementKey(serial.product_id, serialGroupId);
+          const isProposalRequirement = requirementKey != null && requiredCounts[requirementKey] != null;
+
           if (requirementKey == null) {
-            playBeep("error");
-            setTimedFeedback({
-              type: "error",
-              message: "Este serial pertenece a un producto fuera de la propuesta.",
-            });
-            return;
+            requirementKey = `PRODUCT:${serial.product_id}`;
           }
 
           // Anti-duplicado local por serial_item_id
@@ -372,7 +426,7 @@ export function useDeliveryScanner({
             }
           }
 
-          if ((scannedCounts.current[requirementKey] || 0) >= (requiredCounts[requirementKey] || 0)) {
+          if (isProposalRequirement && (scannedCounts.current[requirementKey] || 0) >= (requiredCounts[requirementKey] || 0)) {
             playBeep("error");
             const msg = (product?.name ?? "Producto") + " ya alcanzó la cantidad requerida.";
             setTimedFeedback({ type: "error", message: msg });
@@ -382,14 +436,17 @@ export function useDeliveryScanner({
 
           if (deliveryId != null) {
             try {
-              const response = await api.post(
+              const result = await postWithProposalOverride(
                 `/v2/logistics/deliveries/${deliveryId}/scan-serial`,
                 {
                   product_id: serial.product_id,
                   serial_number: serial.serial_number,
                 }
               );
-              const result = response.data;
+
+              if (!result) {
+                return;
+              }
 
               if (result.already_scanned) {
                 playBeep("error");
@@ -477,7 +534,7 @@ export function useDeliveryScanner({
         isProcessing.current = false;
       }
     },
-    [deliveryId, enabled, getRemaining, handleApiError, onError, pendingProduct, productToGroup, proposalItems, registerLocalBulk, registerLocalSerial, requiredCounts, resolveRequirementKey, resolveRequirementLabel, scanMode, setTimedFeedback]
+    [deliveryId, enabled, getRemaining, handleApiError, hasAcceptedProposal, onError, pendingProduct, postWithProposalOverride, productToGroup, proposalItems, registerLocalBulk, registerLocalSerial, requiredCounts, resolveRequirementKey, resolveRequirementLabel, scanMode, setTimedFeedback]
   );
 
   const reset = useCallback(() => {

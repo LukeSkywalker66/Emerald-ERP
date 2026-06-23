@@ -8,6 +8,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import * as logisticsService from '@/services/logistics.service';
 import * as inventoryService from '@/services/inventory.service';
 import { getTeams } from '@/services/coordination.service';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
   BarcodeScanner,
   SerialScanner,
@@ -59,6 +60,7 @@ export default function MaterialDeliveryWizard() {
   const [proposalEffectiveDate, setProposalEffectiveDate] = useState(null);
   const [proposalWorkOrdersCount, setProposalWorkOrdersCount] = useState(0);
   const [preparingDelivery, setPreparingDelivery] = useState(false);
+  const [proposalConflict, setProposalConflict] = useState(null);
 
   // Step 3: Scan — usando máquina de estados inteligente
   const [scannedItems, setScannedItems] = useState([]);
@@ -72,6 +74,16 @@ export default function MaterialDeliveryWizard() {
       setScannedItems(prev => [...prev, item]);
     },
     onError: (msg) => setError(msg),
+    onProposalConflict: useCallback((payload) => {
+      return new Promise((resolve) => {
+        setProposalConflict({
+          message: payload?.message || 'El item no pertenece a la propuesta de entrega aceptada en el paso anterior, ¿Desea agregarlo de todas formas?',
+          code: payload?.code || 'OUTSIDE_ACCEPTED_PROPOSAL',
+          detail: payload?.detail || null,
+          resolve,
+        });
+      });
+    }, []),
     enabled: !scanComplete,
   });
 
@@ -340,6 +352,12 @@ export default function MaterialDeliveryWizard() {
     }
   };
 
+  const closeProposalConflict = useCallback((accepted) => {
+    if (!proposalConflict) return;
+    proposalConflict.resolve(Boolean(accepted));
+    setProposalConflict(null);
+  }, [proposalConflict]);
+
   const ensureDeliveryDraft = useCallback(async () => {
     if (delivery?.id) return delivery;
     if (!selectedTeamData?.warehouse_id) {
@@ -437,6 +455,50 @@ export default function MaterialDeliveryWizard() {
 
   return (
     <div className="space-y-6 p-6 max-w-5xl mx-auto">
+      <Dialog
+        open={Boolean(proposalConflict)}
+        onOpenChange={(open) => {
+          if (!open) closeProposalConflict(false);
+        }}
+      >
+        <DialogContent
+          className="bg-zinc-950 border-amber-600/40 max-w-lg"
+          onPointerDownOutside={(e) => e.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle className="text-amber-400">
+              ⚠️ Ítem fuera de propuesta
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3 text-sm text-zinc-300">
+            <p>
+              {proposalConflict?.message || 'El item no pertenece a la propuesta de entrega aceptada en el paso anterior, ¿Desea agregarlo de todas formas?'}
+            </p>
+            <p className="text-zinc-500">
+              La propuesta guía el armado, pero la entrega puede incorporar materiales adicionales si el operador lo autoriza.
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <button
+              type="button"
+              onClick={() => closeProposalConflict(false)}
+              className="px-4 py-2 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => closeProposalConflict(true)}
+              className="px-4 py-2 rounded bg-amber-600 hover:bg-amber-700 text-white transition-colors"
+            >
+              Agregar de todas formas
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

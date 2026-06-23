@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, ShoppingCart, AlertCircle, Loader, Printer } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import * as inventoryService from '@/services/inventory.service';
+import { buildTrackedLabelPrintPath, getPrintableSerialIdsFromMovement } from '@/utils/labelPrinting';
 import {
   BarcodeScanner,
   SerialScanner,
@@ -15,6 +16,7 @@ import {
  */
 export default function StockAdjustments() {
   const navigate = useNavigate();
+  const LAST_LABEL_BATCH_KEY = 'emerald_last_tracked_label_batch';
   const [warehouses, setWarehouses] = useState([]);
   const [products, setProducts] = useState([]);
   const [movements, setMovements] = useState([]);
@@ -22,6 +24,11 @@ export default function StockAdjustments() {
   const [submitLoading, setSubmitLoading] = useState(false);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null); // { text: string, generatedSerialItemIds?: number[] }
+  const [lastLabelBatch, setLastLabelBatch] = useState(null); // { ids: number[], createdAt: string }
+
+  const navigateToLabelPrint = useCallback((ids) => {
+    navigate(buildTrackedLabelPrintPath(ids));
+  }, [navigate]);
 
   const [formData, setFormData] = useState({
     product_id: '',
@@ -49,6 +56,21 @@ export default function StockAdjustments() {
   useEffect(() => {
     scannedSerialsRef.current = scannedSerials;
   }, [scannedSerials]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LAST_LABEL_BATCH_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed?.ids) || parsed.ids.length === 0) return;
+      setLastLabelBatch({
+        ids: parsed.ids,
+        createdAt: parsed.createdAt || new Date().toISOString(),
+      });
+    } catch {
+      // Ignorar payload inválido en storage
+    }
+  }, []);
 
   const appendSerialIfNew = useCallback((rawSerial) => {
     const serial = String(rawSerial || '').trim().toUpperCase();
@@ -454,6 +476,19 @@ export default function StockAdjustments() {
             : `✅ ${typeLabel} registrada correctamente. ID: ${result.movement_id}`,
           generatedSerialItemIds: generatedSerialIds,
         });
+
+        if (generatedSerialIds.length > 0) {
+          const batch = {
+            ids: generatedSerialIds,
+            createdAt: new Date().toISOString(),
+          };
+          setLastLabelBatch(batch);
+          try {
+            localStorage.setItem(LAST_LABEL_BATCH_KEY, JSON.stringify(batch));
+          } catch {
+            // Si storage falla (quota/privacy), no bloqueamos flujo principal.
+          }
+        }
         submissionOk = true;
       } catch (err) {
         console.error('Error submitting adjustment:', err);
@@ -574,16 +609,48 @@ export default function StockAdjustments() {
                   {Array.isArray(successMessage.generatedSerialItemIds) && successMessage.generatedSerialItemIds.length > 0 && (
                     <button
                       type="button"
-                      onClick={() => {
-                        const idsCsv = successMessage.generatedSerialItemIds.join(',');
-                        navigate(`/app/logistics/print-labels?serial_item_ids=${encodeURIComponent(idsCsv)}`);
-                      }}
+                      onClick={() => navigateToLabelPrint(successMessage.generatedSerialItemIds)}
                       className="inline-flex items-center gap-2 px-3 py-2 rounded bg-emerald-500 text-zinc-950 font-semibold hover:bg-emerald-400 transition-colors"
                     >
                       <Printer className="w-4 h-4" />
                       🖨️ Imprimir Etiquetas Ahora
                     </button>
                   )}
+                </div>
+              )}
+
+              {lastLabelBatch?.ids?.length > 0 && (
+                <div className="mb-4 p-4 bg-zinc-800/70 border border-amber-500/40 rounded-lg text-zinc-200 text-sm">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <p className="font-semibold text-amber-300">Último lote de etiquetas disponible</p>
+                      <p className="text-xs text-zinc-400 mt-1">
+                        Generado el {new Date(lastLabelBatch.createdAt).toLocaleString('es-AR')} · {lastLabelBatch.ids.length} etiqueta(s)
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => navigateToLabelPrint(lastLabelBatch.ids)}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded bg-amber-500 text-zinc-950 font-semibold hover:bg-amber-400 transition-colors"
+                      >
+                        <Printer className="w-4 h-4" />
+                        Reimprimir último lote
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLastLabelBatch(null);
+                          localStorage.removeItem(LAST_LABEL_BATCH_KEY);
+                        }}
+                        className="px-3 py-2 rounded border border-zinc-600 hover:bg-zinc-700 transition-colors text-zinc-300"
+                      >
+                        Limpiar
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -877,6 +944,9 @@ export default function StockAdjustments() {
                         <th className="text-left py-3 px-3 font-semibold">
                           Fecha
                         </th>
+                        <th className="text-left py-3 px-3 font-semibold">
+                          Acción
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -885,6 +955,7 @@ export default function StockAdjustments() {
                         const moveDate = movement.date
                           ? new Date(movement.date).toLocaleDateString('es-AR')
                           : '-';
+                        const printableIds = getPrintableSerialIdsFromMovement(movement);
 
                         return (
                           <tr
@@ -928,6 +999,21 @@ export default function StockAdjustments() {
                             </td>
                             <td className="py-3 px-3 text-zinc-400 text-xs">
                               {moveDate}
+                            </td>
+                            <td className="py-3 px-3">
+                              {printableIds.length > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => navigateToLabelPrint(printableIds)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded bg-zinc-700 hover:bg-zinc-600 border border-zinc-600 text-zinc-200 text-xs"
+                                  title="Reimprimir etiqueta de este movimiento"
+                                >
+                                  <Printer className="w-3.5 h-3.5" />
+                                  Reimprimir
+                                </button>
+                              ) : (
+                                <span className="text-zinc-500 text-xs">-</span>
+                              )}
                             </td>
                           </tr>
                         );

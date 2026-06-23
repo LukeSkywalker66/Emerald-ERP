@@ -213,6 +213,9 @@ class SerialItemBase(BaseModel):
     """Schema base para serial item."""
     serial_number: str = Field(..., min_length=1, max_length=100)
     mac_address: Optional[str] = Field(None, max_length=17)
+    is_generated_barcode: bool = False
+    initial_quantity: Optional[float] = None
+    remaining_quantity: Optional[float] = None
     product_id: int
     warehouse_id: int
     status: SerialItemStatus = SerialItemStatus.NEW

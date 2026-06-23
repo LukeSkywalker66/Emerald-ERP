@@ -427,6 +427,7 @@ def scan_barcode(
     proposal_product_ids = frozenset(
         item.product_id for item in proposal_items if item.product_id
     )
+    has_accepted_proposal = bool(proposal_product_ids)
     proposal_group_ids = frozenset(
         gid for gid in db.execute(
             select(Product.group_id).where(Product.id.in_(proposal_product_ids))
@@ -483,11 +484,17 @@ def scan_barcode(
             )
 
         serial_group_id = serial_item.product.group_id if serial_item.product else None
-        if not _is_allowed_by_proposal(serial_item.product_id, serial_group_id):
-            raise HTTPException(
-                status_code=400,
-                detail=f"El serial '{cleaned}' pertenece a un producto fuera de la propuesta"
-            )
+        if has_accepted_proposal and not _is_allowed_by_proposal(serial_item.product_id, serial_group_id):
+            if not payload.force_add_outside_proposal:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "OUTSIDE_ACCEPTED_PROPOSAL",
+                        "message": "El item no pertenece a la propuesta de entrega aceptada en el paso anterior, ¿Desea agregarlo de todas formas?",
+                        "serial_number": cleaned,
+                        "product_id": serial_item.product_id,
+                    },
+                )
 
         # Verificar duplicado en esta entrega
         existing = db.execute(
@@ -548,11 +555,17 @@ def scan_barcode(
         raise HTTPException(status_code=404, detail=f"Producto '{payload.product_code}' no encontrado")
 
     # Validar contra propuesta si existe
-    if not _is_allowed_by_proposal(product.id, product.group_id):
-        raise HTTPException(
-            status_code=400,
-            detail=f"'{product.name}' no está en la propuesta de entrega"
-        )
+    if has_accepted_proposal and not _is_allowed_by_proposal(product.id, product.group_id):
+        if not payload.force_add_outside_proposal:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "OUTSIDE_ACCEPTED_PROPOSAL",
+                    "message": "El item no pertenece a la propuesta de entrega aceptada en el paso anterior, ¿Desea agregarlo de todas formas?",
+                    "product_id": product.id,
+                    "product_name": product.name,
+                },
+            )
 
     if product.type == ProductType.SERIALIZED:
         return BarcodeScanResponse(
@@ -644,6 +657,7 @@ def scan_serial(
         )
     ).scalars().all()
     proposal_product_ids = frozenset(item.product_id for item in proposal_items if item.product_id)
+    has_accepted_proposal = bool(proposal_product_ids)
     proposal_group_ids = frozenset(
         gid for gid in db.execute(
             select(Product.group_id).where(Product.id.in_(proposal_product_ids))
@@ -651,12 +665,19 @@ def scan_serial(
         if gid is not None
     ) if proposal_product_ids else frozenset()
 
-    if proposal_product_ids:
+    if has_accepted_proposal:
         if payload.product_id not in proposal_product_ids and not (product and product.group_id in proposal_group_ids):
-            raise HTTPException(
-                status_code=400,
-                detail=f"'{product.name if product else payload.product_id}' no está en la propuesta de entrega"
-            )
+            if not payload.force_add_outside_proposal:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "OUTSIDE_ACCEPTED_PROPOSAL",
+                        "message": "El item no pertenece a la propuesta de entrega aceptada en el paso anterior, ¿Desea agregarlo de todas formas?",
+                        "product_id": payload.product_id,
+                        "product_name": product.name if product else str(payload.product_id),
+                        "serial_number": cleaned,
+                    },
+                )
 
     # Buscar serial item
     serial_item = db.execute(

@@ -6,9 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List
 
-import barcode
-from barcode.writer import SVGWriter
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from src.models.inventory import (
@@ -37,30 +35,42 @@ class BarcodeGeneratorService:
 
         return "TRK"
 
-    def _next_codes(self, prefix: str, year: int, count: int, db: Session) -> List[str]:
-        seq = db.execute(
-            select(BarcodeSequence)
+    def _reserve_codes(self, prefix: str, year: int, count: int, db: Session) -> List[str]:
+        # Bloqueo explícito por fila para secuencia prefix+year sin depender de joins ORM.
+        seq_row = db.execute(
+            select(BarcodeSequence.id, BarcodeSequence.last_sequence)
             .where(BarcodeSequence.prefix == prefix, BarcodeSequence.year == year)
             .with_for_update()
-        ).scalar_one_or_none()
+        ).first()
 
-        if seq is None:
+        if seq_row is None:
             seq = BarcodeSequence(prefix=prefix, year=year, last_sequence=0)
             db.add(seq)
             db.flush()
+            seq_id = seq.id
+            last_sequence = 0
+        else:
+            seq_id = seq_row.id
+            last_sequence = seq_row.last_sequence
 
         codes: List[str] = []
         for _ in range(count):
             # En caso de colisión inesperada por datos legacy, seguimos avanzando.
             while True:
-                seq.last_sequence += 1
-                code = f"{prefix}-{year}-{seq.last_sequence:05d}"
+                last_sequence += 1
+                code = f"{prefix}-{year}-{last_sequence:05d}"
                 exists = db.execute(
                     select(SerialItem.id).where(SerialItem.serial_number == code)
                 ).first()
                 if not exists:
                     codes.append(code)
                     break
+
+        db.execute(
+            update(BarcodeSequence)
+            .where(BarcodeSequence.id == seq_id)
+            .values(last_sequence=last_sequence, updated_at=datetime.utcnow())
+        )
 
         return codes
 
@@ -92,15 +102,14 @@ class BarcodeGeneratorService:
 
         prefix = self._infer_prefix(product)
         year = datetime.utcnow().year
-        codes = self._next_codes(prefix=prefix, year=year, count=count, db=db)
+        codes = self._reserve_codes(prefix=prefix, year=year, count=count, db=db)
 
         # Guardamos el último producto asociado para trazabilidad de la secuencia.
-        seq = db.execute(
-            select(BarcodeSequence)
+        db.execute(
+            update(BarcodeSequence)
             .where(BarcodeSequence.prefix == prefix, BarcodeSequence.year == year)
-            .with_for_update()
-        ).scalar_one()
-        seq.product_id = product_id
+            .values(product_id=product_id, updated_at=datetime.utcnow())
+        )
 
         created: List[SerialItem] = []
         for code in codes:
@@ -121,9 +130,12 @@ class BarcodeGeneratorService:
 
     def render_svg(self, barcode_string: str) -> str:
         """Renderiza un barcode CODE128 en SVG crudo (XML)."""
+        import barcode
+        from barcode.writer import SVGWriter
+
         code128 = barcode.get_barcode_class("code128")
         writer = SVGWriter()
-        svg = code128(barcode_string, writer=writer).render()
+        svg = code128(barcode_string, writer=writer).render(writer_options={"write_text": False})
 
         if isinstance(svg, bytes):
             return svg.decode("utf-8")
