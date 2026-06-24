@@ -8,7 +8,7 @@
 
 ## ⚠️ ADVERTENCIA CRÍTICA
 
-Estos 4 documentos son la **FUENTE ÚNICA DE VERDAD** para cualquier IA orquestando el proyecto Emerald ERP.
+Estos 5 documentos son la **FUENTE ÚNICA DE VERDAD** para cualquier IA orquestando el proyecto Emerald ERP.
 
 **NUNCA BORRAR, SIEMPRE MANTENER ACTUALIZADO.**
 
@@ -20,7 +20,7 @@ La inteligencia artificial que coordina el desarrollo necesita este contexto par
 
 ---
 
-## 📋 Los 4 Documentos VITALES
+## 📋 Los 5 Documentos VITALES
 
 ### 1. 📚 [MASTER_CONTEXT.md](MASTER_CONTEXT.md)
 **Rol:** Referencia ontológica completa  
@@ -95,6 +95,23 @@ La inteligencia artificial que coordina el desarrollo necesita este contexto par
 
 ---
 
+### 5. 🧭 [MAPA_NAVEGACION_FRONTEND.md](MAPA_NAVEGACION_FRONTEND.md)
+**Rol:** Mapa único de navegación frontend (menú, rutas, pantallas, RBAC)
+**Contiene:** Sidebar -> ruta -> vista renderizada -> permiso
+**Tamaño:** compacto (operativo)
+**Frecuencia actualización:** Cada cambio de AppSidebar, rutas en App, o permisos RoleGuard
+**Mantenedor:** Frontend Lead + AI
+
+**Por qué es crítico:**
+- Evita desalineación entre menú visible y rutas reales
+- Permite ubicar rápidamente cada módulo en la UI
+- Reduce errores de documentación dispersa por módulo
+- Acelera troubleshooting de permisos y accesos (RBAC)
+
+**Si falta:** La navegación queda implícita en código, aumenta tiempo de diagnóstico y riesgo de drift documental
+
+---
+
 ## 🔄 Ciclo de Actualización Recomendado
 
 ### Después de CADA Feature/Sprint:
@@ -125,7 +142,7 @@ La inteligencia artificial que coordina el desarrollo necesita este contexto par
 - Validar links y cross-references
 
 ### Trimestralmente:
-- Audit completo de 4 documentos (consistency check)
+- Audit completo de 5 documentos (consistency check)
 - Agregar lecciones aprendidas a **AI_ARCHITECT_CONTEXT.md**
 - Refrescar ejemplos de código (si obsoletos)
 
@@ -139,11 +156,12 @@ La inteligencia artificial que coordina el desarrollo necesita este contexto par
 !MASTER_CONTEXT.md
 !AI_ARCHITECT_CONTEXT.md
 !BASE_DATOS.md
-!ROADMAP_COORDINACION.md
+!ROADMAP.md
 !_CRITICAL_DOCS_FOR_AI.md
+!MAPA_NAVEGACION_FRONTEND.md
 
 # En .github/workflows (CI/CD):
-- Pre-commit hook: verifica que estos 4 existan
+- Pre-commit hook: verifica que estos 5 existan
 - PR template: requiere actualización de docs si hay cambios técnicos
 ```
 
@@ -160,21 +178,18 @@ git checkout HEAD -- MASTER_CONTEXT.md
 
 ## 📍 Localización Garantizada
 
-Estos documentos **SIEMPRE** están en raíz:
+Estos documentos críticos **SIEMPRE** están en `docs/`:
 ```
-/opt/emerald-erp/
+/opt/emerald-dev/docs/
 ├── MASTER_CONTEXT.md                    ← Ontología
 ├── AI_ARCHITECT_CONTEXT.md              ← Decisiones
 ├── BASE_DATOS.md                        ← Esquema BD
-├── ROADMAP_COORDINACION.md              ← Plan
-├── _CRITICAL_DOCS_FOR_AI.md             ← Este archivo (manifest)
-├── README.md                            ← Entry point
-├── FLEET_MODULE.md                      ← Específico módulo
-├── CURRENT_STATUS_2026-03-02.md         ← Snapshot sesión
-└── ... (otros archivos)
+├── ROADMAP.md                           ← Plan
+├── MAPA_NAVEGACION_FRONTEND.md          ← Navegación UI
+└── _CRITICAL_DOCS_FOR_AI.md             ← Este archivo (manifest)
 ```
 
-**NO están en:** `docs/`, subdirectorios, branches, shared drives  
+**NO están en:** raíz del repo ni ubicaciones ad-hoc fuera de `docs/`  
 **SIEMPRE están en:** develop + main (ambos branches)
 
 ---
@@ -198,7 +213,7 @@ git log --oneline -5  # Asegurar documentación en merge commits
 - [ ] Corregir si docs dicen una cosa y código otra
 
 **Antes de release:**
-- [ ] Todos 4 documentos actualizados ✅
+- [ ] Los 5 documentos actualizados ✅
 - [ ] Links funcionando (no broken refs)
 - [ ] Ejemplos código matchean realidad
 - [ ] Roadmap accurate con lo completado
@@ -210,7 +225,7 @@ git log --oneline -5  # Asegurar documentación en merge commits
 ### Cómo usar estos documentos:
 
 1. **Al iniciar:** Lee MASTER_CONTEXT.md completo (20 min)
-2. **Antes de feature:** Consulta ROADMAP_COORDINACION.md (qué está planeado)
+2. **Antes de feature:** Consulta ROADMAP.md (qué está planeado)
 3. **Antes de código:**
    - Backend: BASE_DATOS.md + AI_ARCHITECT_CONTEXT.md
    - Frontend: MASTER_CONTEXT.md (estructura componentes)
@@ -232,7 +247,8 @@ git log --oneline -5  # Asegurar documentación en merge commits
 | MASTER_CONTEXT.md | 1.0 (03/02) | 2 de marzo 2026 | ✅ Current |
 | AI_ARCHITECT_CONTEXT.md | 1.0 (03/02) | 2 de marzo 2026 | ✅ Current |
 | BASE_DATOS.md | 2.0 (03/02) | 2 de marzo 2026 | ✅ Current |
-| ROADMAP.md | 1.0 Consolidado (03/02) | 2 de marzo 2026 | ✅ Current |
+| ROADMAP.md | 1.2 | 24 de junio 2026 | ✅ Current |
+| MAPA_NAVEGACION_FRONTEND.md | 1.0 | 24 de junio 2026 | ✅ Current |
 
 **Próxima revisión planificada:** 6 de abril de 2026 (pre-Fase 3)
 
@@ -249,7 +265,8 @@ Jerrarquía de lectura para IAs:
 3. Uno de estos (según tarea):
    ├─ AI_ARCHITECT_CONTEXT.md (decisiones)
    ├─ BASE_DATOS.md (BD queries)
-   └─ ROADMAP_COORDINACION.md (qué hacer next)
+   ├─ ROADMAP.md (qué hacer next)
+   └─ MAPA_NAVEGACION_FRONTEND.md (flujo UI)
 4. Específicos (si necesario):
    ├─ FLEET_MODULE.md (Fleet details)
    ├─ README.md (quick start)
@@ -286,22 +303,23 @@ Jerrarquía de lectura para IAs:
 → Si sigue faltando: CRITICAL INCIDENT (backup de GitHub)
 ```
 
-**Escenario 3:** Necesito agregar new doc tipo AI_ARCHITECT_CONTEXT
+**Escenario 3:** Necesito agregar nuevo doc crítico
 ```
-→ Crear EN RAÍZ, no en docs/
+→ Crear en docs/ (primera plana)
 → Agregar link en este archivo (_CRITICAL_DOCS_FOR_AI.md)
 → Actualizar checklist de protección
 ```
 
 ---
 
-## ✅ Status Actual (2 de marzo 2026)
+## ✅ Status Actual (24 de junio 2026)
 
 ```
 ✅ MASTER_CONTEXT.md              CREATED + PUSHED
 ✅ AI_ARCHITECT_CONTEXT.md        CREATED + PUSHED
 ✅ BASE_DATOS.md                  UPDATED + PUSHED
-✅ ROADMAP_COORDINACION.md        CREATED + PUSHED
+✅ ROADMAP.md                     UPDATED + PUSHED
+✅ MAPA_NAVEGACION_FRONTEND.md    CREATED + PUSHED
 ✅ _CRITICAL_DOCS_FOR_AI.md       THIS FILE
 ✅ Git protection rules           MANUAL (pre-commit hook TBD)
 ✅ CI/CD validation               PLANNED (GitHub Actions)
@@ -318,7 +336,7 @@ Jerrarquía de lectura para IAs:
 ## 🎯 Resumen para Gemini/Claude
 
 **TE NECESITO SABER:**
-1. Estos 4 docs son tu "sistema nervioso" del proyecto
+1. Estos 5 docs son tu "sistema nervioso" del proyecto
 2. NUNCA deben borrarse o movese
 3. SIEMPRE se actualizan junto con commits de código
 4. Si ves inconsistencia → pausar, validar

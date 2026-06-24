@@ -1,5 +1,7 @@
 # 🎯 Estado Actual del Proyecto - 02 Junio 2026
 
+> Snapshot historico. Para estado vigente consultar `ESTADO_ACTUAL_2026_06_24.md`.
+
 **Sesión:** Post-Fase 5 — Geolocalización, Monitoring Engine, Settings Module
 **Último commit:** `0c05a2b` — chore: wip minio
 
