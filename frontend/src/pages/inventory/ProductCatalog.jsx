@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import RegexTester from '@/components/inventory/RegexTester';
 import {
   Search,
   Plus,
@@ -69,6 +70,7 @@ export default function ProductCatalog() {
     unit_size: '',
     unit_measure: 'm',
     composite_unit_label: '',
+    serial_validation_regex: '',
     specs: {}
   });
 
@@ -85,6 +87,7 @@ export default function ProductCatalog() {
     unit_size: '',
     unit_measure: 'm',
     composite_unit_label: '',
+    serial_validation_regex: '',
     specs: {}
   });
 
@@ -193,6 +196,7 @@ export default function ProductCatalog() {
         unit_size: formData.is_composite && formData.unit_size ? parseFloat(formData.unit_size) : null,
         unit_measure: formData.is_composite ? (formData.unit_measure || 'm') : null,
         composite_unit_label: formData.is_composite ? (formData.composite_unit_label || null) : null,
+        serial_validation_regex: formData.serial_validation_regex || null,
       };
 
       const created = await createProduct(payload);
@@ -274,6 +278,7 @@ export default function ProductCatalog() {
         unit_size: formData.is_composite && formData.unit_size ? parseFloat(formData.unit_size) : null,
         unit_measure: formData.is_composite ? (formData.unit_measure || 'm') : null,
         composite_unit_label: formData.is_composite ? (formData.composite_unit_label || null) : null,
+        serial_validation_regex: formData.serial_validation_regex || null,
       };
 
       await updateProduct(selectedProduct.id, payload);
@@ -357,6 +362,7 @@ export default function ProductCatalog() {
       unit_size: product.unit_size ? String(product.unit_size) : '',
       unit_measure: product.unit_measure || 'm',
       composite_unit_label: product.composite_unit_label || '',
+      serial_validation_regex: product.serial_validation_regex || '',
       specs: product.specs || {}
     });
     setShowEditModal(true);
@@ -683,25 +689,6 @@ export default function ProductCatalog() {
                 </select>
               </div>
 
-              {/* Serial Numbers (only for SERIALIZED type) */}
-              {formData.type === 'SERIALIZED' && (
-                <div>
-                  <label className="block text-sm font-medium text-zinc-300 mb-2">
-                    Números de Serie
-                  </label>
-                  <textarea
-                    value={formData.serial_numbers}
-                    onChange={(e) => setFormData({ ...formData, serial_numbers: e.target.value })}
-                    placeholder="Ingresá un serial por línea o separados por coma&#10;Ej: ONU-2024-001, ONU-2024-002, ONU-2024-003"
-                    rows="4"
-                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors resize-none"
-                  />
-                  <p className="text-xs text-zinc-500 mt-1">
-                    Se crearán items individuales con cada serial al guardar el producto
-                  </p>
-                </div>
-              )}
-
               {/* Group selector */}
               <div>
                 <label className="block text-sm font-medium text-zinc-300 mb-2">
@@ -815,6 +802,27 @@ export default function ProductCatalog() {
                     )}
                   </div>
                 </>
+              )}
+
+              {/* Regex de validación de serial (fuera del bloque BULK, solo SERIALIZED) */}
+              {formData.type === 'SERIALIZED' && (
+                <div className="mt-4 space-y-2">
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Regex de Validación de Serial (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.serial_validation_regex || ''}
+                    onChange={(e) => setFormData({ ...formData, serial_validation_regex: e.target.value })}
+                    placeholder="Ej: ^(?=.*[A-Z])[A-Z0-9]{12,16}$"
+                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white font-mono text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
+                    spellCheck="false"
+                  />
+                  <RegexTester
+                    value={formData.serial_validation_regex || ''}
+                    onChange={(e) => setFormData({ ...formData, serial_validation_regex: e.target.value })}
+                  />
+                </div>
               )}
 
               {/* Specs editor (only when a group is selected) */}
@@ -1119,25 +1127,6 @@ export default function ProductCatalog() {
                   <p className="text-xs text-zinc-500 mt-1">El tipo de producto no puede ser modificado</p>
                 </div>
 
-                {/* Serial Numbers (only for SERIALIZED type) */}
-                {formData.type === 'SERIALIZED' && (
-                  <div>
-                    <label className="block text-sm font-medium text-zinc-300 mb-2">
-                      Números de Serie
-                    </label>
-                    <textarea
-                      value={formData.serial_numbers}
-                      onChange={(e) => setFormData({ ...formData, serial_numbers: e.target.value })}
-                      placeholder="Ingresá un serial por línea o separados por coma&#10;Ej: ONU-2024-001, ONU-2024-002, ONU-2024-003"
-                      rows="4"
-                      className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors resize-none"
-                    />
-                    <p className="text-xs text-zinc-500 mt-1">
-                      Se crearán items individuales con cada serial al guardar el producto
-                    </p>
-                  </div>
-                )}
-
                 {/* Group selector */}
                 <div>
                   <label className="block text-sm font-medium text-zinc-300 mb-2">
@@ -1226,6 +1215,27 @@ export default function ProductCatalog() {
                       )}
                     </div>
                   </>
+                )}
+
+                {/* Regex de validación de serial (fuera del bloque BULK, solo SERIALIZED) */}
+                {formData.type === 'SERIALIZED' && (
+                  <div className="mt-4 space-y-2">
+                    <label className="block text-sm font-medium text-zinc-300 mb-2">
+                      Regex de Validación de Serial (opcional)
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.serial_validation_regex || ''}
+                      onChange={(e) => setFormData({ ...formData, serial_validation_regex: e.target.value })}
+                      placeholder="Ej: ^(?=.*[A-Z])[A-Z0-9]{12,16}$"
+                      className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white font-mono text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
+                      spellCheck="false"
+                    />
+                    <RegexTester
+                      value={formData.serial_validation_regex || ''}
+                      onChange={(e) => setFormData({ ...formData, serial_validation_regex: e.target.value })}
+                    />
+                  </div>
                 )}
 
                 {/* Specs editor */}

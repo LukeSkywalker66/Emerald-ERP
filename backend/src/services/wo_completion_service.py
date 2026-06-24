@@ -35,6 +35,7 @@ from src.models.inventory import (
     ConnectionAsset,
     ConnectionAssetStatus,
     ConnectionNote,
+    ConsumptionLog,
 )
 from src.models.user import User
 from src.models.beholder import Connection
@@ -217,6 +218,33 @@ def _process_item(
     if not product:
         raise CompletionError(f"Producto ID {item.product_id} no encontrado en catálogo")
 
+    # BULK compuesto con serial reportado: consumir saldo de unidad trazable
+    # (ej: bobina de drop por metros), evitando flujo bulk agregado.
+    if product.type == "BULK" and product.is_composite and item.serial_number:
+        serial_item = (
+            db.query(SerialItem)
+            .filter(SerialItem.serial_number == item.serial_number)
+            .first()
+        )
+        if not serial_item:
+            raise CompletionError(
+                f"Serial {item.serial_number} no encontrado en inventario"
+            )
+        if not serial_item.is_generated_barcode:
+            raise CompletionError(
+                f"Serial {item.serial_number} no corresponde a unidad trazable compuesta"
+            )
+        _process_composite_tracked_serial_item(
+            db=db,
+            item=item,
+            product=product,
+            serial_item=serial_item,
+            connection_id=connection_id,
+            user_id=user_id,
+            work_order_id=work_order_id,
+        )
+        return
+
     if product.type == "BULK":
         _process_bulk_item(db, item, product, connection_id, user_id, work_order_id)
     elif product.type == "SERIALIZED":
@@ -246,26 +274,46 @@ def _process_bulk_item(
         .first()
     )
 
-    if not stock_entry or stock_entry.quantity < item.quantity:
+    quantity_to_deduct = item.quantity
+    quantity_in_base = item.quantity
+
+    if product.is_composite:
+        if not product.unit_size or product.unit_size <= 0:
+            raise CompletionError(
+                f"El producto compuesto {product.name} no tiene unit_size válido"
+            )
+        # La OT sigue reportando unidades base (metros); el stock físico
+        # ya está normalizado en unidades compuestas.
+        quantity_to_deduct = item.quantity / product.unit_size
+
+    if not stock_entry or stock_entry.quantity < quantity_to_deduct:
         raise CompletionError(
             f"Stock insuficiente de {product.name}: "
             f"disponible {stock_entry.quantity if stock_entry else 0}, "
-            f"requerido {item.quantity}"
+            f"requerido {quantity_to_deduct}"
         )
 
     # Descontar stock
-    stock_entry.quantity -= item.quantity
+    stock_entry.quantity -= quantity_to_deduct
+
+    if product.is_composite:
+        notes_suffix = (
+            f" | consumo reportado: {quantity_in_base} {product.unit_measure or 'base'}"
+            f" => descuento: {quantity_to_deduct} {product.composite_unit_label or 'unidad compuesta'}"
+        )
+    else:
+        notes_suffix = f" | consumo: {item.quantity}"
 
     # Registrar movimiento
     movement = StockMovement(
         product_id=item.product_id,
         from_warehouse_id=stock_entry.warehouse_id,
         to_warehouse_id=None,
-        quantity=item.quantity,
+        quantity=quantity_to_deduct,
         movement_type=MovementType.CONSUMPTION,
         reference=f"OT #{work_order_id}",
         user_id=user_id,
-        notes=f"Consumo: {product.name} x{item.quantity}",
+        notes=f"Consumo: {product.name} x{quantity_to_deduct}{notes_suffix}",
     )
     db.add(movement)
 
@@ -301,6 +349,18 @@ def _process_serialized_item(
             f"Serial {item.serial_number} ya está instalado en otra conexión"
         )
 
+    if product.is_composite and serial_item.is_generated_barcode:
+        _process_composite_tracked_serial_item(
+            db=db,
+            item=item,
+            product=product,
+            serial_item=serial_item,
+            connection_id=connection_id,
+            user_id=user_id,
+            work_order_id=work_order_id,
+        )
+        return
+
     warehouse_id = serial_item.warehouse_id
     virtual_wh_id = _get_virtual_warehouse_id(db)
 
@@ -333,6 +393,82 @@ def _process_serialized_item(
         reference=f"OT #{work_order_id}",
         user_id=user_id,
         notes=f"Instalado: {product.name} SN:{item.serial_number} en conexión #{connection_id}",
+    )
+    db.add(movement)
+
+
+def _process_composite_tracked_serial_item(
+    db: Session,
+    item: WorkOrderItem,
+    product,
+    serial_item: SerialItem,
+    connection_id: int,
+    user_id: int,
+    work_order_id: int,
+) -> None:
+    """Consume fracción de una unidad trazable compuesta (ej: bobina)."""
+    origin_warehouse_id = serial_item.warehouse_id
+    if not origin_warehouse_id:
+        raise CompletionError(
+            f"Serial {item.serial_number} no tiene warehouse origen para registrar consumo"
+        )
+
+    current_remaining = serial_item.remaining_quantity
+    if current_remaining is None:
+        current_remaining = product.unit_size
+
+    if current_remaining is None or current_remaining <= 0:
+        raise CompletionError(
+            f"Serial {item.serial_number} no tiene saldo disponible para consumo"
+        )
+
+    consume_qty = float(item.quantity)
+    if consume_qty <= 0:
+        raise CompletionError("La cantidad consumida debe ser mayor a 0")
+    if consume_qty > current_remaining:
+        raise CompletionError(
+            f"Consumo inválido para {item.serial_number}: disponible {current_remaining}, requerido {consume_qty}"
+        )
+
+    quantity_after = current_remaining - consume_qty
+    serial_item.remaining_quantity = quantity_after
+
+    # Si se agota la unidad trazable, se marca como instalada/consumida y se mueve a virtual.
+    if quantity_after <= 0:
+        virtual_wh_id = _get_virtual_warehouse_id(db)
+        serial_item.status = SerialItemStatus.INSTALLED
+        serial_item.warehouse_id = virtual_wh_id
+        serial_item.connection_id = connection_id
+        serial_item.ticket_related_id = item.work_order_id
+
+    consumption_log = ConsumptionLog(
+        tracked_unit_id=serial_item.id,
+        work_order_id=work_order_id,
+        quantity_consumed=consume_qty,
+        quantity_before=current_remaining,
+        quantity_after=quantity_after,
+        user_id=user_id,
+        warehouse_id=origin_warehouse_id,
+        notes=item.notes,
+    )
+    db.add(consumption_log)
+
+    movement_notes = (
+        f"Consumo fraccionado: {product.name} SN:{item.serial_number} "
+        f"consumido {consume_qty} {product.unit_measure or 'base'} "
+        f"(saldo {quantity_after}) en conexión #{connection_id}"
+    )
+
+    movement = StockMovement(
+        product_id=item.product_id,
+        from_warehouse_id=origin_warehouse_id,
+        to_warehouse_id=None,
+        quantity=consume_qty,
+        serial_item_id=serial_item.id,
+        movement_type=MovementType.CONSUMPTION,
+        reference=f"OT #{work_order_id}",
+        user_id=user_id,
+        notes=movement_notes,
     )
     db.add(movement)
 

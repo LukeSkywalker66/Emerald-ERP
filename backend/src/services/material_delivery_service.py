@@ -9,6 +9,7 @@ Calcula los materiales necesarios para una cuadrilla basándose en:
 """
 from __future__ import annotations
 from datetime import datetime, date, timedelta
+import math
 from typing import List, Optional, Tuple
 import logging
 
@@ -34,21 +35,24 @@ logger = logging.getLogger("uvicorn.error")
 def generate_delivery_proposal(
     db: Session,
     team_id: int,
-    target_date: Optional[date] = None
+    target_date: Optional[date] = None,
+    target_dates: Optional[List[date]] = None,
 ) -> dict:
     """
     Genera una propuesta de materiales para una cuadrilla.
-    
+
     Args:
-        db: Sesión de base de datos
-        team_id: ID de la cuadrilla
-        target_date: Fecha objetivo (default: hoy)
-    
+        db:           Sesión de base de datos
+        team_id:      ID de la cuadrilla
+        target_date:  Fecha única (retrocompatibilidad). Ignorada si target_dates presente.
+        target_dates: Lista de fechas específicas a considerar. Si es None y
+                      target_date es None, auto-detecta la próxima jornada con OTs
+                      (horizonte +7 días).
+
     Returns:
-        Dict con la propuesta completa
+        Dict con la propuesta completa, incluyendo 'effective_date' (str ISO).
     """
-    if target_date is None:
-        target_date = date.today()
+    from datetime import timezone
 
     # 1. Obtener team con su vehículo
     team = db.get(Team, team_id)
@@ -63,28 +67,105 @@ def generate_delivery_proposal(
     if not mobile_warehouse:
         raise ValueError(f"El vehículo {vehicle.name} no tiene almacén móvil")
 
-    # 2. Obtener OT programadas para la fecha
-    start_dt = datetime.combine(target_date, datetime.min.time())
-    end_dt = datetime.combine(target_date, datetime.max.time())
+    # 2. Resolver el conjunto de fechas a consultar
+    today = date.today()
 
-    work_orders = db.execute(
-        select(WorkOrder)
-        .options(joinedload(WorkOrder.work_order_items))
-        .where(
-            WorkOrder.team_id == team_id,
-            WorkOrder.scheduled_start >= start_dt,
-            WorkOrder.scheduled_start <= end_dt,
-            WorkOrder.status.in_([
-                WorkOrderStatus.scheduled,
-                WorkOrderStatus.in_progress,
-                WorkOrderStatus.pending_planning,
-                WorkOrderStatus.coordinated
-            ])
+    if target_dates:
+        # Multi-fecha explícita: acumular OTs de TODOS los días seleccionados
+        work_orders = []
+        for d in sorted(set(target_dates)):
+            start_dt = datetime.combine(d, datetime.min.time(), tzinfo=timezone.utc)
+            end_dt = datetime.combine(d, datetime.max.time(), tzinfo=timezone.utc)
+            rows = db.execute(
+                select(WorkOrder)
+                .options(joinedload(WorkOrder.work_order_items))
+                .where(
+                    WorkOrder.team_id == team_id,
+                    WorkOrder.scheduled_start >= start_dt,
+                    WorkOrder.scheduled_start <= end_dt,
+                    WorkOrder.status.in_([
+                        WorkOrderStatus.scheduled,
+                        WorkOrderStatus.in_progress,
+                        WorkOrderStatus.pending_planning,
+                        WorkOrderStatus.coordinated,
+                    ]),
+                )
+            ).scalars().unique().all()
+            work_orders.extend(rows)
+
+        date_range = sorted(set(target_dates))
+        if len(date_range) == 1:
+            effective_date_str = date_range[0].isoformat()
+        else:
+            effective_date_str = f"{date_range[0].isoformat()} → {date_range[-1].isoformat()}"
+
+        logger.info(
+            f"Propuesta para '{team.name}': {len(work_orders)} OT(s) en "
+            f"{len(date_range)} fecha(s): {effective_date_str}"
         )
-    ).scalars().unique().all()
+
+    elif target_date is not None:
+        # Fecha única retrocompatible
+        start_dt = datetime.combine(target_date, datetime.min.time(), tzinfo=timezone.utc)
+        end_dt = datetime.combine(target_date, datetime.max.time(), tzinfo=timezone.utc)
+        work_orders = db.execute(
+            select(WorkOrder)
+            .options(joinedload(WorkOrder.work_order_items))
+            .where(
+                WorkOrder.team_id == team_id,
+                WorkOrder.scheduled_start >= start_dt,
+                WorkOrder.scheduled_start <= end_dt,
+                WorkOrder.status.in_([
+                    WorkOrderStatus.scheduled,
+                    WorkOrderStatus.in_progress,
+                    WorkOrderStatus.pending_planning,
+                    WorkOrderStatus.coordinated,
+                ]),
+            )
+        ).scalars().unique().all()
+        effective_date_str = target_date.isoformat()
+
+    else:
+        # Auto-detect: buscar la próxima jornada con OTs (hoy + 7 días)
+        candidate_dates = [today + timedelta(days=i) for i in range(8)]
+        work_orders = []
+        effective_date_str = today.isoformat()
+
+        for candidate in candidate_dates:
+            start_dt = datetime.combine(candidate, datetime.min.time(), tzinfo=timezone.utc)
+            end_dt = datetime.combine(candidate, datetime.max.time(), tzinfo=timezone.utc)
+            rows = db.execute(
+                select(WorkOrder)
+                .options(joinedload(WorkOrder.work_order_items))
+                .where(
+                    WorkOrder.team_id == team_id,
+                    WorkOrder.scheduled_start >= start_dt,
+                    WorkOrder.scheduled_start <= end_dt,
+                    WorkOrder.status.in_([
+                        WorkOrderStatus.scheduled,
+                        WorkOrderStatus.in_progress,
+                        WorkOrderStatus.pending_planning,
+                        WorkOrderStatus.coordinated,
+                    ]),
+                )
+            ).scalars().unique().all()
+            if rows:
+                work_orders = rows
+                effective_date_str = candidate.isoformat()
+                delta = (candidate - today).days
+                logger.info(
+                    f"Propuesta para '{team.name}': {len(rows)} OT(s) para "
+                    f"{candidate} ({'hoy' if delta == 0 else f'+{delta}d'})"
+                )
+                break
+
+        if not work_orders:
+            logger.info(f"Propuesta para '{team.name}': sin OTs en los próximos 7 días.")
+
 
     # 3. Obtener stock actual del móvil
     mobile_stock = _get_mobile_stock(db, mobile_warehouse.id)
+    mobile_group_stock = _get_mobile_group_stock(db, mobile_warehouse.id)
 
     # 4. Para cada OT, obtener plantillas y acumular requerimientos
     required_materials = {}  # product_id -> {required_qty, preferred_model_id}
@@ -162,25 +243,56 @@ def generate_delivery_proposal(
         if not product:
             continue
 
-        available = mobile_stock.get(pid, 0.0)
-        required = req["required_qty"]
-        deficit = required - available
+        # Frontera de dominio:
+        # - Las plantillas siguen expresando requerimientos en unidades base.
+        # - El traductor convierte a unidades compuestas solo para productos
+        #   is_composite, usando ceil para pedir bobinas/blisters enteros.
+        available_base = (
+            mobile_group_stock.get(req["group_id"], 0.0)
+            if req.get("group_id") and product.type == ProductType.SERIALIZED
+            else mobile_stock.get(pid, 0.0)
+        )
+        required_base = req["required_qty"]
 
-        if deficit <= 0:
-            continue  # Ya tiene suficiente en el móvil
-
-        # Aplicar redondeo para productos compuestos
+        display_unit = "u."
+        required_total = required_base
+        available_for_display = available_base
+        deficit = required_base - available_base
         suggested_qty = deficit
         suggested_composite_units = None
-        if product.is_composite and product.unit_size and product.unit_size > 0:
-            import math
-            composite_units = math.ceil(deficit / product.unit_size)
-            suggested_qty = composite_units * product.unit_size
-            suggested_composite_units = composite_units
-            
-            composite_label = product.composite_unit_label or "unidad(es)"
-            logger.info(f"  → {product.name}: {deficit} {product.unit_measure} "
-                       f"≈ {composite_units} {composite_label}")
+        required_base_total = None
+        available_base_total = None
+
+        if product.is_composite:
+            if not product.unit_size or product.unit_size <= 0:
+                raise ValueError(
+                    f"El producto compuesto '{product.name}' no tiene unit_size válido."
+                )
+
+            required_total = required_base / product.unit_size
+            available_for_display = available_base
+            deficit = required_total - available_for_display
+            if deficit <= 0:
+                continue
+
+            suggested_composite_units = math.ceil(deficit)
+            suggested_qty = float(suggested_composite_units)
+            required_base_total = required_base
+            available_base_total = available_base * product.unit_size
+            display_unit = product.composite_unit_label or "u."
+
+            logger.info(
+                f"  → {product.name}: {required_base} {product.unit_measure or 'base'} "
+                f"≈ {required_total} {display_unit}; disponible {available_for_display} {display_unit}, "
+                f"sugerido {suggested_composite_units} {display_unit}"
+            )
+
+        else:
+            if deficit <= 0:
+                continue  # Ya tiene suficiente en el móvil
+
+            if product.unit_measure:
+                display_unit = product.unit_measure
 
         # Para SERIALIZED, seleccionar modelo preferido
         preferred_model_id = req.get("preferred_model_id")
@@ -189,21 +301,38 @@ def generate_delivery_proposal(
                 db, product, mobile_warehouse.id
             )
 
+        is_group_requirement = req.get("group_id") is not None
+        display_name = product.name
+        display_sku = product.sku
+        suggested_model_name = None
+
+        if is_group_requirement and product.group:
+            display_name = f"Grupo {product.group.name}"
+            display_sku = None
+            suggested_model_name = product.name
+
         proposal_items.append({
             "product_id": pid,
-            "product_name": product.name,
-            "product_sku": product.sku,
+            "product_name": display_name,
+            "product_sku": display_sku,
+            "group_id": req.get("group_id") or product.group_id,
             "group_name": product.group.name if product.group else None,
+            "is_group_requirement": is_group_requirement,
             "is_composite": product.is_composite,
             "unit_size": product.unit_size,
             "unit_measure": product.unit_measure,
             "composite_unit_label": product.composite_unit_label,
-            "available_in_mobile": available,
-            "required_total": required,
+            "display_unit": display_unit,
+            "required_base_total": required_base_total,
+            "available_in_mobile_base": available_base_total,
+            "available_in_mobile": available_for_display,
+            "required_total": required_total,
             "deficit": deficit,
             "suggested_quantity": suggested_qty,
             "suggested_composite_units": suggested_composite_units,
-            "preferred_model_id": preferred_model_id,
+            "suggested_model_id": preferred_model_id,
+            "suggested_model_name": suggested_model_name,
+            "serial_validation_regex": product.serial_validation_regex,
             "product_type": product.type.value,
         })
 
@@ -213,6 +342,7 @@ def generate_delivery_proposal(
         "vehicle_name": vehicle.name,
         "mobile_warehouse_id": mobile_warehouse.id,
         "work_orders_count": len(work_orders),
+        "effective_date": effective_date_str,
         "items": proposal_items,
         "generated_at": datetime.utcnow(),
     }
@@ -284,6 +414,47 @@ def _get_mobile_stock(db: Session, warehouse_id: int) -> dict:
     for product_id, count in serial_counts:
         stock[product_id] = stock.get(product_id, 0) + count
     
+    return stock
+
+
+def _get_mobile_group_stock(db: Session, warehouse_id: int) -> dict:
+    """
+    Obtiene stock agregado por grupo de producto dentro del almacén móvil.
+    Necesario para plantillas que piden por grupo (ej: cualquier ONU del grupo).
+    Retorna dict: {group_id: total_quantity}
+    """
+    stock = {}
+
+    bulk_rows = db.execute(
+        select(Product.group_id, func.sum(StockBulk.quantity))
+        .join(Product, Product.id == StockBulk.product_id)
+        .where(
+            StockBulk.warehouse_id == warehouse_id,
+            Product.group_id.is_not(None),
+            StockBulk.quantity > 0,
+        )
+        .group_by(Product.group_id)
+    ).all()
+
+    for group_id, quantity in bulk_rows:
+        if group_id is not None and quantity:
+            stock[group_id] = stock.get(group_id, 0) + float(quantity)
+
+    serial_rows = db.execute(
+        select(Product.group_id, func.count(SerialItem.id))
+        .join(Product, Product.id == SerialItem.product_id)
+        .where(
+            SerialItem.warehouse_id == warehouse_id,
+            SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.IN_VEHICLE]),
+            Product.group_id.is_not(None),
+        )
+        .group_by(Product.group_id)
+    ).all()
+
+    for group_id, count in serial_rows:
+        if group_id is not None and count:
+            stock[group_id] = stock.get(group_id, 0) + int(count)
+
     return stock
 
 
@@ -385,23 +556,54 @@ def confirm_delivery(
     """
     Confirma una entrega y ejecuta la transferencia de stock.
     """
-    delivery = db.get(MaterialDelivery, delivery_id)
+    delivery = db.execute(
+        select(MaterialDelivery)
+        .options(selectinload(MaterialDelivery.items))
+        .where(MaterialDelivery.id == delivery_id)
+    ).scalar_one_or_none()
     if not delivery:
         raise ValueError(f"Entrega {delivery_id} no encontrada")
     
     if delivery.status == DeliveryStatus.COMPLETED:
         raise ValueError(f"La entrega {delivery_id} ya fue completada")
 
+    # Si hubo escaneo manual, transferimos SOLO esos ítems.
+    # Si no hubo escaneo, usamos PROPOSAL como fallback retrocompatible.
+    delivery_items = db.execute(
+        select(MaterialDeliveryItem)
+        .options(joinedload(MaterialDeliveryItem.product))
+        .where(MaterialDeliveryItem.delivery_id == delivery.id)
+    ).scalars().all()
+
+    manual_items = [i for i in delivery_items if i.source == DeliveryItemSource.MANUAL]
+    items_to_transfer = manual_items if manual_items else [
+        i for i in delivery_items if i.source == DeliveryItemSource.PROPOSAL
+    ]
+
     # Ejecutar transferencia de stock para cada item
     from src.services.inventory_service import transfer_stock_bulk, transfer_stock_serial
 
-    for item in delivery.items:
+    for item in items_to_transfer:
         if item.quantity_delivered <= 0:
             continue
 
         if item.is_serialized:
             # Producto serializado
             serial_id = item.serial_item_id
+            if not serial_id and item.serial_number:
+                by_number = db.execute(
+                    select(SerialItem).where(
+                        SerialItem.serial_number == item.serial_number
+                    )
+                ).scalars().first()
+                serial_id = by_number.id if by_number else None
+
+            if not serial_id and manual_items:
+                raise ValueError(
+                    f"Falta serial escaneado para '{item.product.name if item.product else item.product_id}'. "
+                    f"No se puede confirmar la entrega con ítems manuales incompletos."
+                )
+
             if not serial_id:
                 # Buscar serial disponible en el depósito origen
                 available = db.execute(
@@ -439,6 +641,13 @@ def confirm_delivery(
                 reference=f"Entrega #{delivery.id}",
                 notes=item.notes
             )
+
+    # Normalizar snapshot final: si hubo escaneo manual, la entrega completada
+    # debe reflejar exclusivamente lo efectivamente escaneado/seleccionado.
+    if manual_items:
+        for item in delivery_items:
+            if item.source == DeliveryItemSource.PROPOSAL:
+                db.delete(item)
 
     delivery.status = DeliveryStatus.COMPLETED
     delivery.delivered_at = datetime.utcnow()

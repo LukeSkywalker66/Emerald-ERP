@@ -62,7 +62,7 @@ class ProductBase(BaseModel):
     sku: str = Field(..., min_length=1, max_length=50, description="Código único")
     type: ProductType
     category: Optional[str] = Field(None, max_length=100)
-    min_stock_alert: int = Field(0, ge=0)
+    min_stock_alert: float = Field(0, ge=0)
     description: Optional[str] = None
     # Nuevos campos
     group_id: Optional[int] = Field(None, description="ID del grupo de producto (ONU/ONT, Router, etc)")
@@ -70,6 +70,10 @@ class ProductBase(BaseModel):
     unit_measure: Optional[str] = Field(None, max_length=20, description="Unidad de medida (m, units, pcs)")
     is_composite: bool = Field(False, description="Producto compuesto que se fracciona al consumir")
     composite_unit_label: Optional[str] = Field(None, max_length=50, description="Etiqueta de unidad compuesta (Bobina, Blister)")
+    serial_validation_regex: Optional[str] = Field(
+        None, max_length=255,
+        description="Regex para validar seriales al registrar compras (ej: ^[A-Z0-9]{16}$)"
+    )
 
 
 class ProductCreate(ProductBase):
@@ -83,7 +87,7 @@ class ProductUpdate(BaseModel):
     sku: Optional[str] = Field(None, min_length=1, max_length=50)
     type: Optional[ProductType] = None
     category: Optional[str] = Field(None, max_length=100)
-    min_stock_alert: Optional[int] = Field(None, ge=0)
+    min_stock_alert: Optional[float] = Field(None, ge=0)
     description: Optional[str] = None
     # Nuevos campos
     group_id: Optional[int] = Field(None, description="ID del grupo de producto")
@@ -209,6 +213,9 @@ class SerialItemBase(BaseModel):
     """Schema base para serial item."""
     serial_number: str = Field(..., min_length=1, max_length=100)
     mac_address: Optional[str] = Field(None, max_length=17)
+    is_generated_barcode: bool = False
+    initial_quantity: Optional[float] = None
+    remaining_quantity: Optional[float] = None
     product_id: int
     warehouse_id: int
     status: SerialItemStatus = SerialItemStatus.NEW
@@ -290,6 +297,11 @@ class StockItemDetail(BaseModel):
     product_sku: str
     product_type: ProductType
     category: Optional[str] = None
+    is_composite: bool = False
+    unit_size: Optional[float] = None
+    unit_measure: Optional[str] = None
+    composite_unit_label: Optional[str] = None
+    display_unit: str = Field("u.", description="Unidad visible para el stock (u. por defecto, bobinas/blisters para compuestos)")
     
     # Para BULK
     quantity: Optional[float] = None
@@ -352,10 +364,17 @@ class StockAdjustmentRequest(BaseModel):
     """
     Request para ajustes de inventario (compras, ingresos, ajustes).
     Permite agregar stock BULK a un warehouse específico.
+
+    Para productos compuestos, `quantity` representa unidades compuestas
+    (bobinas, blisters, cajas), no unidades base.
     """
     product_id: int = Field(..., description="ID del producto BULK")
     warehouse_id: int = Field(..., description="ID del warehouse destino")
-    quantity: float = Field(..., gt=0, description="Cantidad a ingresar (debe ser > 0)")
+    quantity: float = Field(..., gt=0, description="Cantidad a ingresar. Para compuestos se expresa en unidades compuestas.")
+    generate_barcodes: bool = Field(
+        False,
+        description="Si es true y el producto es compuesto, genera SerialItems con códigos propios en lugar de incrementar stock_bulk."
+    )
     movement_type: MovementType = Field(
         default=MovementType.PURCHASE,
         description="Tipo de movimiento: PURCHASE (compra) o ADJUSTMENT (ajuste)"
@@ -367,10 +386,13 @@ class StockAdjustmentRequest(BaseModel):
 class StockAdjustmentResponse(BaseModel):
     """Respuesta de un ajuste de stock exitoso."""
     success: bool
-    movement_id: int = Field(..., description="ID del movimiento creado")
-    stock_bulk_id: int = Field(..., description="ID del registro de stock_bulk (creado o actualizado)")
+    movement_id: Optional[int] = Field(None, description="ID de movimiento principal creado")
+    stock_bulk_id: Optional[int] = Field(None, description="ID del registro de stock_bulk (creado o actualizado)")
     previous_quantity: float = Field(..., description="Cantidad anterior en stock")
     new_quantity: float = Field(..., description="Cantidad nueva después del ajuste")
+    tracked_units_created: int = Field(0, description="Cantidad de unidades trazables generadas")
+    generated_serial_item_ids: List[int] = Field(default_factory=list, description="IDs de serial_items generados")
+    generated_barcodes: List[str] = Field(default_factory=list, description="Códigos de barra generados")
     message: str
     
     model_config = ConfigDict(from_attributes=True)
@@ -391,7 +413,114 @@ class StockAlertItem(BaseModel):
     product_type: ProductType
     category: Optional[str] = None
     total_stock: float = Field(..., description="Suma total del stock en todos los warehouses")
-    min_stock_alert: int = Field(..., description="Mínimo configurado antes de alertar")
+    min_stock_alert: float = Field(..., description="Mínimo configurado antes de alertar")
     deficit: float = Field(..., description="Cuánto falta para alcanzar el mínimo")
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================
+# BARCODE SCAN SCHEMAS (Escaneo inteligente)
+# ============================================
+
+
+class ScanCodeRequest(BaseModel):
+    """
+    Request para escanear un código de barra en contexto de compra.
+    El motor identifica automáticamente si es SKU o Serial.
+    """
+    code: str = Field(
+        ..., min_length=1, max_length=100,
+        description="Código escaneado (SKU o serial)"
+    )
+    product_id: Optional[int] = Field(
+        None, description="ID del producto (requerido si se espera serial)"
+    )
+    warehouse_id: Optional[int] = Field(
+        None, description="ID del almacén destino (para crear sesión)"
+    )
+
+
+class ScanCodeResponse(BaseModel):
+    """
+    Respuesta del escaneo inteligente.
+    El tipo de respuesta varía según lo identificado.
+    """
+    success: bool
+    scan_type: str = Field(
+        ..., description="Tipo identificado: PRODUCT_CODE | SERIAL_NUMBER | UNKNOWN"
+    )
+    code: str = Field(..., description="Código sanitizado")
+    product_id: Optional[int] = None
+    product_name: Optional[str] = None
+    product_sku: Optional[str] = None
+    is_serialized: Optional[bool] = None
+    validated: bool = False
+    message: str = ""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ScanSerialRequest(BaseModel):
+    """
+    Request para escanear un serial de producto SERIALIZED.
+    Se envía después de identificar el producto.
+    """
+    serial_number: str = Field(
+        ..., min_length=1, max_length=100,
+        description="Número de serie escaneado"
+    )
+    product_id: int = Field(
+        ..., description="ID del producto al que pertenece el serial"
+    )
+    warehouse_id: int = Field(
+        ..., description="ID del almacén destino"
+    )
+    reference: Optional[str] = Field(
+        None, max_length=200,
+        description="Referencia de compra (factura, orden)"
+    )
+    notes: Optional[str] = None
+
+
+class ScanSerialResponse(BaseModel):
+    """Respuesta del escaneo de serial."""
+    success: bool
+    serial_number: str
+    product_id: int
+    product_name: Optional[str] = None
+    already_scanned: bool = False
+    session_id: Optional[int] = None
+    session_count: int = 0
+    validated: bool = False
+    message: str = ""
+
+
+class ScanSessionResponse(BaseModel):
+    """Estado actual de una sesión de escaneo."""
+    id: int
+    warehouse_id: int
+    product_id: int
+    product_name: Optional[str] = None
+    product_sku: Optional[str] = None
+    scanned_sns: list = []
+    count: int
+    is_complete: bool
+    reference: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ScanSessionConfirmResponse(BaseModel):
+    """Respuesta de confirmación de sesión de escaneo."""
+    success: bool
+    session_id: int
+    total_serials: int
+    serials_created: int
+    movements_created: int
+    warehouse_name: Optional[str] = None
+    product_name: Optional[str] = None
+    message: str

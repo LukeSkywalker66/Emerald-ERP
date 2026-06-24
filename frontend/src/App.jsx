@@ -43,6 +43,7 @@ import CuadrillasPage from './pages/coordination/CuadrillasPage';
 import MaterialDeliveryDashboard from './pages/logistics/MaterialDeliveryDashboard';
 import MaterialDeliveryWizard from './pages/logistics/MaterialDeliveryWizard';
 import MaterialReceiptWizard from './pages/logistics/MaterialReceiptWizard';
+import BarcodeLabelPrinter from './pages/logistics/BarcodeLabelPrinter';
 
 const PrivateRoute = ({ children }) => {
   const { isAuthenticated } = useAuth();
@@ -99,6 +100,7 @@ const AppRoutes = () => (
         <Route path="logistics/deliveries/:id" element={<RoleGuard resource="inventory_admin"><MaterialDeliveryWizard /></RoleGuard>} />
         <Route path="logistics/receipts/new" element={<RoleGuard resource="inventory_admin"><MaterialReceiptWizard /></RoleGuard>} />
         <Route path="logistics/receipts/:id" element={<RoleGuard resource="inventory_admin"><MaterialReceiptWizard /></RoleGuard>} />
+        <Route path="logistics/print-labels" element={<RoleGuard resource="inventory" action="adjust" fallbackPath="/app/inventory/adjustments"><BarcodeLabelPrinter /></RoleGuard>} />
         
         {/*
           Settings route: permisivo por RBAC con self_service (todo usuario autenticado).

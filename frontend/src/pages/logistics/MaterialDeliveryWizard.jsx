@@ -2,12 +2,19 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   ArrowLeft, ArrowRight, Check, X, Loader, AlertCircle,
   Truck, Scan, Package, Users, ClipboardList, RefreshCw,
-  CheckCircle, Plus, Trash2,
+  CheckCircle, Plus, Trash2, CalendarDays, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import * as logisticsService from '@/services/logistics.service';
 import * as inventoryService from '@/services/inventory.service';
 import { getTeams } from '@/services/coordination.service';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import {
+  BarcodeScanner,
+  SerialScanner,
+  ScannedSerialsList,
+} from '@/components/barcode-reader';
+import { useDeliveryScanner } from '@/hooks/useDeliveryScanner';
 
 const STEPS = [
   { id: 1, label: 'Cuadrilla', icon: Users },
@@ -37,58 +44,104 @@ export default function MaterialDeliveryWizard() {
   const [selectedFromWarehouse, setSelectedFromWarehouse] = useState('');  // CENTRAL origen
   const [selectedWarehouse, setSelectedWarehouse] = useState('');  // MOBILE destino
 
+  // Step 1: Selector de fechas
+  const [scheduleDates, setScheduleDates] = useState([]);   // [{date, work_orders_count}]
+  const [selectedDates, setSelectedDates] = useState([]);   // ['YYYY-MM-DD', ...]
+  const [loadingSchedule, setLoadingSchedule] = useState(false);
+  const [scheduleLoaded, setScheduleLoaded] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const t = new Date(); return { year: t.getFullYear(), month: t.getMonth() };
+  });
+
   // Step 2: Proposal
   const [proposalItems, setProposalItems] = useState([]);
   const [proposalGenerated, setProposalGenerated] = useState(false);
   const [generatingProposal, setGeneratingProposal] = useState(false);
+  const [proposalEffectiveDate, setProposalEffectiveDate] = useState(null);
+  const [proposalWorkOrdersCount, setProposalWorkOrdersCount] = useState(0);
+  const [preparingDelivery, setPreparingDelivery] = useState(false);
+  const [proposalConflict, setProposalConflict] = useState(null);
 
-  // Step 3: Scan
-  const [scanMode, setScanMode] = useState('barcode'); // 'barcode' | 'serial'
-  const [barcodeInput, setBarcodeInput] = useState('');
-  const [serialInput, setSerialInput] = useState('');
-  const [scanningProduct, setScanningProduct] = useState(null);
+  // Step 3: Scan — usando máquina de estados inteligente
   const [scannedItems, setScannedItems] = useState([]);
   const [scanComplete, setScanComplete] = useState(false);
 
-  // Build proposal map: product_id -> { quantity, product_name }
-  const proposalMap = {};
+  // Máquina de estados inteligente para escaneo en delivery
+  const deliveryScanner = useDeliveryScanner({
+    proposalItems,
+    deliveryId: delivery?.id || null,
+    onItemScanned: (item) => {
+      setScannedItems(prev => [...prev, item]);
+    },
+    onError: (msg) => setError(msg),
+    onProposalConflict: useCallback((payload) => {
+      return new Promise((resolve) => {
+        setProposalConflict({
+          message: payload?.message || 'El item no pertenece a la propuesta de entrega aceptada en el paso anterior, ¿Desea agregarlo de todas formas?',
+          code: payload?.code || 'OUTSIDE_ACCEPTED_PROPOSAL',
+          detail: payload?.detail || null,
+          resolve,
+        });
+      });
+    }, []),
+    enabled: !scanComplete,
+  });
+
+  const handleScanCallback = useCallback((code) => {
+    deliveryScanner.resolveScan(code);
+  }, [deliveryScanner]);
+
+  const requirementMap = {};
   (proposalItems || []).forEach(item => {
     const pid = item.product_id;
     if (!pid) return;
-    if (!proposalMap[pid]) {
-      proposalMap[pid] = {
+    const key = item.is_group_requirement && item.group_id != null
+      ? `GROUP:${item.group_id}`
+      : `PRODUCT:${pid}`;
+
+    if (!requirementMap[key]) {
+      requirementMap[key] = {
         quantity: 0,
-        product_name: item.product_name,
+        product_name: item.is_group_requirement && item.group_name
+          ? `Grupo ${item.group_name}`
+          : item.product_name,
         product_sku: item.product_sku,
-        is_composite: item.is_composite,
-        unit_size: item.unit_size,
       };
     }
-    proposalMap[pid].quantity += item.suggested_quantity || 0;
+    requirementMap[key].quantity += item.suggested_quantity || 0;
   });
 
-  // Count scanned items per product
-  const scannedCounts = {};
+  const scannedCountsByRequirement = {};
   (scannedItems || []).forEach(item => {
-    const pid = item.product_id;
-    if (!pid) return;
-    scannedCounts[pid] = (scannedCounts[pid] || 0) + 1;
+    const key = item.requirement_key || (item.product_group_id != null
+      ? `GROUP:${item.product_group_id}`
+      : `PRODUCT:${item.product_id}`);
+    if (!key) return;
+    scannedCountsByRequirement[key] = (scannedCountsByRequirement[key] || 0) + 1;
   });
 
   // Check if all proposed items have been scanned
-  const allScanned = Object.keys(proposalMap).length > 0 &&
-    Object.keys(proposalMap).every(pid => {
-      const proposed = proposalMap[pid];
-      // For composite: compare in base units
-      const scanned = scannedCounts[pid] || 0;
-      return scanned >= 1; // At least 1 unit scanned per product
+  const allScanned = Object.keys(deliveryScanner.requiredCounts || {}).length > 0 &&
+    Object.entries(deliveryScanner.requiredCounts || {}).every(([key, required]) => {
+      const scanned = deliveryScanner.scannedCounts?.[key] || scannedCountsByRequirement[key] || 0;
+      return scanned >= required;
     });
+  const handleRemoveScanned = useCallback(async (item, idx) => {
+    await deliveryScanner.removeScannedItem(item);
+    setScannedItems(prev => prev.filter((_, i) => i !== idx));
+  }, [deliveryScanner]);
 
-  // When all scanned, auto-set scanComplete
-  if (allScanned && !scanComplete) {
-    // Use setTimeout to avoid setState during render
-    setTimeout(() => setScanComplete(true), 100);
-  }
+
+  useEffect(() => {
+    setScanComplete(allScanned);
+  }, [allScanned]);
+
+  // En escaneo, el banner de error no debe quedar fijo
+  useEffect(() => {
+    if (currentStep !== 3 || !error) return;
+    const timer = setTimeout(() => setError(null), 4000);
+    return () => clearTimeout(timer);
+  }, [currentStep, error]);
 
   // Load initial data
   useEffect(() => {
@@ -149,24 +202,95 @@ export default function MaterialDeliveryWizard() {
   // Find selected team's mobile warehouse
   const selectedTeamData = teams.find(t => String(t.id) === selectedTeam);
 
+  // Cargar fechas con OTs cuando cambia la cuadrilla seleccionada
+  useEffect(() => {
+    if (!selectedTeam) {
+      setScheduleDates([]);
+      setSelectedDates([]);
+      setScheduleLoaded(false);
+      setLoadingSchedule(false);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      setScheduleLoaded(false);
+      setLoadingSchedule(true);
+      try {
+        const result = await logisticsService.getTeamScheduleDates(parseInt(selectedTeam), 21);
+        if (cancelled) return;
+        setScheduleDates(result.dates || []);
+        // Auto-seleccionar la primera fecha disponible
+        if (result.dates && result.dates.length > 0) {
+          setSelectedDates([result.dates[0].date]);
+          // Centrar el calendario en el mes de la primera fecha
+          const d = new Date(result.dates[0].date + 'T00:00:00');
+          setCalendarMonth({ year: d.getFullYear(), month: d.getMonth() });
+        } else {
+          setSelectedDates([]);
+        }
+      } catch (err) {
+        if (!cancelled) console.error('Error cargando schedule:', err);
+      } finally {
+        if (!cancelled) {
+          setLoadingSchedule(false);
+          setScheduleLoaded(true);
+        }
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [selectedTeam]);
+
+  // Toggle selección de una fecha
+  const toggleDate = useCallback((dateStr) => {
+    setSelectedDates(prev =>
+      prev.includes(dateStr)
+        ? prev.filter(d => d !== dateStr)
+        : [...prev, dateStr]
+    );
+  }, []);
+
   // Generate proposal
-  const handleGenerateProposal = async () => {
+  const handleGenerateProposal = useCallback(async () => {
     if (!selectedTeam) return;
     setGeneratingProposal(true);
     setError(null);
     try {
-      const preview = await logisticsService.getProposalPreview({
-        team_id: parseInt(selectedTeam),
-      });
+      const params = { team_id: parseInt(selectedTeam) };
+      if (selectedDates.length > 0) {
+        params.dates = selectedDates;
+      }
+      const preview = await logisticsService.getProposalPreview(params);
       setProposalItems(preview.items || []);
+      setProposalEffectiveDate(preview.effective_date || null);
+      setProposalWorkOrdersCount(preview.work_orders_count || 0);
       setProposalGenerated(true);
     } catch (err) {
       console.error('Error generating proposal:', err);
-      const detail = err.response?.data?.detail; const msg = typeof detail === 'string' ? detail : Array.isArray(detail) ? detail.map(d => d.msg || d.message).join(', ') : err.message; setError('Error al generar la propuesta: ' + msg);
+      const detail = err.response?.data?.detail;
+      const msg = typeof detail === 'string' ? detail
+        : Array.isArray(detail) ? detail.map(d => d.msg || d.message).join(', ')
+        : err.message;
+      setError('Error al generar la propuesta: ' + msg);
     } finally {
       setGeneratingProposal(false);
     }
-  };
+  }, [selectedTeam, selectedDates]);
+
+  // Invalidar propuesta cuando el usuario cambia las fechas seleccionadas
+  useEffect(() => {
+    setProposalGenerated(false);
+    setProposalItems([]);
+    setProposalEffectiveDate(null);
+    setProposalWorkOrdersCount(0);
+  }, [selectedDates]);
+
+  // Auto-generar propuesta la primera vez que se entra al Step 2 (o si fue invalidada)
+  useEffect(() => {
+    if (currentStep === 2 && selectedTeam && !proposalGenerated) {
+      handleGenerateProposal();
+    }
+  }, [currentStep, handleGenerateProposal, proposalGenerated]);
 
   // Update item quantity
   const handleQuantityChange = (index, newQty) => {
@@ -189,100 +313,6 @@ export default function MaterialDeliveryWizard() {
       suggested_quantity: 1,
       is_manual: true,
     }]);
-  };
-
-  // Handle barcode scan
-  const handleBarcodeScan = async () => {
-    if (!barcodeInput.trim()) return;
-    if (scanComplete) {
-      setError('Todos los productos de la propuesta ya fueron escaneados.');
-      return;
-    }
-    setError(null);
-    try {
-      let productId, productName, productSku, isSerialized;
-      
-      if (delivery?.id) {
-        const result = await logisticsService.scanBarcode(delivery.id, {
-          product_code: barcodeInput.trim(),
-          quantity: 1,
-        });
-        productId = result.product_id;
-        productName = result.product_name;
-        productSku = result.product_sku;
-        isSerialized = result.is_serialized;
-      } else {
-        const product = products.find(p =>
-          p.sku.toUpperCase() === barcodeInput.trim().toUpperCase()
-        );
-        if (!product) throw new Error('Producto no encontrado');
-        productId = product.id;
-        productName = product.name;
-        productSku = product.sku;
-        isSerialized = product.type === 'SERIALIZED';
-      }
-
-      // Validar que el producto esté en la propuesta
-      if (Object.keys(proposalMap).length > 0 && !proposalMap[productId]) {
-        throw new Error(`'${productName}' no está en la propuesta. Agregalo desde el paso anterior.`);
-      }
-
-      // Validar que no se exceda la cantidad propuesta
-      const currentScanned = scannedCounts[productId] || 0;
-      if (currentScanned >= 1) {
-        throw new Error(`'${productName}' ya fue escaneado. No se puede escanear más de lo propuesto.`);
-      }
-
-      if (isSerialized) {
-        setScanMode('serial');
-        setScanningProduct({ product_id: productId, product_name: productName, product_sku: productSku });
-      } else {
-        setScannedItems([...scannedItems, {
-          product_id: productId,
-          product_name: productName,
-          product_sku: productSku,
-          is_serialized: false,
-          scanned: true,
-        }]);
-      }
-      setBarcodeInput('');
-    } catch (err) {
-      const detail = err.response?.data?.detail;
-      const msg = typeof detail === 'string' ? detail
-        : Array.isArray(detail) ? detail.map(d => d.msg || d.message).join(', ')
-        : err.message || 'Error al escanear';
-      setError(msg);
-    }
-  };
-
-  // Handle serial scan
-  const handleSerialScan = async () => {
-    if (!serialInput.trim() || !scanningProduct) return;
-    setError(null);
-    try {
-      if (delivery?.id) {
-        const result = await logisticsService.scanSerial(delivery.id, {
-          product_id: scanningProduct.product_id,
-          serial_number: serialInput.trim(),
-        });
-        setScannedItems([...scannedItems, {
-          ...scanningProduct,
-          serial_number: serialInput.trim(),
-          scanned: true,
-        }]);
-      } else {
-        setScannedItems([...scannedItems, {
-          ...scanningProduct,
-          serial_number: serialInput.trim(),
-          scanned: true,
-        }]);
-      }
-      setSerialInput('');
-      setScanMode('barcode');
-      setScanningProduct(null);
-    } catch (err) {
-      const detail2 = err.response?.data?.detail; const msg2 = typeof detail2 === 'string' ? detail2 : Array.isArray(detail2) ? detail2.map(d => d.msg || d.message).join(', ') : err.message || 'Error al escanear serial'; setError(msg2);
-    }
   };
 
   // Create and confirm delivery
@@ -322,9 +352,93 @@ export default function MaterialDeliveryWizard() {
     }
   };
 
+  const closeProposalConflict = useCallback((accepted) => {
+    if (!proposalConflict) return;
+    proposalConflict.resolve(Boolean(accepted));
+    setProposalConflict(null);
+  }, [proposalConflict]);
+
+  const ensureDeliveryDraft = useCallback(async () => {
+    if (delivery?.id) return delivery;
+    if (!selectedTeamData?.warehouse_id) {
+      throw new Error('La cuadrilla seleccionada no tiene depósito móvil asociado');
+    }
+    if (!selectedFromWarehouse) {
+      throw new Error('Seleccioná el depósito de origen');
+    }
+
+    const created = await logisticsService.createDelivery({
+      team_id: parseInt(selectedTeam),
+      warehouse_from_id: parseInt(selectedFromWarehouse),
+      warehouse_to_id: selectedTeamData.warehouse_id,
+      notes: '',
+    });
+    setDelivery(created);
+    return created;
+  }, [delivery, selectedFromWarehouse, selectedTeam, selectedTeamData]);
+
+  const persistCurrentProposal = useCallback(async (targetDelivery) => {
+    const deliveryId = targetDelivery?.id;
+    if (!deliveryId) return targetDelivery;
+
+    const refreshed = await logisticsService.getDelivery(deliveryId);
+    const proposalSource = (refreshed.items || []).filter(i =>
+      i.source === 'PROPOSAL' ||
+      (i.source === 'MANUAL' && typeof i.notes === 'string' && i.notes.startsWith('GROUP_REQUIREMENT:'))
+    );
+
+    for (const item of proposalSource) {
+      await logisticsService.removeDeliveryItem(deliveryId, item.id);
+    }
+
+    for (const item of proposalItems) {
+      if (!item.product_id) continue;
+      const qty = Number(item.suggested_quantity || 0);
+      if (qty <= 0) continue;
+      await logisticsService.addDeliveryItem(deliveryId, {
+        product_id: item.product_id,
+        quantity_proposed: qty,
+        quantity_delivered: qty,
+        is_serialized: item.product_type === 'SERIALIZED',
+        source: 'PROPOSAL',
+        notes: item.is_group_requirement
+          ? `GROUP_REQUIREMENT:${item.group_id || ''}`
+          : null,
+      });
+    }
+
+    const synced = await logisticsService.getDelivery(deliveryId);
+    setDelivery(synced);
+    return synced;
+  }, [proposalItems]);
+
+  const handleNextStep = useCallback(async () => {
+    if (currentStep !== 2) {
+      setCurrentStep(currentStep + 1);
+      return;
+    }
+
+    try {
+      setPreparingDelivery(true);
+      setError(null);
+      const draft = await ensureDeliveryDraft();
+      await persistCurrentProposal(draft);
+      setCurrentStep(3);
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      const msg = typeof detail === 'string' ? detail
+        : Array.isArray(detail) ? detail.map(d => d.msg || d.message).join(', ')
+        : err.message || 'No se pudo preparar la entrega para el escaneo';
+      setError(msg);
+    } finally {
+      setPreparingDelivery(false);
+    }
+  }, [currentStep, ensureDeliveryDraft, persistCurrentProposal]);
+
   const canProceed = () => {
     switch (currentStep) {
-      case 1: return selectedTeam && selectedWarehouse && selectedFromWarehouse;
+      case 1: return selectedTeam && selectedWarehouse && selectedFromWarehouse &&
+        scheduleLoaded && (scheduleDates.length === 0 || selectedDates.length > 0);
       case 2: return proposalGenerated || proposalItems.length > 0;
       case 3: return true;
       default: return true;
@@ -341,6 +455,50 @@ export default function MaterialDeliveryWizard() {
 
   return (
     <div className="space-y-6 p-6 max-w-5xl mx-auto">
+      <Dialog
+        open={Boolean(proposalConflict)}
+        onOpenChange={(open) => {
+          if (!open) closeProposalConflict(false);
+        }}
+      >
+        <DialogContent
+          className="bg-zinc-950 border-amber-600/40 max-w-lg"
+          onPointerDownOutside={(e) => e.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle className="text-amber-400">
+              ⚠️ Ítem fuera de propuesta
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3 text-sm text-zinc-300">
+            <p>
+              {proposalConflict?.message || 'El item no pertenece a la propuesta de entrega aceptada en el paso anterior, ¿Desea agregarlo de todas formas?'}
+            </p>
+            <p className="text-zinc-500">
+              La propuesta guía el armado, pero la entrega puede incorporar materiales adicionales si el operador lo autoriza.
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <button
+              type="button"
+              onClick={() => closeProposalConflict(false)}
+              className="px-4 py-2 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => closeProposalConflict(true)}
+              className="px-4 py-2 rounded bg-amber-600 hover:bg-amber-700 text-white transition-colors"
+            >
+              Agregar de todas formas
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -417,6 +575,10 @@ export default function MaterialDeliveryWizard() {
               value={selectedTeam}
               onChange={(e) => {
                 setSelectedTeam(e.target.value);
+                setScheduleLoaded(false);
+                setLoadingSchedule(e.target.value !== '');
+                setScheduleDates([]);
+                setSelectedDates([]);
                 const team = teams.find(t => String(t.id) === e.target.value);
                 if (team) setSelectedWarehouse(String(team.warehouse_id));
               }}
@@ -462,6 +624,174 @@ export default function MaterialDeliveryWizard() {
                 Depósito central desde donde se retirarán los materiales
               </p>
             </div>
+
+            {/* Selector de fechas */}
+            {selectedTeam && (
+              <div>
+                <div className="flex items-center space-x-2 mb-3">
+                  <CalendarDays className="w-4 h-4 text-emerald-400" />
+                  <label className="block text-sm font-medium text-zinc-300">
+                    Días a preparar *
+                  </label>
+                  {loadingSchedule && <Loader className="w-3 h-3 text-zinc-500 animate-spin" />}
+                </div>
+
+                {loadingSchedule || !scheduleLoaded ? (
+                  <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-4 flex items-center space-x-3 text-zinc-300">
+                    <Loader className="w-4 h-4 animate-spin text-emerald-400" />
+                    <div>
+                      <p className="text-sm font-medium">Consultando agenda de la cuadrilla</p>
+                      <p className="text-xs text-zinc-500 mt-1">Buscando OTs programadas para los próximos 21 días.</p>
+                    </div>
+                  </div>
+                ) : scheduleDates.length === 0 ? (
+                  <div className="bg-amber-900/20 border border-amber-800/40 rounded-lg p-3 text-amber-300 text-sm">
+                    Sin OTs programadas en los próximos 21 días para esta cuadrilla.
+                  </div>
+                ) : (
+                  <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-4 space-y-4">
+
+                    {/* Navegación del calendario */}
+                    <div className="flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => setCalendarMonth(prev => {
+                          const d = new Date(prev.year, prev.month - 1);
+                          return { year: d.getFullYear(), month: d.getMonth() };
+                        })}
+                        className="p-1 text-zinc-400 hover:text-white transition-colors"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <span className="text-sm font-semibold text-zinc-200">
+                        {new Date(calendarMonth.year, calendarMonth.month).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setCalendarMonth(prev => {
+                          const d = new Date(prev.year, prev.month + 1);
+                          return { year: d.getFullYear(), month: d.getMonth() };
+                        })}
+                        className="p-1 text-zinc-400 hover:text-white transition-colors"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Grilla del calendario */}
+                    {(() => {
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const year = calendarMonth.year;
+                      const month = calendarMonth.month;
+                      const firstDay = new Date(year, month, 1).getDay(); // 0=Dom
+                      const daysInMonth = new Date(year, month + 1, 0).getDate();
+                      // Índice de inicio lunes-first
+                      const startOffset = (firstDay + 6) % 7;
+                      const cells = [];
+                      for (let i = 0; i < startOffset; i++) cells.push(null);
+                      for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+                      // Mapa de fechas con OTs
+                      const scheduleMap = {};
+                      scheduleDates.forEach(s => { scheduleMap[s.date] = s.work_orders_count; });
+
+                      const DAY_LABELS = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do'];
+
+                      return (
+                        <div>
+                          <div className="grid grid-cols-7 mb-1">
+                            {DAY_LABELS.map(l => (
+                              <div key={l} className="text-center text-xs text-zinc-500 font-medium py-1">{l}</div>
+                            ))}
+                          </div>
+                          <div className="grid grid-cols-7 gap-1">
+                            {cells.map((day, idx) => {
+                              if (!day) return <div key={`e-${idx}`} />;
+                              const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                              const otCount = scheduleMap[dateStr] || 0;
+                              const isSelected = selectedDates.includes(dateStr);
+                              const cellDate = new Date(year, month, day);
+                              const isPast = cellDate < today;
+                              const isToday = cellDate.getTime() === today.getTime();
+                              const hasOTs = otCount > 0;
+
+                              return (
+                                <button
+                                  key={dateStr}
+                                  type="button"
+                                  disabled={isPast && !hasOTs}
+                                  onClick={() => hasOTs ? toggleDate(dateStr) : undefined}
+                                  title={hasOTs ? `${otCount} OT(s)` : undefined}
+                                  className={[
+                                    'relative rounded-md py-1.5 flex flex-col items-center justify-center text-xs font-medium transition-all',
+                                    isPast && !hasOTs ? 'opacity-25 cursor-not-allowed text-zinc-600' : '',
+                                    hasOTs && !isSelected ? 'bg-zinc-700 text-white hover:bg-zinc-600 cursor-pointer' : '',
+                                    hasOTs && isSelected ? 'bg-emerald-600 text-white ring-2 ring-emerald-400 ring-offset-1 ring-offset-zinc-800' : '',
+                                    !hasOTs && !isPast ? 'text-zinc-500 cursor-default' : '',
+                                    isToday && !isSelected ? 'ring-1 ring-amber-500' : '',
+                                  ].join(' ')}
+                                >
+                                  <span>{day}</span>
+                                  {hasOTs && (
+                                    <span className={[
+                                      'text-[9px] font-bold leading-none mt-0.5',
+                                      isSelected ? 'text-emerald-200' : 'text-emerald-400',
+                                    ].join(' ')}>
+                                      {otCount} OT
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Chips de resumen + accesos rápidos */}
+                    <div className="border-t border-zinc-700 pt-3 space-y-2">
+                      <div className="flex flex-wrap gap-2">
+                        {/* Acceso rápido: cada fecha con OTs como chip */}
+                        {scheduleDates.slice(0, 7).map(s => {
+                          const d = new Date(s.date + 'T00:00:00');
+                          const isSelected = selectedDates.includes(s.date);
+                          const today = new Date(); today.setHours(0,0,0,0);
+                          const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+                          const label = d.getTime() === today.getTime() ? 'Hoy'
+                            : d.getTime() === tomorrow.getTime() ? 'Mañana'
+                            : d.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
+                          return (
+                            <button
+                              key={s.date}
+                              type="button"
+                              onClick={() => toggleDate(s.date)}
+                              className={[
+                                'px-2.5 py-1 rounded-full text-xs font-medium border transition-all',
+                                isSelected
+                                  ? 'bg-emerald-600 border-emerald-500 text-white'
+                                  : 'bg-zinc-700 border-zinc-600 text-zinc-300 hover:border-emerald-500',
+                              ].join(' ')}
+                            >
+                              {label} · {s.work_orders_count} OT
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {selectedDates.length === 0 && (
+                        <p className="text-xs text-amber-400">Seleccioná al menos un día para continuar.</p>
+                      )}
+                      {selectedDates.length > 0 && (
+                        <p className="text-xs text-zinc-400">
+                          {selectedDates.length} día(s) seleccionado(s) ·{' '}
+                          {scheduleDates.filter(s => selectedDates.includes(s.date)).reduce((a, s) => a + s.work_orders_count, 0)} OT(s) total
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -470,7 +800,17 @@ export default function MaterialDeliveryWizard() {
       {currentStep === 2 && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 space-y-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-white">Propuesta de Materiales</h2>
+            <div>
+              <h2 className="text-xl font-bold text-white">Propuesta de Materiales</h2>
+              {proposalGenerated && (
+                <p className="text-xs text-zinc-400 mt-1">
+                  {proposalWorkOrdersCount} OT(s)
+                  {proposalEffectiveDate && (
+                    <> · <span className="text-emerald-400">{proposalEffectiveDate}</span></>
+                  )}
+                </p>
+              )}
+            </div>
             <button
               onClick={handleGenerateProposal}
               disabled={generatingProposal || !selectedTeam}
@@ -481,17 +821,33 @@ export default function MaterialDeliveryWizard() {
               ) : (
                 <RefreshCw className="w-4 h-4" />
               )}
-              <span>{proposalGenerated ? 'Actualizar Propuesta' : 'Generar Propuesta'}</span>
+              <span>Actualizar Propuesta</span>
             </button>
           </div>
 
           {!proposalGenerated && proposalItems.length === 0 ? (
             <div className="text-center py-8">
               <ClipboardList className="w-16 h-16 text-zinc-700 mx-auto mb-4" />
-              <p className="text-zinc-400">Presioná "Generar Propuesta" para calcular los materiales necesarios</p>
-              <p className="text-zinc-500 text-sm mt-2">
-                Basado en las OT programadas y las plantillas de materiales configuradas
+              {generatingProposal ? (
+                <p className="text-zinc-400">Calculando materiales necesarios...</p>
+              ) : (
+                <>
+                  <p className="text-zinc-400">Calculando propuesta de materiales</p>
+                  <p className="text-zinc-500 text-sm mt-2">
+                    Basado en las OT programadas y las plantillas de materiales configuradas
+                  </p>
+                </>
+              )}
+            </div>
+          ) : proposalGenerated && proposalItems.length === 0 ? (
+            <div className="text-center py-8">
+              <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
+              <p className="text-emerald-400 font-medium">Stock completo en el móvil</p>
+              <p className="text-zinc-500 text-sm mt-1">
+                Todos los materiales para las {proposalWorkOrdersCount} OT(s)
+                {proposalEffectiveDate ? ` del ${proposalEffectiveDate}` : ''} ya están disponibles en el vehículo.
               </p>
+              <p className="text-zinc-600 text-xs mt-3">Podés continuar o agregar productos manualmente.</p>
             </div>
           ) : (
             <>
@@ -508,10 +864,17 @@ export default function MaterialDeliveryWizard() {
                     <div key={idx} className="grid grid-cols-12 gap-4 p-4 items-center hover:bg-zinc-800/30">
                       <div className="col-span-4">
                         <p className="text-white font-medium text-sm">
-                          {item.product_name || `Producto #${item.product_id}`}
+                          {item.is_group_requirement && item.group_name
+                            ? `Grupo ${item.group_name}`
+                            : (item.product_name || `Producto #${item.product_id}`)}
                         </p>
                         {item.product_sku && (
                           <code className="text-zinc-500 text-xs">{item.product_sku}</code>
+                        )}
+                        {item.is_group_requirement && item.suggested_model_name && (
+                          <p className="text-zinc-500 text-xs mt-0.5">
+                            Modelo sugerido: {item.suggested_model_name}
+                          </p>
                         )}
                         {item.is_composite && item.suggested_composite_units ? (
                           <div className="mt-1">
@@ -596,7 +959,7 @@ export default function MaterialDeliveryWizard() {
               <p className="text-zinc-400 text-sm mt-1">
                 {scanComplete
                   ? '✅ Todos los productos de la propuesta fueron escaneados.'
-                  : `Escaneá los productos aceptados en el paso anterior (${Object.keys(proposalMap).length} producto(s)).`
+                  : `Escaneá los productos aceptados en el paso anterior (${Object.keys(requirementMap).length} requerimiento(s)).`
                 }
               </p>
             </div>
@@ -607,29 +970,35 @@ export default function MaterialDeliveryWizard() {
             )}
           </div>
 
-          {/* Proposal items tracking */}
-          {Object.keys(proposalMap).length > 0 && (
+          {/* Proposal items tracking — con conteo X de Y */}
+          {Object.keys(requirementMap).length > 0 && (
             <div className="bg-zinc-800/30 rounded-lg divide-y divide-zinc-800">
-              {Object.entries(proposalMap).map(([pid, info]) => {
-                const scanned = scannedCounts[pid] || 0;
-                const done = scanned >= 1;
+              {Object.entries(requirementMap).map(([reqKey, info]) => {
+                const scanned = deliveryScanner.scannedCounts?.[reqKey] || scannedCountsByRequirement[reqKey] || 0;
+                const required = deliveryScanner.requiredCounts?.[reqKey] || info.quantity || 1;
+                const done = scanned >= required;
                 return (
-                  <div key={pid} className="flex items-center justify-between p-3">
+                  <div key={reqKey} className="flex items-center justify-between p-3">
                     <div className="flex items-center space-x-3">
                       {done ? (
                         <CheckCircle className="w-5 h-5 text-emerald-400" />
+                      ) : scanned > 0 ? (
+                        <div className="w-5 h-5 rounded-full border-2 border-yellow-500/50 bg-yellow-500/20" />
                       ) : (
                         <div className="w-5 h-5 rounded-full border-2 border-zinc-600" />
                       )}
                       <div>
-                        <p className="text-white text-sm">{info.product_name}</p>
+                        <p className="text-white text-sm">
+                          {info.product_name}
+                          <span className="text-zinc-500 ml-1">({scanned} de {required})</span>
+                        </p>
                         {info.product_sku && (
                           <code className="text-zinc-500 text-xs">{info.product_sku}</code>
                         )}
                       </div>
                     </div>
-                    <span className={`text-sm font-medium ${done ? 'text-emerald-400' : 'text-zinc-500'}`}>
-                      {done ? 'Escaneado' : 'Pendiente'}
+                    <span className={`text-sm font-medium ${done ? 'text-emerald-400' : scanned > 0 ? 'text-yellow-400' : 'text-zinc-500'}`}>
+                      {done ? 'Completo' : scanned > 0 ? 'Parcial' : 'Pendiente'}
                     </span>
                   </div>
                 );
@@ -637,84 +1006,60 @@ export default function MaterialDeliveryWizard() {
             </div>
           )}
 
-          {/* Barcode Scanner */}
-          <div className={`rounded-lg p-4 ${scanComplete ? 'bg-zinc-800/20 opacity-50' : 'bg-zinc-800/50'}`}>
-            <label className="block text-sm font-medium text-zinc-300 mb-2">
-              Código de Barra del Producto
-            </label>
-            <div className="flex space-x-2">
-              <input
-                type="text"
-                value={barcodeInput}
-                onChange={(e) => setBarcodeInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleBarcodeScan()}
-                placeholder={scanComplete ? 'Completado' : 'Escanear o ingresar SKU...'}
-                disabled={scanComplete}
-                className="flex-1 px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white font-mono text-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                autoFocus={!scanComplete}
-              />
-              <button
-                onClick={handleBarcodeScan}
-                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors"
-              >
-                <Scan className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
+          {/* Barcode Scanner (reutilizable) — solo activo en IDLE */}
+          <BarcodeScanner
+            onScan={handleScanCallback}
+            disabled={scanComplete || deliveryScanner.scanMode === 'WAITING_SERIAL'}
+            placeholder={
+              scanComplete ? 'Completado' :
+              deliveryScanner.scanMode === 'WAITING_SERIAL' ? 'Escaneá el serial arriba...' :
+              'Escanear o ingresar SKU...'
+            }
+            feedback={
+              deliveryScanner.lastFeedback
+                ? { type: deliveryScanner.lastFeedback.type, message: deliveryScanner.lastFeedback.message }
+                : error ? { type: 'error', message: error } : null
+            }
+            autoFocus={!scanComplete && deliveryScanner.scanMode !== 'WAITING_SERIAL'}
+          />
 
-          {/* Serial Scanner (shown after barcode scan of serialized product) */}
-          {scanMode === 'serial' && scanningProduct && (
-            <div className="bg-yellow-900/20 border border-yellow-800/50 rounded-lg p-4">
-              <label className="block text-sm font-medium text-yellow-300 mb-2">
-                Escanear Serial — {scanningProduct.product_name}
-              </label>
-              <div className="flex space-x-2">
-                <input
-                  type="text"
-                  value={serialInput}
-                  onChange={(e) => setSerialInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSerialScan()}
-                  placeholder="Escanear número de serie..."
-                  className="flex-1 px-4 py-3 bg-zinc-800 border border-yellow-700 rounded-lg text-white font-mono text-lg focus:outline-none focus:ring-2 focus:ring-yellow-500/50"
-                  autoFocus
-                />
-                <button
-                  onClick={handleSerialScan}
-                  className="px-6 py-3 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors"
-                >
-                  <Check className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
+          {/* Serial Scanner — controlado por la máquina de estados */}
+          {deliveryScanner.scanMode === 'WAITING_SERIAL' && (
+            <SerialScanner
+              productName={`${deliveryScanner.pendingProductName || ''} (${deliveryScanner.pendingRemaining || '?'} pend.)`}
+              onScan={handleScanCallback}
+              onCancel={() => deliveryScanner.reset()}
+            />
           )}
 
-          {/* Scanned Items */}
-          {scannedItems.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium text-zinc-300 mb-3">Items Escaneados ({scannedItems.length})</h3>
-              <div className="bg-zinc-800/30 rounded-lg divide-y divide-zinc-800">
+          {/* Scanned Items List — con nombre, SKU y serial */}
+          {scannedItems.length > 0 ? (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-zinc-300">Items Escaneados ({scannedItems.length})</h3>
+              <div className="bg-zinc-800/30 rounded-lg divide-y divide-zinc-800 max-h-60 overflow-y-auto">
                 {scannedItems.map((item, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3">
-                    <div className="flex items-center space-x-3">
-                      <CheckCircle className="w-5 h-5 text-emerald-400" />
-                      <div>
-                        <p className="text-white text-sm">{item.product_name}</p>
-                        <p className="text-zinc-500 text-xs">
-                          {item.product_sku}
-                          {item.serial_number && ` • Serial: ${item.serial_number}`}
+                  <div key={idx} className="flex items-center justify-between p-3 group hover:bg-zinc-800/50">
+                    <div className="flex items-center space-x-3 min-w-0">
+                      <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-white text-sm truncate">{item.product_name}</p>
+                        <p className="text-zinc-500 text-xs truncate">
+                          {item.product_sku && <code className="mr-2">{item.product_sku}</code>}
+                          {item.serial_number && <span className="text-emerald-400">SN: {item.serial_number}</span>}
                         </p>
                       </div>
                     </div>
-                    {item.is_serialized && !item.serial_number && (
-                      <span className="text-yellow-400 text-xs">Esperando serial...</span>
-                    )}
+                    <button
+                      onClick={() => handleRemoveScanned(item, idx)}
+                      className="p-1 text-zinc-600 hover:text-red-400 hover:bg-red-900/20 rounded opacity-0 group-hover:opacity-100 transition-all"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 ))}
               </div>
             </div>
-          )}
-
-          {scannedItems.length === 0 && (
+          ) : (
             <div className="text-center py-8">
               <Scan className="w-16 h-16 text-zinc-700 mx-auto mb-4" />
               <p className="text-zinc-400">Usá la pistola lectora o ingresá el código manualmente</p>
@@ -820,11 +1165,18 @@ export default function MaterialDeliveryWizard() {
             <span>{currentStep === 1 ? 'Cancelar' : 'Anterior'}</span>
           </button>
           <button
-            onClick={() => setCurrentStep(currentStep + 1)}
-            disabled={!canProceed()}
+            onClick={handleNextStep}
+            disabled={!canProceed() || preparingDelivery}
             className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2"
           >
-            <span>Siguiente</span>
+            {preparingDelivery ? (
+              <>
+                <Loader className="w-4 h-4 animate-spin" />
+                <span>Preparando escaneo...</span>
+              </>
+            ) : (
+              <span>Siguiente</span>
+            )}
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>

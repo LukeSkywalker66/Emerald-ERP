@@ -42,10 +42,34 @@ export default function useMaterialSelector(workOrderId) {
     notes: '',
   });
 
+  const getSelectedSerial = useCallback(() => {
+    if (!form.serial_number) return null;
+    return availableSerials.find((s) => s.serial_number === form.serial_number) || null;
+  }, [availableSerials, form.serial_number]);
+
   // Loading / Error
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
+
+  const getStockItemsForProduct = useCallback((productId, stock) => {
+    const source = stock || warehouseStock;
+    if (!source?.items || !productId) return [];
+    return source.items.filter((item) => item.product_id === productId);
+  }, [warehouseStock]);
+
+  const isTrackedCompositeProduct = useCallback((product, stock) => {
+    if (!product?.is_composite) return false;
+    const entries = getStockItemsForProduct(product.id, stock);
+    return entries.some((entry) => Array.isArray(entry.serial_items) && entry.serial_items.length > 0);
+  }, [getStockItemsForProduct]);
+
+  const getSerialsForProduct = useCallback((product, stock) => {
+    if (!product) return [];
+    const entries = getStockItemsForProduct(product.id, stock);
+    const serialEntry = entries.find((entry) => Array.isArray(entry.serial_items) && entry.serial_items.length > 0);
+    return serialEntry?.serial_items || [];
+  }, [getStockItemsForProduct]);
 
   /**
    * Cargar inventario: productos + warehouse + stock
@@ -131,14 +155,14 @@ export default function useMaterialSelector(workOrderId) {
       const updatedStock = await inventoryService.getWarehouseStock(currentWarehouse.id);
       setWarehouseStock(updatedStock);
 
-      if (selectedProduct?.type === 'SERIALIZED') {
-        const stockItem = updatedStock.items?.find((item) => item.product_id === selectedProduct.id);
-        setAvailableSerials(stockItem?.serial_items || []);
+      if (selectedProduct) {
+        const serials = getSerialsForProduct(selectedProduct, updatedStock);
+        setAvailableSerials(serials);
       }
     } catch (err) {
       console.error('[useMaterialSelector] Error refreshing stock:', err);
     }
-  }, [currentWarehouse?.id, selectedProduct]);
+  }, [currentWarehouse?.id, selectedProduct, getSerialsForProduct]);
 
   /**
    * Handler: cambio de producto seleccionado
@@ -154,37 +178,56 @@ export default function useMaterialSelector(workOrderId) {
       serial_number: '',
     }));
 
-    if (product && product.type === 'SERIALIZED' && warehouseStock) {
-      const stockItem = warehouseStock.items?.find((item) => item.product_id === product.id);
-      setAvailableSerials(stockItem?.serial_items || []);
+    if (product && warehouseStock) {
+      const serials = getSerialsForProduct(product, warehouseStock);
+      setAvailableSerials(serials);
     } else {
       setAvailableSerials([]);
     }
-  }, [products, warehouseStock]);
+  }, [products, warehouseStock, getSerialsForProduct]);
 
   /**
    * Obtener cantidad máxima disponible (para validación)
    */
   const getMaxQuantity = useCallback(() => {
     if (!selectedProduct || !warehouseStock) return 1;
-    if (selectedProduct.type === 'BULK') {
-      const stockItem = warehouseStock.items?.find((item) => item.product_id === selectedProduct.id);
-      return stockItem?.quantity || 1;
+
+    if (isTrackedCompositeProduct(selectedProduct, warehouseStock)) {
+      const selectedSerial = getSelectedSerial();
+      return selectedSerial?.remaining_quantity
+        ?? selectedSerial?.initial_quantity
+        ?? selectedProduct.unit_size
+        ?? 1;
     }
+
+    if (selectedProduct.type === 'BULK') {
+      const stockEntries = getStockItemsForProduct(selectedProduct.id, warehouseStock);
+      const stockBulkEntry = stockEntries.find((entry) => typeof entry.quantity === 'number' && entry.quantity > 0);
+      return stockBulkEntry?.quantity || 1;
+    }
+
     return availableSerials.length || 1;
-  }, [selectedProduct, warehouseStock, availableSerials]);
+  }, [selectedProduct, warehouseStock, availableSerials, getSelectedSerial, isTrackedCompositeProduct, getStockItemsForProduct]);
 
   /**
    * Validar formulario antes de agregar
    */
   const isFormValid = useCallback(() => {
     if (!form.product_id) return false;
-    if (selectedProduct?.type === 'BULK') {
-      const qty = parseInt(form.quantity, 10);
+
+    if (isTrackedCompositeProduct(selectedProduct, warehouseStock)) {
+      if (!form.serial_number) return false;
+      const qty = parseFloat(form.quantity);
       return qty > 0 && qty <= getMaxQuantity();
     }
+
+    if (selectedProduct?.type === 'BULK') {
+      const qty = parseFloat(form.quantity);
+      return qty > 0 && qty <= getMaxQuantity();
+    }
+
     return !!form.serial_number;
-  }, [form.product_id, form.quantity, form.serial_number, selectedProduct, getMaxQuantity]);
+  }, [form.product_id, form.quantity, form.serial_number, selectedProduct, getMaxQuantity, isTrackedCompositeProduct, warehouseStock]);
 
   /**
    * Agregar material a la OT
@@ -199,8 +242,12 @@ export default function useMaterialSelector(workOrderId) {
 
       await workOrdersService.addWorkOrderItem(workOrderId, {
         product_id: parseInt(form.product_id, 10),
-        quantity: selectedProduct?.type === 'BULK' ? parseInt(form.quantity, 10) || 1 : 1,
-        serial_number: selectedProduct?.type === 'SERIALIZED' ? form.serial_number : null,
+        quantity: (selectedProduct?.type === 'BULK' || isTrackedCompositeProduct(selectedProduct, warehouseStock))
+          ? parseFloat(form.quantity) || 1
+          : 1,
+        serial_number: (selectedProduct?.type === 'SERIALIZED' || isTrackedCompositeProduct(selectedProduct, warehouseStock))
+          ? form.serial_number
+          : null,
         notes: form.notes || null,
         warehouse_id: currentWarehouse.id,
       });
@@ -221,7 +268,7 @@ export default function useMaterialSelector(workOrderId) {
     } finally {
       setIsSubmitting(false);
     }
-  }, [workOrderId, currentWarehouse, form, selectedProduct, isFormValid, refreshStock]);
+  }, [workOrderId, currentWarehouse, form, selectedProduct, isFormValid, refreshStock, isTrackedCompositeProduct, warehouseStock]);
 
   /**
    * Remover material de la OT

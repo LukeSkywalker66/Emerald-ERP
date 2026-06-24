@@ -210,6 +210,8 @@ export default function WarehouseList() {
         return <Truck className="w-5 h-5 text-emerald-400" />;
       case 'VIRTUAL':
         return <Archive className="w-5 h-5 text-purple-400" />;
+      case 'AUXILIAR':
+        return <Archive className="w-5 h-5 text-amber-400" />;
       default:
         return <WarehouseIcon className="w-5 h-5 text-zinc-400" />;
     }
@@ -219,7 +221,8 @@ export default function WarehouseList() {
     const colors = {
       CENTRAL: 'bg-blue-900/30 text-blue-300 border-blue-800',
       MOBILE: 'bg-emerald-900/30 text-emerald-300 border-emerald-800',
-      VIRTUAL: 'bg-purple-900/30 text-purple-300 border-purple-800'
+      VIRTUAL: 'bg-purple-900/30 text-purple-300 border-purple-800',
+      AUXILIAR: 'bg-amber-900/30 text-amber-300 border-amber-800'
     };
     
     return (
@@ -282,7 +285,7 @@ export default function WarehouseList() {
           {/* Type Filter (oculto para técnico para evitar navegación horizontal por móviles de terceros) */}
           {!isTechnician && (
             <div className="flex items-center space-x-2">
-              {['ALL', 'CENTRAL', 'MOBILE', 'VIRTUAL'].map(type => (
+              {['ALL', 'CENTRAL', 'MOBILE', 'VIRTUAL', 'AUXILIAR'].map(type => (
                 <button
                   key={type}
                   onClick={() => setTypeFilter(type)}
@@ -455,11 +458,13 @@ export default function WarehouseList() {
             Mostrando <span className="text-white font-medium">{filteredWarehouses.length}</span> de <span className="text-white font-medium">{warehouses.length}</span> almacenes
           </span>
           <div className="flex items-center space-x-4 text-zinc-500">
-            <span>{warehouses.filter(w => w.type === 'CENTRAL').length} centrales</span>
+            <span>{warehouses.filter(w => w.type === 'CENTRAL').length} principales</span>
             <span>•</span>
             <span>{warehouses.filter(w => w.type === 'MOBILE').length} móviles</span>
             <span>•</span>
             <span>{warehouses.filter(w => w.type === 'VIRTUAL').length} virtuales</span>
+            <span>•</span>
+            <span>{warehouses.filter(w => w.type === 'AUXILIAR').length} auxiliares</span>
           </div>
         </div>
       </div>
@@ -519,6 +524,7 @@ export default function WarehouseList() {
                   className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
                 >
                   <option value="CENTRAL">CENTRAL - Depósito principal</option>
+                  <option value="AUXILIAR">AUXILIAR - Depósito Auxiliar</option>
                   <option value="VIRTUAL">VIRTUAL - Ubicación lógica</option>
                 </select>
                 <p className="mt-1 text-xs text-zinc-500">
@@ -613,6 +619,7 @@ export default function WarehouseList() {
                   className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors"
                 >
                   <option value="CENTRAL">CENTRAL - Depósito principal</option>
+                  <option value="AUXILIAR">AUXILIAR - Depósito Auxiliar</option>
                   <option value="VIRTUAL">VIRTUAL - Ubicación lógica</option>
                 </select>
                 {formData.type === 'MOBILE' && (

@@ -846,6 +846,25 @@ def add_work_order_item(
     wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
     if not wo:
         raise HTTPException(status_code=404, detail="WorkOrder not found")
+
+    product = db.query(Product).filter(Product.id == payload.product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    if product.type == "SERIALIZED":
+        if not payload.serial_number:
+            raise HTTPException(
+                status_code=422,
+                detail="Los productos serializados requieren serial_number",
+            )
+        if not product.is_composite and payload.quantity != 1:
+            raise HTTPException(
+                status_code=422,
+                detail="Los serializados no compuestos deben consumirse con cantidad 1",
+            )
+    elif product.type == "BULK":
+        if payload.quantity <= 0:
+            raise HTTPException(status_code=422, detail="La cantidad debe ser mayor a 0")
     
     item = WorkOrderItem(
         work_order_id=work_order_id,

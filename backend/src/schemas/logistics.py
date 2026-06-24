@@ -42,6 +42,8 @@ class MaterialDeliveryItemResponse(BaseModel):
     product_name: Optional[str] = None
     product_sku: Optional[str] = None
     product_group_name: Optional[str] = None
+    serial_validation_regex: Optional[str] = None
+    product_type: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -93,11 +95,19 @@ class DeliveryProposalItem(BaseModel):
     """Item de propuesta generada (antes de guardar)."""
     product_id: int
     product_name: str
-    product_sku: str
+    product_sku: Optional[str] = None
+    group_id: Optional[int] = None
+    group_name: Optional[str] = None
+    is_group_requirement: bool = False
+    serial_validation_regex: Optional[str] = None
+    product_type: Optional[str] = None
     is_composite: bool = False
     unit_size: Optional[float] = None
     unit_measure: Optional[str] = None
     composite_unit_label: Optional[str] = None
+    display_unit: str = Field("u.", description="Unidad visible para esta propuesta")
+    required_base_total: Optional[float] = Field(None, description="Requerimiento original en unidades base de la plantilla")
+    available_in_mobile_base: Optional[float] = Field(None, description="Stock disponible en unidades base, solo para trazabilidad")
     available_in_mobile: float = 0
     required_total: float = 0
     deficit: float = 0
@@ -113,6 +123,7 @@ class DeliveryProposalResponse(BaseModel):
     vehicle_name: str
     work_orders_count: int
     generated_at: datetime
+    effective_date: Optional[str] = None  # Fecha real usada (puede ser != hoy)
     items: List[DeliveryProposalItem]
 
 
@@ -124,6 +135,10 @@ class BarcodeScanRequest(BaseModel):
     """Schema para escanear un código de barra de producto."""
     product_code: str = Field(..., description="SKU o código de barra del producto")
     quantity: Optional[float] = Field(1.0, ge=0.1, description="Cantidad (para BULK)")
+    force_add_outside_proposal: bool = Field(
+        False,
+        description="Permite agregar ítems fuera de propuesta aceptada cuando el operador lo confirma"
+    )
 
 
 class BarcodeScanResponse(BaseModel):
@@ -132,6 +147,10 @@ class BarcodeScanResponse(BaseModel):
     product_id: int
     product_name: str
     product_sku: str
+    delivery_item_id: Optional[int] = None
+    serial_item_id: Optional[int] = None
+    serial_number: Optional[str] = None
+    product_group_id: Optional[int] = None
     is_serialized: bool
     already_scanned: bool = False
     message: str
@@ -141,16 +160,28 @@ class SerialScanRequest(BaseModel):
     """Schema para escanear un serial de producto serializado."""
     product_id: int
     serial_number: str
+    force_add_outside_proposal: bool = Field(
+        False,
+        description="Permite agregar serial fuera de propuesta aceptada cuando el operador lo confirma"
+    )
 
 
 class SerialScanResponse(BaseModel):
     """Respuesta de un escaneo de serial."""
     success: bool
+    delivery_item_id: Optional[int] = None
     serial_item_id: int
     serial_number: str
     product_name: str
     already_scanned: bool = False
     message: str
+
+
+class TrackedUnitLabelResponse(BaseModel):
+    """Respuesta para impresión de etiquetas de unidades trazables."""
+    serial_item_id: int
+    serial_number: str
+    barcode_svg: str
 
 
 # ============================================
