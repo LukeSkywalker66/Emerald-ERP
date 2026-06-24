@@ -487,9 +487,16 @@ def get_warehouse_stock(
     # Construir respuesta unificada
     items = []
     
+    def _category_to_name(category_value):
+        if category_value is None:
+            return None
+        if isinstance(category_value, str):
+            return category_value
+        return getattr(category_value, "name", str(category_value))
+
     # Agregar items BULK
     for bulk in bulk_items:
-        cat_name = bulk.product.category.name if bulk.product.category else None
+        cat_name = _category_to_name(bulk.product.category)
         items.append(
             StockItemDetail(
                 product_id=bulk.product.id,
@@ -511,7 +518,7 @@ def get_warehouse_stock(
     # Agregar items SERIALIZED — incluir atributos compuestos del producto
     for product_id, serials in serials_by_product.items():
         prod_orm = product_orm_map.get(product_id)
-        cat_name = prod_orm.category.name if (prod_orm and prod_orm.category) else None
+        cat_name = _category_to_name(prod_orm.category) if prod_orm else None
         is_comp = prod_orm.is_composite if prod_orm else False
         unit_sz = float(prod_orm.unit_size) if (prod_orm and prod_orm.unit_size is not None) else None
         unit_ms = prod_orm.unit_measure if prod_orm else None

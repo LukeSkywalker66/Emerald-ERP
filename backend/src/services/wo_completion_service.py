@@ -218,6 +218,33 @@ def _process_item(
     if not product:
         raise CompletionError(f"Producto ID {item.product_id} no encontrado en catálogo")
 
+    # BULK compuesto con serial reportado: consumir saldo de unidad trazable
+    # (ej: bobina de drop por metros), evitando flujo bulk agregado.
+    if product.type == "BULK" and product.is_composite and item.serial_number:
+        serial_item = (
+            db.query(SerialItem)
+            .filter(SerialItem.serial_number == item.serial_number)
+            .first()
+        )
+        if not serial_item:
+            raise CompletionError(
+                f"Serial {item.serial_number} no encontrado en inventario"
+            )
+        if not serial_item.is_generated_barcode:
+            raise CompletionError(
+                f"Serial {item.serial_number} no corresponde a unidad trazable compuesta"
+            )
+        _process_composite_tracked_serial_item(
+            db=db,
+            item=item,
+            product=product,
+            serial_item=serial_item,
+            connection_id=connection_id,
+            user_id=user_id,
+            work_order_id=work_order_id,
+        )
+        return
+
     if product.type == "BULK":
         _process_bulk_item(db, item, product, connection_id, user_id, work_order_id)
     elif product.type == "SERIALIZED":

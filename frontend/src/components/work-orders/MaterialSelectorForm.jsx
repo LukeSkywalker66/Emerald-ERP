@@ -32,11 +32,11 @@ export default function MaterialSelectorForm({ materialState, onAdd, compact = f
     setForm,
   } = materialState;
 
-  const isCompositeSerial =
-    selectedProduct?.type === 'SERIALIZED' && selectedProduct?.is_composite;
+  const isCompositeTracked =
+    selectedProduct?.is_composite && Array.isArray(availableSerials) && availableSerials.length > 0;
 
   const selectedSerial =
-    isCompositeSerial && form.serial_number
+    isCompositeTracked && form.serial_number
       ? availableSerials.find((s) => s.serial_number === form.serial_number)
       : null;
 
@@ -47,7 +47,7 @@ export default function MaterialSelectorForm({ materialState, onAdd, compact = f
       : (selectedProduct?.unit_size ?? 1);
 
   // Total de metros disponibles sumando todos los seriales compuestos en el almacén
-  const totalAvailableBase = isCompositeSerial
+  const totalAvailableBase = isCompositeTracked
     ? availableSerials.reduce((sum, s) => sum + (s.remaining_quantity ?? s.initial_quantity ?? 0), 0)
     : 0;
 
@@ -114,7 +114,7 @@ export default function MaterialSelectorForm({ materialState, onAdd, compact = f
       {/* Product info — compuesto vs normal */}
       {selectedProduct && (
         <div className={`border rounded-lg p-3 ${
-          isCompositeSerial
+          isCompositeTracked
             ? 'bg-blue-950/20 border-blue-700/40'
             : 'bg-zinc-800/50 border-zinc-700'
         }`}>
@@ -124,7 +124,7 @@ export default function MaterialSelectorForm({ materialState, onAdd, compact = f
               <span className="text-emerald-400 font-medium">
                 {selectedProduct.type === 'BULK'
                   ? '📦 A Granel'
-                  : isCompositeSerial
+                  : isCompositeTracked
                   ? `📐 Trazable por ${unitLabel}`
                   : '🔢 Serializado'}
               </span>
@@ -137,11 +137,11 @@ export default function MaterialSelectorForm({ materialState, onAdd, compact = f
           {/* Stock disponible — diferenciado por tipo */}
           {warehouseStock && (
             <div className="mt-2">
-              {selectedProduct.type === 'BULK' ? (
+              {selectedProduct.type === 'BULK' && !isCompositeTracked ? (
                 <p className="text-xs text-emerald-300 font-medium">
                   Stock disponible: <span className="font-bold">{getMaxQuantity()}</span> {unitLabel}
                 </p>
-              ) : isCompositeSerial ? (
+              ) : isCompositeTracked ? (
                 <div className="flex items-center gap-2">
                   <Ruler size={12} className="text-blue-400" />
                   <p className="text-xs text-blue-300 font-medium">
@@ -160,7 +160,7 @@ export default function MaterialSelectorForm({ materialState, onAdd, compact = f
       )}
 
       {/* Quantity (solo BULK) */}
-      {selectedProduct && selectedProduct.type === 'BULK' && (
+      {selectedProduct && selectedProduct.type === 'BULK' && !isCompositeTracked && (
         <div>
           {!compact && (
             <label className="text-xs font-medium text-zinc-300 block mb-2">
@@ -186,7 +186,7 @@ export default function MaterialSelectorForm({ materialState, onAdd, compact = f
       )}
 
       {/* Serial selector (solo SERIALIZED) */}
-      {selectedProduct && selectedProduct.type === 'SERIALIZED' && (
+      {selectedProduct && (selectedProduct.type === 'SERIALIZED' || isCompositeTracked) && (
         <div>
           {!compact && (
             <label className="text-xs font-medium text-zinc-300 block mb-2">
@@ -204,7 +204,7 @@ export default function MaterialSelectorForm({ materialState, onAdd, compact = f
               <option value="">Selecciona un serial...</option>
               {availableSerials.map((serial) => (
                 <option key={serial.id} value={serial.serial_number}>
-                  {isCompositeSerial
+                  {isCompositeTracked
                     ? `${serial.serial_number} — ${serial.remaining_quantity ?? serial.initial_quantity ?? '?'} ${unitLabel} disponibles`
                     : `${serial.serial_number} — ${serial.status}`}
                 </option>
@@ -215,14 +215,14 @@ export default function MaterialSelectorForm({ materialState, onAdd, compact = f
               ⚠️ No hay seriales disponibles en tu inventario para este producto
             </div>
           )}
-          {compact && availableSerials.length > 0 && !isCompositeSerial && (
+          {compact && availableSerials.length > 0 && !isCompositeTracked && (
             <p className="text-xs text-zinc-500 mt-1">
               Disp: <span className="text-emerald-400 font-medium">{availableSerials.length} seriales</span>
             </p>
           )}
 
           {/* Saldo del serial compuesto seleccionado */}
-          {isCompositeSerial && selectedSerial && (
+          {isCompositeTracked && selectedSerial && (
             <div className="mt-2 flex items-center gap-2 px-2 py-1.5 rounded bg-blue-950/30 border border-blue-800/40">
               <Ruler size={12} className="text-blue-400 flex-shrink-0" />
               <p className="text-xs text-blue-200">
@@ -240,7 +240,7 @@ export default function MaterialSelectorForm({ materialState, onAdd, compact = f
       )}
 
       {/* Cantidad fraccionaria (SERIALIZED + compuesto) — aparece después de elegir serial */}
-      {isCompositeSerial && (
+      {isCompositeTracked && (
         <div>
           <label className={`${compact ? 'text-xs' : 'text-sm'} font-medium text-blue-300 block mb-2`}>
             ¿Cuántos {unitLabel} usaste? *
