@@ -411,10 +411,7 @@ export function AppSidebar() {
             `}
           >
             <span className="text-sm font-bold text-white tracking-tight whitespace-nowrap group-hover:text-emerald-400 transition-colors">
-              Emerald
-            </span>
-            <span className="text-xs text-emerald-400/70 font-semibold whitespace-nowrap group-hover:text-emerald-400 transition-colors">
-              ERP v2.1
+              Emerald ERP
             </span>
           </div>
         </Link>
