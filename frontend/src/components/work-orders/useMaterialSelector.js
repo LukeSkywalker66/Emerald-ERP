@@ -19,9 +19,12 @@ import { useAuth } from '@/context/AuthContext';
  *   5. Refresca stock automáticamente tras cada operación
  *
  * @param {number} workOrderId - ID de la OT a la que agregar materiales
+ * @param {Object} context - Contexto opcional del origen del wizard
+ * @param {number|null} context.teamId - team_id de la OT para resolver warehouse del móvil asignado
  */
-export default function useMaterialSelector(workOrderId) {
+export default function useMaterialSelector(workOrderId, context = {}) {
   const { user } = useAuth();
+  const teamIdFromWorkOrder = context?.teamId ?? null;
 
   // Catálogo de productos
   const [products, setProducts] = useState([]);
@@ -79,7 +82,35 @@ export default function useMaterialSelector(workOrderId) {
    * La relación correcta es: User → TeamMember → Team → Vehicle → Warehouse(MOBILE).
    * El campo user_id en Warehouse está deprecated.
    */
-  const resolveWarehouse = useCallback(async (userId) => {
+  const resolveWarehouseFromTeam = useCallback(async (teamId) => {
+    if (!teamId) return null;
+    try {
+      const team = await coordinationService.getTeamDetail(teamId);
+      const vehicleId = team?.vehicle_id;
+      if (!vehicleId) return null;
+
+      const warehouses = await inventoryService.getWarehouses({
+        warehouse_type: 'MOBILE',
+      });
+
+      const byVehicle = (warehouses || []).find(
+        (w) => w.vehicle?.id === vehicleId || w.vehicle_id === vehicleId
+      );
+      return byVehicle || null;
+    } catch (e) {
+      console.warn('[useMaterialSelector] Team warehouse lookup failed:', e);
+      return null;
+    }
+  }, []);
+
+  const resolveWarehouse = useCallback(async (userId, teamId) => {
+    // 0. Prioridad arquitectónica para cierre desde coordinación:
+    // tomar el warehouse MOBILE del vehículo de la cuadrilla asignada a la OT.
+    if (teamId) {
+      const teamWarehouse = await resolveWarehouseFromTeam(teamId);
+      if (teamWarehouse) return teamWarehouse;
+    }
+
     // 1. Buscar por team → vehicle → warehouse (relación correcta)
     try {
       const teams = await coordinationService.getUserTeams(userId);
@@ -104,7 +135,7 @@ export default function useMaterialSelector(workOrderId) {
     }
 
     return null;
-  }, []);
+  }, [resolveWarehouseFromTeam]);
 
   const loadInventory = useCallback(async () => {
     if (!user?.id) return;
@@ -115,7 +146,7 @@ export default function useMaterialSelector(workOrderId) {
       setIsLoading(true);
       setError(null);
 
-      const myWarehouse = await resolveWarehouse(user.id);
+      const myWarehouse = await resolveWarehouse(user.id, teamIdFromWorkOrder);
 
       if (cancelled) return;
       setCurrentWarehouse(myWarehouse || null);
@@ -143,7 +174,7 @@ export default function useMaterialSelector(workOrderId) {
     }
 
     return () => { cancelled = true; };
-  }, [user?.id, resolveWarehouse]);
+  }, [user?.id, resolveWarehouse, teamIdFromWorkOrder]);
 
   /**
    * Refrescar stock del warehouse actual

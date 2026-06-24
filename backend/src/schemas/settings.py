@@ -259,6 +259,16 @@ class MonitorCheckResult(BaseModel):
 
 
 # ============================================
+# SYSTEM VERSION SCHEMA
+# ============================================
+
+class SystemVersionResponse(BaseModel):
+    """Versión y entorno activos del sistema."""
+    version: str
+    environment: str
+
+
+# ============================================
 # SYNC STATUS SCHEMAS (para Tareas Programadas)
 # ============================================
 
