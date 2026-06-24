@@ -1,0 +1,55 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+    types:
+      - closed
+
+concurrency:
+  group: deploy-production-master
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: github.event_name == 'push' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.PORT }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /home/user/emerald-erp
+
+            git fetch origin master
+            git reset --hard origin/master
+
+            docker compose -f docker-compose.yml build
+            docker compose -f docker-compose.yml up -d
+            docker compose -f docker-compose.yml exec -T backend alembic upgrade head
+
+      - name: Post-deploy health check
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.PORT }}
+          script_stop: false
+          script: |
+            set -euo pipefail
+            cd /home/user/emerald-erp
+            docker compose -f docker-compose.yml ps
+            docker compose -f docker-compose.yml logs --tail=50 backend
