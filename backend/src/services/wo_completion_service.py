@@ -35,6 +35,7 @@ from src.models.inventory import (
     ConnectionAsset,
     ConnectionAssetStatus,
     ConnectionNote,
+    ConsumptionLog,
 )
 from src.models.user import User
 from src.models.beholder import Connection
@@ -321,6 +322,18 @@ def _process_serialized_item(
             f"Serial {item.serial_number} ya está instalado en otra conexión"
         )
 
+    if product.is_composite and serial_item.is_generated_barcode:
+        _process_composite_tracked_serial_item(
+            db=db,
+            item=item,
+            product=product,
+            serial_item=serial_item,
+            connection_id=connection_id,
+            user_id=user_id,
+            work_order_id=work_order_id,
+        )
+        return
+
     warehouse_id = serial_item.warehouse_id
     virtual_wh_id = _get_virtual_warehouse_id(db)
 
@@ -353,6 +366,82 @@ def _process_serialized_item(
         reference=f"OT #{work_order_id}",
         user_id=user_id,
         notes=f"Instalado: {product.name} SN:{item.serial_number} en conexión #{connection_id}",
+    )
+    db.add(movement)
+
+
+def _process_composite_tracked_serial_item(
+    db: Session,
+    item: WorkOrderItem,
+    product,
+    serial_item: SerialItem,
+    connection_id: int,
+    user_id: int,
+    work_order_id: int,
+) -> None:
+    """Consume fracción de una unidad trazable compuesta (ej: bobina)."""
+    origin_warehouse_id = serial_item.warehouse_id
+    if not origin_warehouse_id:
+        raise CompletionError(
+            f"Serial {item.serial_number} no tiene warehouse origen para registrar consumo"
+        )
+
+    current_remaining = serial_item.remaining_quantity
+    if current_remaining is None:
+        current_remaining = product.unit_size
+
+    if current_remaining is None or current_remaining <= 0:
+        raise CompletionError(
+            f"Serial {item.serial_number} no tiene saldo disponible para consumo"
+        )
+
+    consume_qty = float(item.quantity)
+    if consume_qty <= 0:
+        raise CompletionError("La cantidad consumida debe ser mayor a 0")
+    if consume_qty > current_remaining:
+        raise CompletionError(
+            f"Consumo inválido para {item.serial_number}: disponible {current_remaining}, requerido {consume_qty}"
+        )
+
+    quantity_after = current_remaining - consume_qty
+    serial_item.remaining_quantity = quantity_after
+
+    # Si se agota la unidad trazable, se marca como instalada/consumida y se mueve a virtual.
+    if quantity_after <= 0:
+        virtual_wh_id = _get_virtual_warehouse_id(db)
+        serial_item.status = SerialItemStatus.INSTALLED
+        serial_item.warehouse_id = virtual_wh_id
+        serial_item.connection_id = connection_id
+        serial_item.ticket_related_id = item.work_order_id
+
+    consumption_log = ConsumptionLog(
+        tracked_unit_id=serial_item.id,
+        work_order_id=work_order_id,
+        quantity_consumed=consume_qty,
+        quantity_before=current_remaining,
+        quantity_after=quantity_after,
+        user_id=user_id,
+        warehouse_id=origin_warehouse_id,
+        notes=item.notes,
+    )
+    db.add(consumption_log)
+
+    movement_notes = (
+        f"Consumo fraccionado: {product.name} SN:{item.serial_number} "
+        f"consumido {consume_qty} {product.unit_measure or 'base'} "
+        f"(saldo {quantity_after}) en conexión #{connection_id}"
+    )
+
+    movement = StockMovement(
+        product_id=item.product_id,
+        from_warehouse_id=origin_warehouse_id,
+        to_warehouse_id=None,
+        quantity=consume_qty,
+        serial_item_id=serial_item.id,
+        movement_type=MovementType.CONSUMPTION,
+        reference=f"OT #{work_order_id}",
+        user_id=user_id,
+        notes=movement_notes,
     )
     db.add(movement)
 

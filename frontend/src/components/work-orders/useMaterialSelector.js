@@ -42,6 +42,11 @@ export default function useMaterialSelector(workOrderId) {
     notes: '',
   });
 
+  const getSelectedSerial = useCallback(() => {
+    if (!form.serial_number) return null;
+    return availableSerials.find((s) => s.serial_number === form.serial_number) || null;
+  }, [availableSerials, form.serial_number]);
+
   // Loading / Error
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -171,8 +176,17 @@ export default function useMaterialSelector(workOrderId) {
       const stockItem = warehouseStock.items?.find((item) => item.product_id === selectedProduct.id);
       return stockItem?.quantity || 1;
     }
+
+    if (selectedProduct.type === 'SERIALIZED' && selectedProduct.is_composite) {
+      const selectedSerial = getSelectedSerial();
+      return selectedSerial?.remaining_quantity
+        ?? selectedSerial?.initial_quantity
+        ?? selectedProduct.unit_size
+        ?? 1;
+    }
+
     return availableSerials.length || 1;
-  }, [selectedProduct, warehouseStock, availableSerials]);
+  }, [selectedProduct, warehouseStock, availableSerials, getSelectedSerial]);
 
   /**
    * Validar formulario antes de agregar
@@ -180,9 +194,16 @@ export default function useMaterialSelector(workOrderId) {
   const isFormValid = useCallback(() => {
     if (!form.product_id) return false;
     if (selectedProduct?.type === 'BULK') {
-      const qty = parseInt(form.quantity, 10);
+      const qty = parseFloat(form.quantity);
       return qty > 0 && qty <= getMaxQuantity();
     }
+
+    if (selectedProduct?.type === 'SERIALIZED' && selectedProduct?.is_composite) {
+      if (!form.serial_number) return false;
+      const qty = parseFloat(form.quantity);
+      return qty > 0 && qty <= getMaxQuantity();
+    }
+
     return !!form.serial_number;
   }, [form.product_id, form.quantity, form.serial_number, selectedProduct, getMaxQuantity]);
 
@@ -199,7 +220,9 @@ export default function useMaterialSelector(workOrderId) {
 
       await workOrdersService.addWorkOrderItem(workOrderId, {
         product_id: parseInt(form.product_id, 10),
-        quantity: selectedProduct?.type === 'BULK' ? parseInt(form.quantity, 10) || 1 : 1,
+        quantity: (selectedProduct?.type === 'BULK' || (selectedProduct?.type === 'SERIALIZED' && selectedProduct?.is_composite))
+          ? parseFloat(form.quantity) || 1
+          : 1,
         serial_number: selectedProduct?.type === 'SERIALIZED' ? form.serial_number : null,
         notes: form.notes || null,
         warehouse_id: currentWarehouse.id,

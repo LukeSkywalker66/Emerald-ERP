@@ -467,14 +467,17 @@ def get_warehouse_stock(
     )
     serial_items = db.execute(serial_stmt).scalars().all()
     
-    # Agrupar seriales por producto
+    # Agrupar seriales por producto y construir mapa de datos de producto
     serials_by_product = {}
+    product_orm_map: dict = {}  # product_id → Product ORM (para leer atributos)
     for item in serial_items:
         if item.product_id not in serials_by_product:
             serials_by_product[item.product_id] = []
+        if item.product_id not in product_orm_map and item.product:
+            product_orm_map[item.product_id] = item.product
         serials_by_product[item.product_id].append(
             SerialItemResponse(
-                **item.__dict__,
+                **{k: v for k, v in item.__dict__.items() if not k.startswith('_')},
                 product_name=item.product.name,
                 product_sku=item.product.sku,
                 warehouse_name=warehouse.name
@@ -486,15 +489,16 @@ def get_warehouse_stock(
     
     # Agregar items BULK
     for bulk in bulk_items:
+        cat_name = bulk.product.category.name if bulk.product.category else None
         items.append(
             StockItemDetail(
                 product_id=bulk.product.id,
                 product_name=bulk.product.name,
                 product_sku=bulk.product.sku,
                 product_type=bulk.product.type,
-                category=bulk.product.category,
+                category=cat_name,
                 is_composite=bulk.product.is_composite,
-                unit_size=bulk.product.unit_size,
+                unit_size=float(bulk.product.unit_size) if bulk.product.unit_size is not None else None,
                 unit_measure=bulk.product.unit_measure,
                 composite_unit_label=bulk.product.composite_unit_label,
                 display_unit=(bulk.product.composite_unit_label or "u.") if bulk.product.is_composite else "u.",
@@ -504,32 +508,29 @@ def get_warehouse_stock(
             )
         )
     
-    # Agregar items SERIALIZED
-    # Construir mapa de categorías desde los productos ya cargados (evita N+1 queries)
-    product_category_map = {}
-    for item in serial_items:
-        if item.product_id not in product_category_map and item.product:
-            product_category_map[item.product_id] = item.product.category
-    
+    # Agregar items SERIALIZED — incluir atributos compuestos del producto
     for product_id, serials in serials_by_product.items():
-        product = serials[0].product_name  # Tomar de primer serial
-        sku = serials[0].product_sku
-        
-        # Usar el mapa de categorías ya cargado en lugar de N+1 db.get()
-        category = product_category_map.get(product_id)
-        
+        prod_orm = product_orm_map.get(product_id)
+        cat_name = prod_orm.category.name if (prod_orm and prod_orm.category) else None
+        is_comp = prod_orm.is_composite if prod_orm else False
+        unit_sz = float(prod_orm.unit_size) if (prod_orm and prod_orm.unit_size is not None) else None
+        unit_ms = prod_orm.unit_measure if prod_orm else None
+        comp_lbl = prod_orm.composite_unit_label if prod_orm else None
+        # Para compuestos: display_unit = unidad base (metros)
+        disp_unit = (unit_ms or comp_lbl or "u.") if is_comp else "u."
+
         items.append(
             StockItemDetail(
                 product_id=product_id,
-                product_name=product,
-                product_sku=sku,
+                product_name=serials[0].product_name,
+                product_sku=serials[0].product_sku,
                 product_type=ProductType.SERIALIZED,
-                category=category,
-                is_composite=False,
-                unit_size=None,
-                unit_measure=None,
-                composite_unit_label=None,
-                display_unit="u.",
+                category=cat_name,
+                is_composite=is_comp,
+                unit_size=unit_sz,
+                unit_measure=unit_ms,
+                composite_unit_label=comp_lbl,
+                display_unit=disp_unit,
                 quantity=None,
                 serial_items=serials,
                 serial_count=len(serials)
