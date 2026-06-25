@@ -53,7 +53,8 @@ def run_db_migrations():
     alembic_command.upgrade(cfg, "head")
 
 app = FastAPI(
-    title="Emerald ERP + Beholder",
+    title="Emerald ERP API",
+    version="1.0.0-rc.1",
     redirect_slashes=True,  # Redirigir automáticamente entre /endpoint y /endpoint/
 )
 
@@ -181,6 +182,13 @@ app.include_router(
     settings_router.router,
     prefix="/api/v2/settings",
     tags=["Settings"]
+)
+
+# System endpoints (versión/entorno)
+app.include_router(
+    settings_router.system_router,
+    prefix="/api/v2",
+    tags=["System"]
 )
 
 # Dashboard Module (Métricas Agregadas del Tablero Operativo)

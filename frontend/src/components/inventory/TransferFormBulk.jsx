@@ -15,6 +15,15 @@ export default function TransferFormBulk({
   const [quantity, setQuantity] = useState('');
   const [error, setError] = useState(null);
 
+  const getDisplayUnit = () => (
+    sourceStock?.display_unit ||
+    sourceStock?.composite_unit_label ||
+    sourceStock?.unit_measure ||
+    product?.composite_unit_label ||
+    product?.unit_measure ||
+    'u.'
+  );
+
   // Validar cantidad disponible
   const availableQuantity = sourceStock?.quantity || 0;
   const isValid =
@@ -28,7 +37,7 @@ export default function TransferFormBulk({
     // Validación en tiempo real
     if (value && parseInt(value) > availableQuantity) {
       setError(
-        `Stock insuficiente. Disponible: ${availableQuantity}${sourceStock?.unit || ''}`
+        `Stock insuficiente. Disponible: ${availableQuantity} ${getDisplayUnit()}`
       );
     }
   };
@@ -68,7 +77,7 @@ export default function TransferFormBulk({
           Stock Disponible:{' '}
           <span className="text-2xl font-bold">
             {availableQuantity}
-            {sourceStock?.unit}
+            {getDisplayUnit()}
           </span>
         </p>
       </div>
@@ -76,7 +85,7 @@ export default function TransferFormBulk({
       {/* Input de Cantidad */}
       <div>
         <label className="block text-sm font-medium text-zinc-300 mb-2">
-          Cantidad a Transferir *
+          Cantidad a Transferir * ({getDisplayUnit()})
         </label>
         <input
           type="number"
@@ -89,8 +98,7 @@ export default function TransferFormBulk({
           className="w-full bg-zinc-700 border border-zinc-600 rounded px-4 py-2 text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-lg font-semibold"
         />
         <p className="text-xs text-zinc-400 mt-2">
-          Máximo disponible: {availableQuantity}
-          {sourceStock?.unit}
+          Máximo disponible: {availableQuantity} {getDisplayUnit()}
         </p>
       </div>
 

@@ -80,7 +80,7 @@ export default function InventoryDashboard() {
     {
       label: 'Almacenes Totales',
       value: stats?.totalWarehouses || 0,
-      detail: `${stats?.warehousesByType.CENTRAL || 0} central, ${stats?.warehousesByType.MOBILE || 0} móviles`,
+      detail: `${stats?.warehousesByType.CENTRAL || 0} principal, ${stats?.warehousesByType.MOBILE || 0} móviles, ${stats?.warehousesByType.AUXILIAR || 0} auxiliares`,
       icon: WarehouseIcon,
       color: 'emerald',
       link: '/app/inventory/warehouses'
@@ -191,6 +191,14 @@ export default function InventoryDashboard() {
                 <span className="text-zinc-300">Móviles (Técnicos)</span>
               </div>
               <span className="text-xl font-bold text-white">{stats?.warehousesByType.MOBILE || 0}</span>
+            </div>
+            
+            <div className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg">
+              <div className="flex items-center space-x-3">
+                <Archive className="w-5 h-5 text-amber-400" />
+                <span className="text-zinc-300">Auxiliares</span>
+              </div>
+              <span className="text-xl font-bold text-white">{stats?.warehousesByType.AUXILIAR || 0}</span>
             </div>
             
             <div className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg">

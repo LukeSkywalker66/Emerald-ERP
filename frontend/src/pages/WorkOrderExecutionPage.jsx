@@ -140,7 +140,9 @@ export default function WorkOrderExecutionPage() {
   const [showLocationModal, setShowLocationModal] = useState(false);
 
   // Material selector compartido (hook unificado)
-  const materialState = useMaterialSelector(id);
+  const materialState = useMaterialSelector(id, {
+    teamId: workOrder?.team_id ?? null,
+  });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   

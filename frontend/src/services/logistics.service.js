@@ -174,15 +174,38 @@ export const cancelDelivery = async (deliveryId) => {
 
 /**
  * Obtener vista previa de propuesta de materiales sin crear delivery.
- * @param {Object} params - { team_id, date_str? }
+ * @param {Object} params - { team_id, date_str?, dates? (array de 'YYYY-MM-DD') }
  * @returns {Promise<Object>}
  */
 export const getProposalPreview = async (params) => {
   try {
-    const { data } = await api.get(`${BASE_URL}/proposal-preview`, { params });
+    // Convertir array de fechas a string coma-separado si viene como array
+    const normalized = { ...params };
+    if (Array.isArray(normalized.dates)) {
+      normalized.dates = normalized.dates.join(',');
+    }
+    const { data } = await api.get(`${BASE_URL}/proposal-preview`, { params: normalized });
     return data;
   } catch (error) {
     console.error('❌ Error fetching proposal preview:', error);
+    throw error;
+  }
+};
+
+/**
+ * Obtener fechas con OTs programadas para una cuadrilla.
+ * @param {number} teamId
+ * @param {number} days - Horizonte en días (default 14)
+ * @returns {Promise<{team_id: number, dates: Array<{date: string, work_orders_count: number}>}>}
+ */
+export const getTeamScheduleDates = async (teamId, days = 14) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/team-schedule-dates`, {
+      params: { team_id: teamId, days },
+    });
+    return data;
+  } catch (error) {
+    console.error('❌ Error fetching team schedule dates:', error);
     throw error;
   }
 };
@@ -267,6 +290,31 @@ export const confirmReceipt = async (receiptId) => {
   }
 };
 
+/**
+ * Obtener etiquetas SVG para unidades trazables generadas.
+ * @param {number[]} serialItemIds
+ * @returns {Promise<Array<{serial_item_id:number, serial_number:string, barcode_svg:string}>>}
+ */
+export const getTrackedUnitLabels = async (serialItemIds = []) => {
+  try {
+    const params = new URLSearchParams();
+    serialItemIds
+      .filter((id) => Number.isFinite(Number(id)))
+      .forEach((id) => params.append('serial_item_ids', String(id)));
+
+    const query = params.toString();
+    const url = query
+      ? `${BASE_URL}/tracked-units/labels?${query}`
+      : `${BASE_URL}/tracked-units/labels`;
+
+    const { data } = await api.get(url);
+    return data || [];
+  } catch (error) {
+    console.error('❌ Error fetching tracked unit labels:', error);
+    throw error;
+  }
+};
+
 
 export default {
   // Deliveries
@@ -283,6 +331,7 @@ export default {
   
   // Proposals
   getProposalPreview,
+  getTeamScheduleDates,
   
   // Receipts
   getReceipts,
@@ -290,4 +339,5 @@ export default {
   createReceipt,
   scanReceiptItem,
   confirmReceipt,
+  getTrackedUnitLabels,
 };

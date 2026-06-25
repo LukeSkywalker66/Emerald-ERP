@@ -43,6 +43,7 @@ def _parse_mapping_env(raw_value: str | None) -> dict[str, str]:
 
 # --- AMBIENTE ---
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+APP_ENV = os.getenv("APP_ENV", ENVIRONMENT)
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
 # --- CREDENCIALES DE BASE DE DATOS (POSTGRES) - CRÍTICAS ---

@@ -1,19 +1,34 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, ShoppingCart, AlertCircle, Loader } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Plus, ShoppingCart, AlertCircle, Loader, Printer } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import * as inventoryService from '@/services/inventory.service';
+import { buildTrackedLabelPrintPath, getPrintableSerialIdsFromMovement } from '@/utils/labelPrinting';
+import {
+  BarcodeScanner,
+  SerialScanner,
+  ScanCounter,
+  ScannedSerialsList,
+} from '@/components/barcode-reader';
 
 /**
  * Página para registrar ajustes de stock (Compras, Correcciones)
  * Formulario simple + tabla histórica de movimientos
  */
 export default function StockAdjustments() {
+  const navigate = useNavigate();
+  const LAST_LABEL_BATCH_KEY = 'emerald_last_tracked_label_batch';
   const [warehouses, setWarehouses] = useState([]);
   const [products, setProducts] = useState([]);
   const [movements, setMovements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [successMessage, setSuccessMessage] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null); // { text: string, generatedSerialItemIds?: number[] }
+  const [lastLabelBatch, setLastLabelBatch] = useState(null); // { ids: number[], createdAt: string }
+
+  const navigateToLabelPrint = useCallback((ids) => {
+    navigate(buildTrackedLabelPrintPath(ids));
+  }, [navigate]);
 
   const [formData, setFormData] = useState({
     product_id: '',
@@ -21,9 +36,89 @@ export default function StockAdjustments() {
     quantity: '',
     serial_numbers: '',
     movement_type: 'PURCHASE',
+    generate_barcodes: false,
     reference: '',
     notes: '',
   });
+
+  // Scan session state (para productos SERIALIZED) - solo frontend, nada en DB
+  const [scanMode, setScanMode] = useState('barcode'); // 'barcode' | 'serial'
+  const [scanningProduct, setScanningProduct] = useState(null); // { product_id, product_name }
+  const [scannedSerials, setScannedSerials] = useState([]);
+  const [scanFeedback, setScanFeedback] = useState(null);
+  const [validatingSerial, setValidatingSerial] = useState(false);
+  const scannedSerialsRef = useRef([]);
+  const lastAcceptedSerialRef = useRef({ serial: null, ts: 0 });
+  const warningDismissTimeoutRef = useRef(null);
+
+  const DUPLICATE_FEEDBACK_SUPPRESSION_MS = 1200;
+
+  useEffect(() => {
+    scannedSerialsRef.current = scannedSerials;
+  }, [scannedSerials]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LAST_LABEL_BATCH_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed?.ids) || parsed.ids.length === 0) return;
+      setLastLabelBatch({
+        ids: parsed.ids,
+        createdAt: parsed.createdAt || new Date().toISOString(),
+      });
+    } catch {
+      // Ignorar payload inválido en storage
+    }
+  }, []);
+
+  const appendSerialIfNew = useCallback((rawSerial) => {
+    const serial = String(rawSerial || '').trim().toUpperCase();
+    if (!serial) return { status: 'invalid', serial: '' };
+
+    const now = Date.now();
+    const alreadyExists = scannedSerialsRef.current.includes(serial);
+
+    if (alreadyExists) {
+      const lastAccepted = lastAcceptedSerialRef.current;
+      if (lastAccepted.serial === serial && now - lastAccepted.ts <= DUPLICATE_FEEDBACK_SUPPRESSION_MS) {
+        return { status: 'suppressed', serial };
+      }
+      return { status: 'duplicate', serial };
+    }
+
+    const next = [...scannedSerialsRef.current, serial];
+    scannedSerialsRef.current = next;
+    setScannedSerials(next);
+    lastAcceptedSerialRef.current = { serial, ts: now };
+    return { status: 'added', serial, total: next.length };
+  }, []);
+
+  const showTransientWarning = useCallback((message) => {
+    setScanFeedback({ type: 'warning', message });
+
+    if (warningDismissTimeoutRef.current) {
+      clearTimeout(warningDismissTimeoutRef.current);
+    }
+
+    warningDismissTimeoutRef.current = setTimeout(() => {
+      setScanFeedback((prev) => {
+        if (prev?.type === 'warning' && prev?.message === message) {
+          return null;
+        }
+        return prev;
+      });
+      warningDismissTimeoutRef.current = null;
+    }, 1500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (warningDismissTimeoutRef.current) {
+        clearTimeout(warningDismissTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Cargar datos iniciales
   useEffect(() => {
@@ -75,12 +170,205 @@ export default function StockAdjustments() {
         const product = products.find((p) => p.id === parseInt(value));
         if (product?.type === 'SERIALIZED') {
           updated.movement_type = 'PURCHASE';
+          updated.generate_barcodes = false;
         }
+      }
+
+      if (name === 'movement_type' && value !== 'PURCHASE' && value !== 'IN') {
+        updated.generate_barcodes = false;
       }
 
       return updated;
     });
   };
+
+  // ---------------------------------------------------------------
+  // Scan handlers (para productos SERIALIZED)
+  // ---------------------------------------------------------------
+  const handleBarcodeScan = useCallback(async (code) => {
+    if (!formData.product_id || !formData.warehouse_id) {
+      setScanFeedback({ type: 'error', message: 'Primero seleccioná producto y almacén' });
+      return;
+    }
+
+    setScanFeedback({ type: 'info', message: `Identificando: ${code}...` });
+
+    try {
+      const response = await inventoryService.scanCode({
+        code,
+        product_id: parseInt(formData.product_id),
+        warehouse_id: parseInt(formData.warehouse_id),
+      });
+
+      if (!response.success) {
+        setScanFeedback({ type: 'error', message: response.message || 'Código no reconocido' });
+        return;
+      }
+
+      if (response.scan_type === 'PRODUCT_CODE') {
+        if (response.is_serialized) {
+          // Producto serializado: pasar a modo serial
+          setScanMode('serial');
+          setScanningProduct({
+            product_id: response.product_id,
+            product_name: response.product_name,
+          });
+          setScanFeedback({
+            type: 'success',
+            message: `${response.product_name} identificado. Escaneá el serial.`,
+          });
+        } else {
+          // Producto BULK: mostrar como antes
+          setScanFeedback({
+            type: 'success',
+            message: `Producto BULK detectado: ${response.product_name}. Usá el campo de cantidad.`,
+          });
+        }
+      } else if (response.scan_type === 'SERIAL_NUMBER') {
+        // Unificar criterio: validar también contra backend de serial (dup global + formato)
+        const serialValidation = await inventoryService.scanSerial({
+          serial_number: response.code,
+          product_id: parseInt(formData.product_id),
+          warehouse_id: parseInt(formData.warehouse_id),
+        });
+
+        if (!serialValidation.success) {
+          setScanFeedback({
+            type: 'error',
+            message: serialValidation.message || `Serial ${response.code} inválido`,
+          });
+          return;
+        }
+
+        const localResult = appendSerialIfNew(response.code);
+        if (localResult.status === 'added') {
+          setScanFeedback({ type: 'success', message: `✅ Serial ${localResult.serial} registrado (${localResult.total} total)` });
+          return;
+        }
+        if (localResult.status === 'duplicate') {
+          setScanFeedback({ type: 'error', message: `Serial ${localResult.serial} ya ingresado` });
+          return;
+        }
+        // status=suppressed: informar sin error para no pisar éxito con falso negativo
+        if (localResult.status === 'suppressed') {
+          showTransientWarning(`Lectura duplicada ignorada: ${localResult.serial}`);
+        }
+      }
+    } catch (err) {
+      const msg = err.response?.data?.detail || err.message || 'Error al escanear';
+      setScanFeedback({ type: 'error', message: msg });
+    }
+  }, [formData.product_id, formData.warehouse_id, showTransientWarning]);
+
+  const handleSerialScan = useCallback(async (serial) => {
+    if (!formData.product_id || !formData.warehouse_id || !scanningProduct) return;
+
+    setValidatingSerial(true);
+    setScanFeedback({ type: 'info', message: `Validando serial: ${serial}...` });
+
+    try {
+      // Solo validamos, no persistimos nada en DB
+      const validation = await inventoryService.scanSerial({
+        serial_number: serial,
+        product_id: parseInt(formData.product_id),
+        warehouse_id: parseInt(formData.warehouse_id),
+      });
+
+      if (!validation.success) {
+        setScanFeedback({
+          type: 'error',
+          message: validation.message || `Serial ${serial} inválido`,
+        });
+        return;
+      }
+
+      // Dedup local con supresión de doble lectura inmediata
+      const localResult = appendSerialIfNew(serial);
+      if (localResult.status === 'added') {
+        setScanFeedback({ type: 'success', message: `✅ Serial ${localResult.serial} registrado (${localResult.total} total)` });
+        return;
+      }
+      if (localResult.status === 'duplicate') {
+        setScanFeedback({ type: 'error', message: `Serial ${localResult.serial} ya ingresado` });
+        return;
+      }
+      if (localResult.status === 'suppressed') {
+        showTransientWarning(`Lectura duplicada ignorada: ${localResult.serial}`);
+      }
+    } catch (err) {
+      const msg = err.response?.data?.detail || err.message || 'Error al validar serial';
+      setScanFeedback({ type: 'error', message: msg });
+    } finally {
+      setValidatingSerial(false);
+    }
+  }, [formData.product_id, formData.warehouse_id, showTransientWarning]);
+
+  const handleRemoveSerial = useCallback((serial) => {
+    const normalized = String(serial || '').trim().toUpperCase();
+    const next = scannedSerialsRef.current.filter((s) => s !== normalized);
+    scannedSerialsRef.current = next;
+    setScannedSerials(next);
+  }, []);
+
+  const handleResetScanSession = useCallback(() => {
+    setScanMode('barcode');
+    setScanningProduct(null);
+    setScanFeedback(null);
+    lastAcceptedSerialRef.current = { serial: null, ts: 0 };
+  }, []);
+
+  const handleConfirmScanSession = useCallback(async () => {
+    if (scannedSerials.length === 0) return;
+
+    setSubmitLoading(true);
+    setError(null);
+
+    try {
+      const productId = parseInt(formData.product_id);
+      const warehouseId = parseInt(formData.warehouse_id);
+      const warehouse = warehouses.find((w) => w.id === warehouseId);
+      const product = products.find((p) => p.id === productId);
+
+      // Crear SerialItems uno por uno (como el flujo original)
+      for (const serial of scannedSerials) {
+        await inventoryService.createSerialItem({
+          serial_number: serial,
+          product_id: productId,
+          warehouse_id: warehouseId,
+          status: 'NEW',
+          notes: formData.notes || formData.reference || null,
+        });
+      }
+
+      setSuccessMessage({
+        text: `✅ ${scannedSerials.length} equipo(s) registrado(s) en ${warehouse?.name || 'almacén'}`,
+      });
+
+      // Resetear
+      setFormData({ product_id: '', warehouse_id: '', quantity: '', serial_numbers: '', movement_type: 'PURCHASE', generate_barcodes: false, reference: '', notes: '' });
+      setScannedSerials([]);
+      scannedSerialsRef.current = [];
+      setScanMode('barcode');
+      setScanningProduct(null);
+      setScanFeedback(null);
+      lastAcceptedSerialRef.current = { serial: null, ts: 0 };
+
+      // Recargar movimientos (si falla, no crashea la UI)
+      try {
+        const updatedMovements = await inventoryService.getMovements({ limit: 20 });
+        if (Array.isArray(updatedMovements)) setMovements(updatedMovements);
+      } catch (movErr) {
+        console.warn('No se pudieron recargar movimientos:', movErr);
+      }
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      const msg = typeof detail === 'string' ? detail
+        : (Array.isArray(detail) ? detail.map(d => d.msg || JSON.stringify(d)).join(', ') : 'Error al confirmar');
+      setError(String(msg));
+    } finally {
+      setSubmitLoading(false);
+    }
+  }, [scannedSerials.length]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -103,10 +391,10 @@ export default function StockAdjustments() {
     let submissionOk = false;
 
     if (isSerialized) {
-      const serials = (formData.serial_numbers || '')
-        .split(/\n|,/)
-        .map((s) => s.trim())
-        .filter(Boolean);
+      // Usar scannedSerials del escaneo inteligente
+      const serials = scannedSerials.length > 0
+        ? scannedSerials
+        : (formData.serial_numbers || '').split(/\n|,/).map(s => s.trim()).filter(Boolean);
 
       if (serials.length === 0) {
         setError('Ingresa al menos un número de serie.');
@@ -127,9 +415,16 @@ export default function StockAdjustments() {
           });
         }
 
-        setSuccessMessage(
-          `✅ ${serials.length} equipo(s) registrado(s) en ${warehouse?.name || 'almacén'}`
-        );
+        setSuccessMessage({
+          text: `✅ ${serials.length} equipo(s) registrado(s) en ${warehouse?.name || 'almacén'}`,
+        });
+        // Resetear escaneo
+        setScannedSerials([]);
+        scannedSerialsRef.current = [];
+        setScanMode('barcode');
+        setScanningProduct(null);
+        setScanFeedback(null);
+        lastAcceptedSerialRef.current = { serial: null, ts: 0 };
         submissionOk = true;
       } catch (err) {
         console.error('Error registrando seriales:', err);
@@ -156,26 +451,44 @@ export default function StockAdjustments() {
         setSubmitLoading(true);
         setError(null);
 
-        // Para productos compuestos, convertir a unidad base
-        let finalQty = parseFloat(formData.quantity);
-        const prod = products.find(p => p.id === parseInt(formData.product_id));
-        if (prod?.is_composite && prod?.unit_size) {
-          finalQty = finalQty * prod.unit_size;
-        }
+        // La cantidad ingresada ya viaja como unidades del stock del producto.
+        const finalQty = parseFloat(formData.quantity);
 
         const result = await inventoryService.adjustStock({
           product_id: parseInt(formData.product_id),
           warehouse_id: parseInt(formData.warehouse_id),
           quantity: finalQty,
           movement_type: formData.movement_type,
+          generate_barcodes: Boolean(formData.generate_barcodes),
           reference: formData.reference || null,
           notes: formData.notes || null,
         });
 
         const typeLabel = formData.movement_type === 'PURCHASE' ? 'Compra' : 'Ajuste';
-        setSuccessMessage(
-          `✅ ${typeLabel} registrada correctamente. ID: ${result.movement_id}`
-        );
+        const generatedSerialIds = Array.isArray(result?.generated_serial_item_ids)
+          ? result.generated_serial_item_ids
+          : [];
+        const generatedTotal = Number(result?.tracked_units_created || generatedSerialIds.length || 0);
+
+        setSuccessMessage({
+          text: generatedTotal > 0
+            ? `✅ ${typeLabel} serializada correctamente. ${generatedTotal} etiqueta(s) listas para imprimir.`
+            : `✅ ${typeLabel} registrada correctamente. ID: ${result.movement_id}`,
+          generatedSerialItemIds: generatedSerialIds,
+        });
+
+        if (generatedSerialIds.length > 0) {
+          const batch = {
+            ids: generatedSerialIds,
+            createdAt: new Date().toISOString(),
+          };
+          setLastLabelBatch(batch);
+          try {
+            localStorage.setItem(LAST_LABEL_BATCH_KEY, JSON.stringify(batch));
+          } catch {
+            // Si storage falla (quota/privacy), no bloqueamos flujo principal.
+          }
+        }
         submissionOk = true;
       } catch (err) {
         console.error('Error submitting adjustment:', err);
@@ -198,16 +511,16 @@ export default function StockAdjustments() {
       quantity: '',
       serial_numbers: '',
       movement_type: 'PURCHASE',
+      generate_barcodes: false,
       reference: '',
       notes: '',
     });
 
     // Recargar movimientos
-    const updatedMovements = await inventoryService.getMovements({
-      movement_type: 'PURCHASE,ADJUSTMENT',
-      limit: 20,
-    });
-    setMovements(updatedMovements);
+    try {
+      const updatedMovements = await inventoryService.getMovements({ limit: 20 });
+      if (Array.isArray(updatedMovements)) setMovements(updatedMovements);
+    } catch (e) { console.warn('No se pudieron recargar movimientos:', e); }
 
     // Limpiar mensaje después de 5s
     setTimeout(() => setSuccessMessage(null), 5000);
@@ -236,6 +549,16 @@ export default function StockAdjustments() {
     (w) => w.id === parseInt(formData.warehouse_id)
   );
   const isSerialized = selectedProduct?.type === 'SERIALIZED';
+  const canGenerateBarcodes = !isSerialized
+    && selectedProduct?.is_composite
+    && (formData.movement_type === 'PURCHASE' || formData.movement_type === 'IN');
+  const getDisplayUnit = (product) => {
+    if (!product) return 'u.';
+    if (product.is_composite) {
+      return product.composite_unit_label || 'u.';
+    }
+    return product.unit_measure || 'u.';
+  };
 
   if (loading) {
     return (
@@ -280,8 +603,54 @@ export default function StockAdjustments() {
               )}
 
               {successMessage && (
-                <div className="mb-4 p-4 bg-emerald-500/20 border border-emerald-500/50 rounded-lg text-emerald-400 text-sm">
-                  {successMessage}
+                <div className="mb-4 p-4 bg-emerald-500/20 border border-emerald-500/50 rounded-lg text-emerald-300 text-sm space-y-3">
+                  <p>{successMessage.text}</p>
+
+                  {Array.isArray(successMessage.generatedSerialItemIds) && successMessage.generatedSerialItemIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => navigateToLabelPrint(successMessage.generatedSerialItemIds)}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded bg-emerald-500 text-zinc-950 font-semibold hover:bg-emerald-400 transition-colors"
+                    >
+                      <Printer className="w-4 h-4" />
+                      🖨️ Imprimir Etiquetas Ahora
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {lastLabelBatch?.ids?.length > 0 && (
+                <div className="mb-4 p-4 bg-zinc-800/70 border border-amber-500/40 rounded-lg text-zinc-200 text-sm">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <p className="font-semibold text-amber-300">Último lote de etiquetas disponible</p>
+                      <p className="text-xs text-zinc-400 mt-1">
+                        Generado el {new Date(lastLabelBatch.createdAt).toLocaleString('es-AR')} · {lastLabelBatch.ids.length} etiqueta(s)
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => navigateToLabelPrint(lastLabelBatch.ids)}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded bg-amber-500 text-zinc-950 font-semibold hover:bg-amber-400 transition-colors"
+                      >
+                        <Printer className="w-4 h-4" />
+                        Reimprimir último lote
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLastLabelBatch(null);
+                          localStorage.removeItem(LAST_LABEL_BATCH_KEY);
+                        }}
+                        className="px-3 py-2 rounded border border-zinc-600 hover:bg-zinc-700 transition-colors text-zinc-300"
+                      >
+                        Limpiar
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -309,7 +678,7 @@ export default function StockAdjustments() {
                       <p>Categoría: {selectedProduct.category}</p>
                       {selectedProduct.is_composite && (
                         <p className="text-emerald-400">
-                          Producto compuesto: 1 {selectedProduct.composite_unit_label || 'unidad'} = {selectedProduct.unit_size}{selectedProduct.unit_measure}
+                          Producto compuesto: ingresá cantidades en {getDisplayUnit(selectedProduct)}.
                         </p>
                       )}
                     </div>
@@ -336,28 +705,51 @@ export default function StockAdjustments() {
                   </select>
                 </div>
 
-                {/* Cantidad */}
+                {/* Cantidad / Escaneo Inteligente */}
                 {isSerialized ? (
-                  <div>
+                  <div className="space-y-4">
                     <label className="block text-sm font-medium text-zinc-300 mb-2">
-                      Serial(es) *
+                      Escaneo de Seriales
                     </label>
-                    <textarea
-                      name="serial_numbers"
-                      value={formData.serial_numbers}
-                      onChange={handleInputChange}
-                      placeholder="Uno por línea o separados por coma"
-                      rows="3"
-                      className="w-full bg-zinc-700 border border-zinc-600 rounded px-3 py-2 text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-sm resize-none"
+
+                    {/* Contador */}
+                    <ScanCounter
+                      count={scannedSerials.length}
+                      productName={selectedProduct?.name}
                     />
-                    <p className="text-xs text-zinc-400 mt-1">
-                      Cada serie se registra como compra individual.
-                    </p>
+
+                    {/* Serial scanner o Barcode scanner */}
+                    {scanMode === 'serial' && scanningProduct ? (
+                      <SerialScanner
+                        productName={scanningProduct.product_name}
+                        productSku={selectedProduct?.sku}
+                        onScan={handleSerialScan}
+                        onCancel={handleResetScanSession}
+                        validating={validatingSerial}
+                      />
+                    ) : (
+                      <BarcodeScanner
+                        onScan={handleBarcodeScan}
+                        disabled={false}
+                        placeholder="Escanear código de barra o serial..."
+                        feedback={scanFeedback}
+                        scanning={validatingSerial}
+                      />
+                    )}
+
+                    {/* Lista de seriales escaneados */}
+                    {scannedSerials.length > 0 && (
+                      <ScannedSerialsList
+                        serials={scannedSerials}
+                        onRemove={handleRemoveSerial}
+                      />
+                    )}
+
                   </div>
                 ) : (
                   <div>
                     <label className="block text-sm font-medium text-zinc-300 mb-2">
-                      Cantidad *
+                      Cantidad * {selectedProduct?.is_composite ? `(${getDisplayUnit(selectedProduct)})` : ''}
                     </label>
                     <input
                       type="number"
@@ -412,6 +804,31 @@ export default function StockAdjustments() {
                   </div>
                 )}
 
+                {canGenerateBarcodes && (
+                  <div className="p-3 rounded border border-emerald-600/40 bg-zinc-800/60">
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="generate_barcodes"
+                        checked={Boolean(formData.generate_barcodes)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setFormData((prev) => ({ ...prev, generate_barcodes: checked }));
+                        }}
+                        className="mt-0.5 w-4 h-4"
+                      />
+                      <span>
+                        <span className="text-sm text-emerald-300 font-semibold">
+                          ¿Generar códigos de barra individuales?
+                        </span>
+                        <span className="block text-xs text-zinc-400 mt-1">
+                          En compras de compuestos, crea unidades trazables con etiqueta en lugar de incrementar stock bulk.
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                )}
+
                 {/* Referencia */}
                 <div>
                   <label className="block text-sm font-medium text-zinc-300 mb-2">
@@ -443,24 +860,49 @@ export default function StockAdjustments() {
                   />
                 </div>
 
-                {/* Submit Button */}
-                <button
-                  type="submit"
-                  disabled={submitLoading}
-                  className="w-full mt-6 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-700 disabled:opacity-50 text-white font-semibold py-2 rounded transition-colors flex items-center justify-center gap-2"
-                >
-                  {submitLoading ? (
-                    <>
-                      <Loader className="w-4 h-4 animate-spin" />
-                      Registrando...
-                    </>
-                  ) : (
-                    <>
-                      <ShoppingCart className="w-4 h-4" />
-                      {formData.movement_type === 'PURCHASE' ? 'Registrar Compra' : 'Registrar Ajuste'}
-                    </>
-                  )}
-                </button>
+                {/* Buttons */}
+                <div className="flex gap-3 mt-6">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData({
+                        product_id: '', warehouse_id: '', quantity: '',
+                        serial_numbers: '', movement_type: 'PURCHASE',
+                        generate_barcodes: false,
+                        reference: '', notes: '',
+                      });
+                      setScannedSerials([]);
+                      scannedSerialsRef.current = [];
+                      setScanMode('barcode');
+                      setScanningProduct(null);
+                      setScanFeedback(null);
+                      lastAcceptedSerialRef.current = { serial: null, ts: 0 };
+                      setError(null);
+                      setSuccessMessage(null);
+                    }}
+                    disabled={submitLoading}
+                    className="flex-1 py-2 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 text-white font-semibold rounded transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submitLoading}
+                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-700 disabled:opacity-50 text-white font-semibold rounded transition-colors flex items-center justify-center gap-2"
+                  >
+                    {submitLoading ? (
+                      <>
+                        <Loader className="w-4 h-4 animate-spin" />
+                        Registrando...
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingCart className="w-4 h-4" />
+                        {formData.movement_type === 'PURCHASE' ? 'Registrar Compra' : 'Registrar Ajuste'}
+                      </>
+                    )}
+                  </button>
+                </div>
               </form>
             </div>
           </div>
@@ -502,14 +944,18 @@ export default function StockAdjustments() {
                         <th className="text-left py-3 px-3 font-semibold">
                           Fecha
                         </th>
+                        <th className="text-left py-3 px-3 font-semibold">
+                          Acción
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {movements.map((movement) => {
                         const badge = getMovementBadge(movement.movement_type);
-                        const moveDate = new Date(
-                          movement.created_at
-                        ).toLocaleDateString('es-AR');
+                        const moveDate = movement.date
+                          ? new Date(movement.date).toLocaleDateString('es-AR')
+                          : '-';
+                        const printableIds = getPrintableSerialIdsFromMovement(movement);
 
                         return (
                           <tr
@@ -553,6 +999,21 @@ export default function StockAdjustments() {
                             </td>
                             <td className="py-3 px-3 text-zinc-400 text-xs">
                               {moveDate}
+                            </td>
+                            <td className="py-3 px-3">
+                              {printableIds.length > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => navigateToLabelPrint(printableIds)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded bg-zinc-700 hover:bg-zinc-600 border border-zinc-600 text-zinc-200 text-xs"
+                                  title="Reimprimir etiqueta de este movimiento"
+                                >
+                                  <Printer className="w-3.5 h-3.5" />
+                                  Reimprimir
+                                </button>
+                              ) : (
+                                <span className="text-zinc-500 text-xs">-</span>
+                              )}
                             </td>
                           </tr>
                         );

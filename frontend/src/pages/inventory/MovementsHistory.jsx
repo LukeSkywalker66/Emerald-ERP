@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Filter, AlertCircle, Loader, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar, Filter, AlertCircle, Loader, ChevronLeft, ChevronRight, Printer } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import * as inventoryService from '@/services/inventory.service';
+import { buildTrackedLabelPrintPath, getPrintableSerialIdsFromMovement } from '@/utils/labelPrinting';
 
 /**
  * Página de Auditoría - Historial completo de movimientos de stock
@@ -8,6 +10,7 @@ import * as inventoryService from '@/services/inventory.service';
  * Incluye paginación (limit/offset)
  */
 export default function MovementsHistory() {
+  const navigate = useNavigate();
   const [movements, setMovements] = useState([]);
   const [products, setProducts] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
@@ -150,6 +153,12 @@ export default function MovementsHistory() {
   };
 
   const currentPage = Math.floor(pagination.offset / pagination.limit) + 1;
+
+  const handleReprint = (movement) => {
+    const ids = getPrintableSerialIdsFromMovement(movement);
+    if (ids.length === 0) return;
+    navigate(buildTrackedLabelPrintPath(ids));
+  };
 
   if (loading && movements.length === 0) {
     return (
@@ -303,6 +312,7 @@ export default function MovementsHistory() {
                       <th className="text-left py-3 px-3 font-semibold">Flujo</th>
                       <th className="text-right py-3 px-3 font-semibold">Cantidad</th>
                       <th className="text-left py-3 px-3 font-semibold">Referencia</th>
+                      <th className="text-left py-3 px-3 font-semibold">Acción</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -310,6 +320,7 @@ export default function MovementsHistory() {
                       const badge = getMovementBadge(movement.movement_type);
                       const fromWarehouse = movement.from_warehouse?.name || '-';
                       const toWarehouse = movement.to_warehouse?.name || '-';
+                      const printableIds = getPrintableSerialIdsFromMovement(movement);
 
                       return (
                         <tr
@@ -367,6 +378,21 @@ export default function MovementsHistory() {
                           </td>
                           <td className="py-3 px-3 text-zinc-400 text-xs max-w-xs truncate">
                             {movement.reference || movement.notes || '-'}
+                          </td>
+                          <td className="py-3 px-3">
+                            {printableIds.length > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => handleReprint(movement)}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded bg-zinc-700 hover:bg-zinc-600 border border-zinc-600 text-zinc-200 text-xs"
+                                title="Reimprimir etiqueta asociada al movimiento"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                                Reimprimir
+                              </button>
+                            ) : (
+                              <span className="text-zinc-500 text-xs">-</span>
+                            )}
                           </td>
                         </tr>
                       );

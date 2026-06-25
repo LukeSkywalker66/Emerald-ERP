@@ -347,6 +347,7 @@ export const getInventoryStats = async () => {
         CENTRAL: warehouses.filter(w => w.type === 'CENTRAL').length,
         MOBILE: warehouses.filter(w => w.type === 'MOBILE').length,
         VIRTUAL: warehouses.filter(w => w.type === 'VIRTUAL').length,
+        AUXILIAR: warehouses.filter(w => w.type === 'AUXILIAR').length,
       },
       totalProducts: products.length,
       productsByType: {
@@ -465,6 +466,83 @@ export const updateProductSpecs = async (productId, payload) => {
 // ============================================
 // EXPORT DEFAULT (opcional para compatibilidad)
 // ============================================
+
+// ============================================
+// BARCODE SCAN (Escaneo inteligente)
+// ============================================
+
+/**
+ * Escanear un código de barra en contexto de compra.
+ * El motor identifica automáticamente si es SKU o Serial.
+ * POST /v2/inventory/stock/scan
+ */
+export const scanCode = async (payload) => {
+  try {
+    const { data } = await api.post(`${BASE_URL}/stock/scan`, payload);
+    return data;
+  } catch (error) {
+    console.error('❌ Error scanning code:', error);
+    throw error;
+  }
+};
+
+/**
+ * Escanear un serial de producto SERIALIZED.
+ * POST /v2/inventory/stock/scan-serial
+ */
+export const scanSerial = async (payload) => {
+  try {
+    const { data } = await api.post(`${BASE_URL}/stock/scan-serial`, payload);
+    return data;
+  } catch (error) {
+    console.error('❌ Error scanning serial:', error);
+    throw error;
+  }
+};
+
+/**
+ * Obtener estado de una sesión de escaneo.
+ * GET /v2/inventory/stock/scan-session/{sessionId}
+ */
+export const getScanSession = async (sessionId) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/stock/scan-session/${sessionId}`);
+    return data;
+  } catch (error) {
+    console.error('❌ Error fetching scan session:', error);
+    throw error;
+  }
+};
+
+/**
+ * Eliminar un serial de la sesión de escaneo.
+ * DELETE /v2/inventory/stock/scan-session/{sessionId}/serial/{serial}
+ */
+export const removeSerialFromSession = async (sessionId, serial) => {
+  try {
+    const { data } = await api.delete(
+      `${BASE_URL}/stock/scan-session/${sessionId}/serial/${encodeURIComponent(serial)}`
+    );
+    return data;
+  } catch (error) {
+    console.error('❌ Error removing serial from session:', error);
+    throw error;
+  }
+};
+
+/**
+ * Confirmar sesión de escaneo y ejecutar ingreso masivo de seriales.
+ * POST /v2/inventory/stock/scan-session/{sessionId}/confirm
+ */
+export const confirmScanSession = async (sessionId) => {
+  try {
+    const { data } = await api.post(`${BASE_URL}/stock/scan-session/${sessionId}/confirm`);
+    return data;
+  } catch (error) {
+    console.error('❌ Error confirming scan session:', error);
+    throw error;
+  }
+};
 
 export default {
   // Warehouses

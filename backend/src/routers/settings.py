@@ -30,7 +30,9 @@ from src.schemas.settings import (
     MonitorCheckResult,
     SyncExecutionHistoryItem,
     SyncExecutionHistoryResponse,
+    SystemVersionResponse,
 )
+from src import config as settings
 from src.schemas.scheduled_task import (
     ScheduledTaskResponse,
     ScheduledTaskUpdate,
@@ -49,6 +51,16 @@ from src.services.monitoring_engine import MonitoringOrchestrator
 logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter(tags=["Settings"])
+system_router = APIRouter(tags=["System"])
+
+
+@system_router.get("/system/version", response_model=SystemVersionResponse)
+def get_system_version():
+    """Versión release y entorno de ejecución activos."""
+    return SystemVersionResponse(
+        version="1.0.0-rc.1",
+        environment=settings.APP_ENV,
+    )
 
 
 # ============================================

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Emerald Staging">
+  <defs>
+    <linearGradient id="stgGlow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="18" fill="#120f09"/>
+  <polygon points="64,10 108,36 108,92 64,118 20,92 20,36" fill="none" stroke="url(#stgGlow)" stroke-width="8"/>
+  <polygon points="64,28 92,44 92,84 64,100 36,84 36,44" fill="#451a03" opacity="0.6"/>
+</svg>

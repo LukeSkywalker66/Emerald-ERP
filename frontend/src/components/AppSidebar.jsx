@@ -39,6 +39,7 @@ import {
   Pin,
   PinOff,
 } from 'lucide-react';
+/* global __APP_VERSION__ */
 import {
   Sidebar,
   SidebarContent,
@@ -245,6 +246,8 @@ const MENU_ITEMS = [
 ];
 
 export function AppSidebar() {
+  const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
+  const appEnv = import.meta.env.VITE_APP_ENV || 'development';
   const { pathname } = useLocation();
   const { user } = useAuth(); // ← RBAC: Obtener usuario para filtrar items
 
@@ -408,10 +411,7 @@ export function AppSidebar() {
             `}
           >
             <span className="text-sm font-bold text-white tracking-tight whitespace-nowrap group-hover:text-emerald-400 transition-colors">
-              Emerald
-            </span>
-            <span className="text-xs text-emerald-400/70 font-semibold whitespace-nowrap group-hover:text-emerald-400 transition-colors">
-              ERP v2.1
+              Emerald ERP
             </span>
           </div>
         </Link>
@@ -627,12 +627,16 @@ export function AppSidebar() {
           {/* Versión — oculta en modo colapsado */}
           <div
             className={`
-              text-xs text-zinc-500 overflow-hidden transition-all duration-300 ease-in-out
+              overflow-hidden transition-all duration-300 ease-in-out
               ${isCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}
             `}
           >
-            <p className="font-mono text-zinc-600 whitespace-nowrap">v2.1.0</p>
-            <p className="text-zinc-600/70 mt-0.5 text-xs whitespace-nowrap">Build 2026.01.16</p>
+            <p className="text-xs text-emerald-500/50 font-mono tracking-widest whitespace-nowrap">
+              v{appVersion}
+            </p>
+            <p className="text-[10px] text-zinc-500/80 font-mono tracking-wider whitespace-nowrap uppercase mt-0.5">
+              env: {appEnv}
+            </p>
           </div>
         </div>
       </SidebarFooter>

@@ -1,7 +1,9 @@
 #!/bin/bash
 
 # Configuración
-CARPETA="/opt/emerald-erp/docs"
+# Usa la carpeta docs relativa a este script para evitar rutas hardcodeadas del repo viejo.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CARPETA="$SCRIPT_DIR/docs"
 DESTINO="gdrive:Lucas_Brain_Center/Technical_Docs/Emerald_ERP_Docs"
 
 echo "👁️  Vigilando carpeta: $CARPETA para cambios en documentación..."
@@ -11,8 +13,8 @@ echo "👁️  Vigilando carpeta: $CARPETA para cambios en documentación..."
 # -e moved_to: por si el editor mueve un archivo temporal (VS Code hace esto)
 inotifywait -m -e close_write -e moved_to --format "%f" "$CARPETA" | while read ARCHIVO; do
 
-    # Filtramos: Solo nos importan estos dos archivos exactos
-    if [[ "$ARCHIVO" == "MASTER_CONTEXT.md" || "$ARCHIVO" == "AI_ARCHITECT_CONTEXT.md" || "$ARCHIVO" == "BASE_DATOS.md" || "$ARCHIVO" == "ROADMAP.md" ]]; then
+    # Filtramos: solo sincronizamos documentos críticos
+    if [[ "$ARCHIVO" == "MASTER_CONTEXT.md" || "$ARCHIVO" == "AI_ARCHITECT_CONTEXT.md" || "$ARCHIVO" == "BASE_DATOS.md" || "$ARCHIVO" == "ROADMAP.md" || "$ARCHIVO" == "MAPA_NAVEGACION_FRONTEND.md" ]]; then
         
         echo "♻️  Detectado cambio en: $ARCHIVO"
         

@@ -37,7 +37,9 @@ export default function CloseWorkOrderDialog({
   const [resolutionNotes, setResolutionNotes] = useState('');
 
   // Paso 2: Materiales - Compartido (hook unificado)
-  const materialState = useMaterialSelector(workOrder?.id);
+  const materialState = useMaterialSelector(workOrder?.id, {
+    teamId: workOrder?.team_id ?? null,
+  });
   const [materials, setMaterials] = useState(workOrder?.items || []);
 
   // Paso 3: Fotos
