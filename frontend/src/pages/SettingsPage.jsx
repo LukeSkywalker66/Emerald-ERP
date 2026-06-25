@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Package,
+  HardDrive,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,6 +40,7 @@ import WOTemplatesTab from '@/pages/settings/WOTemplatesTab';
 import OTTypesTab from '@/pages/settings/OTTypesTab';
 import WOActionsTab from '@/pages/settings/WOActionsTab';
 import ProductGroupsTab from '@/pages/settings/ProductGroupsTab';
+import BackupTab from '@/pages/settings/BackupTab';
 
 // ─── Constants ──────────────────────────────────────────────────────────
 
@@ -294,6 +296,12 @@ export default function SettingsPage() {
               Grupos de Producto
             </TabsTrigger>
           )}
+          {isAdmin && (
+            <TabsTrigger value="backup" className="flex items-center gap-2">
+              <HardDrive size={16} />
+              Backup
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* ═══ General Tab (solo admin) ═══ */}
@@ -529,22 +537,13 @@ export default function SettingsPage() {
           </TabsContent>
         )}
 
-        {/* ═══ Product Groups Tab (solo admin) ═══ */}
+        {/* ═══ Backup Tab (solo admin) ═══ */}
         {isAdmin && (
-          <TabsContent value="product-groups" className="space-y-6">
-            <div>
-              <h2 className="text-xl font-bold text-zinc-50 mb-6">Grupos de Producto</h2>
-              <p className="text-zinc-400 text-sm mb-6">
-                Los grupos permiten agrupar productos del mismo rubro (ONU/ONT, Router, Cableado, Conectores)
-                y definir especificaciones técnicas comunes. Luego se usan para filtrar en el catálogo
-                y para la selección inteligente de modelos en las entregas.
-              </p>
-              <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4">
-                <ProductGroupsTab />
-              </div>
-            </div>
+          <TabsContent value="backup" className="space-y-6">
+            <BackupTab />
           </TabsContent>
         )}
+
       </Tabs>
     </div>
   );

@@ -16,6 +16,7 @@ celery_app = Celery(
         "src.jobs.api_key_rotation",          # API Key rotation tasks
         "src.jobs.work_order_cleanup",        # Work Order auto-cleanup (NASA-grade)
         "src.jobs.monitoring",                # Internal monitoring engine (Strategy Pattern)
+        "src.jobs.backup",                    # Backup automático de BD a Drive
     ]
 )
 
@@ -115,6 +116,20 @@ STATIC_BEAT_SCHEDULE = {
     "monitor-periodic-check": {
         "task": "monitoring.periodic_check",
         "schedule": crontab(minute="*/1"),  # Cada 1 minuto (cada monitor tiene su propio intervalo)
+    },
+
+    # ════════════════════════════════════════════════════════════════════════════════
+    # 💾 BACKUP AUTOMÁTICO DE BASE DE DATOS
+    # ════════════════════════════════════════════════════════════════════════════════
+    # La tarea verifica is_enabled en la config de BD antes de ejecutarse.
+    # Si is_enabled=False (default en no-prod), el backup se omite silenciosamente.
+    # Para activar: Settings → Backup → habilitar.
+    # Schedule default: 2:00 AM diario. Configurable desde UI.
+    # ════════════════════════════════════════════════════════════════════════════════
+    "backup-automatico-diario": {
+        "task": "backup.run_scheduled",
+        "schedule": crontab(hour=2, minute=0),  # 2:00 AM
+        "kwargs": {"triggered_by": "scheduled"},
     },
 }
 

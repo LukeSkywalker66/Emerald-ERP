@@ -31,7 +31,12 @@ from src.schemas.settings import (
     SyncExecutionHistoryItem,
     SyncExecutionHistoryResponse,
     SystemVersionResponse,
+    BackupConfigUpdate,
+    BackupConfigResponse,
+    BackupRunResponse,
+    BackupRunListResponse,
 )
+from src.models.settings import BackupConfig, BackupRun, BackupStatus, BackupTrigger
 from src import config as settings
 from src.schemas.scheduled_task import (
     ScheduledTaskResponse,
@@ -646,3 +651,96 @@ def delete_setting(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Configuración '{key}' no encontrada",
         )
+
+
+# ============================================================
+# BACKUP — Configuración, historial y ejecución manual
+# ============================================================
+
+def _get_or_create_backup_config(db: Session) -> BackupConfig:
+    cfg = db.query(BackupConfig).filter(BackupConfig.id == 1).first()
+    if cfg is None:
+        cfg = BackupConfig(id=1)
+        db.add(cfg)
+        db.commit()
+        db.refresh(cfg)
+    return cfg
+
+
+@router.get("/backup/config", response_model=BackupConfigResponse)
+def get_backup_config(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Obtener la configuración actual del módulo de backup."""
+    return _get_or_create_backup_config(db)
+
+
+@router.put("/backup/config", response_model=BackupConfigResponse)
+def update_backup_config(
+    data: BackupConfigUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """
+    Actualizar configuración del backup.
+
+    Campos actualizables: is_enabled, cron_expression, drive_remote_name,
+    drive_folder_id, retention_days, backup_dir, lan_backup_enabled,
+    lan_server_ip, lan_server_user, lan_dest_folder, lan_ssh_key_path.
+    """
+    cfg = _get_or_create_backup_config(db)
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(cfg, field, value)
+    db.commit()
+    db.refresh(cfg)
+    logger.info(f"[BACKUP] Config actualizada por user_id={current_user.id}")
+    return cfg
+
+
+@router.get("/backup/runs", response_model=BackupRunListResponse)
+def list_backup_runs(
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Historial de ejecuciones de backup (más reciente primero)."""
+    from sqlalchemy import desc
+    runs = (
+        db.query(BackupRun)
+        .order_by(desc(BackupRun.started_at))
+        .limit(limit)
+        .all()
+    )
+    total = db.query(BackupRun).count()
+    return BackupRunListResponse(items=runs, total=total)
+
+
+@router.post("/backup/run-now", response_model=BackupRunResponse, status_code=status.HTTP_202_ACCEPTED)
+def trigger_backup_now(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """
+    Disparar un backup manual inmediato (asincrónico via Celery).
+
+    Retorna el BackupRun recién creado con status=pending.
+    Usar GET /backup/runs para seguir el estado.
+    """
+    from src.jobs.backup import run_scheduled_backup
+
+    # Crear registro previo para que la UI vea el estado inmediatamente
+    run = BackupRun(
+        started_at=datetime.utcnow(),
+        status=BackupStatus.PENDING,
+        triggered_by=BackupTrigger.MANUAL,
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    # Encolar la tarea
+    run_scheduled_backup.delay(triggered_by="manual")
+
+    logger.info(f"[BACKUP] Backup manual disparado por user_id={current_user.id}, run_id={run.id}")
+    return run

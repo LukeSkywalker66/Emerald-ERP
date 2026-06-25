@@ -300,3 +300,70 @@ class SyncExecutionHistoryResponse(BaseModel):
     """Respuesta con historial de ejecuciones."""
     items: List[SyncExecutionHistoryItem]
     total: int
+
+
+# ============================================
+# BACKUP SCHEMAS
+# ============================================
+
+from src.models.settings import BackupStatus, BackupTrigger  # noqa: E402
+
+
+class BackupConfigUpdate(BaseModel):
+    """Schema para actualizar la configuración de backup."""
+    is_enabled: Optional[bool] = None
+    cron_expression: Optional[str] = Field(
+        None, max_length=50,
+        description="Expresión cron (ej: '0 2 * * *' = 2:00 AM diario)"
+    )
+    drive_remote_name: Optional[str] = Field(None, max_length=100)
+    drive_folder_id: Optional[str] = Field(None, max_length=200)
+    retention_days: Optional[int] = Field(None, ge=1, le=365)
+    backup_dir: Optional[str] = Field(None, max_length=255)
+    lan_backup_enabled: Optional[bool] = None
+    lan_server_ip: Optional[str] = Field(None, max_length=45)
+    lan_server_user: Optional[str] = Field(None, max_length=100)
+    lan_dest_folder: Optional[str] = Field(None, max_length=255)
+    lan_ssh_key_path: Optional[str] = Field(None, max_length=255)
+
+
+class BackupConfigResponse(BaseModel):
+    """Schema de respuesta para la configuración de backup."""
+    id: int
+    is_enabled: bool
+    cron_expression: str
+    drive_remote_name: str
+    drive_folder_id: str
+    retention_days: int
+    backup_dir: str
+    lan_backup_enabled: bool
+    lan_server_ip: Optional[str] = None
+    lan_server_user: Optional[str] = None
+    lan_dest_folder: Optional[str] = None
+    lan_ssh_key_path: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BackupRunResponse(BaseModel):
+    """Schema de respuesta para una ejecución de backup."""
+    id: int
+    started_at: datetime
+    finished_at: Optional[datetime] = None
+    status: BackupStatus
+    filename: Optional[str] = None
+    size_bytes: Optional[int] = None
+    log_output: Optional[str] = None
+    error_message: Optional[str] = None
+    triggered_by: BackupTrigger
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BackupRunListResponse(BaseModel):
+    """Respuesta con historial de ejecuciones de backup."""
+    items: List[BackupRunResponse]
+    total: int

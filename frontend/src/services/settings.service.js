@@ -327,8 +327,29 @@ export const syncScheduledTasks = async () => {
   }
 };
 
+// ─── Backup ─────────────────────────────────────────────────────────────
+
+export const getBackupConfig = async () => {
+  const { data } = await api.get('/settings/backup/config');
+  return data;
+};
+
+export const updateBackupConfig = async (payload) => {
+  const { data } = await api.put('/settings/backup/config', payload);
+  return data;
+};
+
+export const listBackupRuns = async (limit = 20) => {
+  const { data } = await api.get('/settings/backup/runs', { params: { limit } });
+  return data;
+};
+
+export const triggerBackupNow = async () => {
+  const { data } = await api.post('/settings/backup/run-now');
+  return data;
+};
+
 export default {
-  getAllSettings,
   getSettingByKey,
   updateSetting,
   bulkUpdateSettings,
@@ -349,4 +370,8 @@ export default {
   triggerScheduledTask,
   getScheduledTaskLogs,
   syncScheduledTasks,
+  getBackupConfig,
+  updateBackupConfig,
+  listBackupRuns,
+  triggerBackupNow,
 };
