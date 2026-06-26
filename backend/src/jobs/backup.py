@@ -21,6 +21,7 @@ import logging
 import os
 import subprocess
 import shutil
+import tarfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -60,18 +61,23 @@ def _parse_db_url(database_url: str) -> dict:
     }
 
 
-def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger) -> BackupRun:
+def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger, run: Optional[BackupRun] = None) -> BackupRun:
     """
     Ejecuta el proceso completo de backup y retorna un BackupRun con el resultado.
     No hace commit — el caller es responsable.
     """
     now = datetime.now(timezone.utc)
     log_lines: list[str] = []
-    run = BackupRun(
-        started_at=now,
-        status=BackupStatus.RUNNING.value,
-        triggered_by=triggered_by.value,
-    )
+    if run is None:
+        run = BackupRun(
+            started_at=now,
+            status=BackupStatus.RUNNING.value,
+            triggered_by=triggered_by.value,
+        )
+    else:
+        # Reusar run pre-creado (manual) para evitar registros pendientes huérfanos
+        run.status = BackupStatus.RUNNING.value
+        run.triggered_by = triggered_by.value
 
     def log(msg: str) -> None:
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -87,16 +93,22 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger) -> BackupRun:
         db_params = _parse_db_url(database_url)
         app_env = os.environ.get("APP_ENV", "development")
 
-        # --- Preparar directorio y nombre de archivo ---
+        # --- Preparar directorio y nombres de archivo ---
         backup_dir = Path(cfg.backup_dir)
         backup_dir.mkdir(parents=True, exist_ok=True)
 
         timestamp = now.strftime("%Y-%m-%d_%H%M%S")
-        # Incluir sufijo de entorno para evitar conflictos entre dev/staging/prod
-        filename = f"emerald_prod_{app_env}_{timestamp}.dump"
-        local_path = backup_dir / filename
+        # Empaquetado único por ejecución para mantener consistencia en Drive/LAN
+        package_name = f"emerald_backup_{app_env}_{timestamp}.tar.gz"
+        package_path = backup_dir / package_name
+        work_dir = backup_dir / f"emerald_backup_work_{app_env}_{timestamp}"
+        dump_name = f"emerald_prod_{app_env}_{timestamp}.dump"
+        dump_path = work_dir / dump_name
+        minio_dir = work_dir / "minio"
+        manifest_path = work_dir / "manifest.txt"
+        work_dir.mkdir(parents=True, exist_ok=True)
 
-        log(f"🚀 Iniciando backup — destino: {local_path}")
+        log(f"🚀 Iniciando backup — paquete destino: {package_path}")
 
         # --- pg_dump via subprocess (postgresql-client en el contenedor) ---
         pg_env = {**os.environ, "PGPASSWORD": db_params["password"]}
@@ -107,7 +119,7 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger) -> BackupRun:
             "-U", db_params["user"],
             "-d", db_params["dbname"],
             "-F", "c",          # custom format (comprimido, restaurable con pg_restore)
-            "-f", str(local_path),
+            "-f", str(dump_path),
         ]
 
         result = subprocess.run(
@@ -121,27 +133,20 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger) -> BackupRun:
         if result.returncode != 0:
             raise RuntimeError(f"pg_dump falló (rc={result.returncode}): {result.stderr}")
 
-        if not local_path.exists() or local_path.stat().st_size == 0:
+        if not dump_path.exists() or dump_path.stat().st_size == 0:
             raise RuntimeError("El archivo dump está vacío o no se creó")
 
-        size_bytes = local_path.stat().st_size
-        log(f"✅ Dump creado: {filename} ({size_bytes / 1024:.1f} KB)")
-        run.filename = filename
-        run.size_bytes = size_bytes
+        dump_size = dump_path.stat().st_size
+        log(f"✅ Dump creado: {dump_name} ({dump_size / 1024:.1f} KB)")
 
         # --- FASE 2: MinIO backup (Adjuntos, capturas, reportes) ---
         if cfg.include_minio_backup:
-            minio_backup_path = backup_dir / f"emerald_minio_{timestamp}.tar.gz"
             log(f"📦 Incluyendo MinIO bucket '{cfg.minio_bucket}'...")
-
-            # Usar rclone para sincronizar el bucket MinIO
-            minio_temp_dir = backup_dir / f"minio_temp_{timestamp}"
-            minio_temp_dir.mkdir(parents=True, exist_ok=True)
 
             # Configurar rclone para acceder a MinIO localmente
             # Esperamos que exista un remoto 'minio' en rclone.conf
             rclone_copy = subprocess.run(
-                ["rclone", "sync", f"minio:/{cfg.minio_bucket}", str(minio_temp_dir)],
+                ["rclone", "sync", f"minio:/{cfg.minio_bucket}", str(minio_dir)],
                 capture_output=True,
                 text=True,
                 timeout=300,
@@ -150,36 +155,43 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger) -> BackupRun:
             if rclone_copy.returncode != 0:
                 log(f"⚠️  MinIO sync falló (no crítico): {rclone_copy.stderr}")
             else:
-                # Comprimir el directorio
-                tar_result = subprocess.run(
-                    ["tar", "-czf", str(minio_backup_path), "-C", str(backup_dir), f"minio_temp_{timestamp}"],
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
-                )
-
-                if tar_result.returncode == 0 and minio_backup_path.exists():
-                    minio_size = minio_backup_path.stat().st_size
-                    log(f"✅ MinIO respaldado: {minio_backup_path.name} ({minio_size / (1024*1024):.1f} MB)")
-                    # Aumentar size_bytes del run para reflejar el total
-                    run.size_bytes = (run.size_bytes or 0) + minio_size
-                else:
-                    log(f"⚠️  Compresión de MinIO falló: {tar_result.stderr}")
-
-                # Limpiar directorio temporal
-                shutil.rmtree(minio_temp_dir, ignore_errors=True)
+                log("✅ MinIO sincronizado al workspace de backup")
         else:
             log("📦 MinIO backup desactivado — omitiendo")
+
+        # --- Empaquetado final único (dump + minio opcional) ---
+        manifest_lines = [
+            f"created_at_utc={now.isoformat()}",
+            f"app_env={app_env}",
+            f"postgres_dump={dump_name}",
+            f"include_minio_backup={str(cfg.include_minio_backup).lower()}",
+            f"minio_bucket={cfg.minio_bucket}",
+        ]
+        manifest_path.write_text("\n".join(manifest_lines) + "\n", encoding="utf-8")
+
+        with tarfile.open(package_path, "w:gz") as tar:
+            tar.add(dump_path, arcname=dump_name)
+            if minio_dir.exists():
+                tar.add(minio_dir, arcname=f"minio_{cfg.minio_bucket}")
+            tar.add(manifest_path, arcname="manifest.txt")
+
+        if not package_path.exists() or package_path.stat().st_size == 0:
+            raise RuntimeError("No se pudo generar el paquete comprimido final")
+
+        package_size = package_path.stat().st_size
+        run.filename = package_name
+        run.size_bytes = package_size
+        log(f"📦 Paquete final creado: {package_name} ({package_size / (1024 * 1024):.2f} MB)")
+
+        # Limpiar workspace temporal
+        shutil.rmtree(work_dir, ignore_errors=True)
 
         # --- FASE 3: Subida a Google Drive via rclone ---
         drive_dest = f"{cfg.drive_remote_name}:{cfg.drive_folder_id}"
         log(f"☁️  Subiendo a Google Drive → {drive_dest}")
 
-        # Subir ambos archivos (dump + minio.tar.gz si existe)
-        files_to_upload = [str(local_path)]
-        minio_backup_path = backup_dir / f"emerald_minio_{timestamp}.tar.gz"
-        if minio_backup_path.exists():
-            files_to_upload.append(str(minio_backup_path))
+        # Subir solo el paquete final
+        files_to_upload = [str(package_path)]
 
         for file_path in files_to_upload:
             rclone_result = subprocess.run(
@@ -222,6 +234,15 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger) -> BackupRun:
         # --- FASE 5: Retención local ---
         retention = cfg.retention_days
         deleted_local = 0
+        for old_file in backup_dir.glob("emerald_backup_*.tar.gz"):
+            age_days = (now - datetime.fromtimestamp(
+                old_file.stat().st_mtime, tz=timezone.utc
+            )).days
+            if age_days > retention:
+                old_file.unlink()
+                deleted_local += 1
+
+        # Limpieza de formatos legacy previos al empaquetado único
         for old_file in backup_dir.glob("emerald_prod_*.dump"):
             age_days = (now - datetime.fromtimestamp(
                 old_file.stat().st_mtime, tz=timezone.utc
@@ -276,7 +297,7 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger) -> BackupRun:
 # ============================================================
 
 @celery_app.task(name="backup.run_scheduled", bind=True, max_retries=0)
-def run_scheduled_backup(self, triggered_by: str = "scheduled"):
+def run_scheduled_backup(self, triggered_by: str = "scheduled", run_id: Optional[int] = None):
     """
     Tarea Celery de backup de base de datos.
 
@@ -296,8 +317,12 @@ def run_scheduled_backup(self, triggered_by: str = "scheduled"):
             logger.info("[BACKUP] is_enabled=False — backup programado omitido")
             return {"status": "skipped", "reason": "disabled"}
 
-        run = _run_backup(cfg, trigger)
-        db.add(run)
+        if run_id is not None:
+            run = db.query(BackupRun).filter(BackupRun.id == run_id).first()
+
+        run = _run_backup(cfg, trigger, run=run)
+        if run.id is None:
+            db.add(run)
         db.commit()
         db.refresh(run)
 

@@ -739,8 +739,8 @@ def trigger_backup_now(
     db.commit()
     db.refresh(run)
 
-    # Encolar la tarea
-    run_scheduled_backup.delay(triggered_by="manual")
+    # Encolar la tarea asociada a este run para que transicione pending -> running/success|failed
+    run_scheduled_backup.delay(triggered_by="manual", run_id=run.id)
 
     logger.info(f"[BACKUP] Backup manual disparado por user_id={current_user.id}, run_id={run.id}")
     return run
