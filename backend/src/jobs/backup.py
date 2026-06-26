@@ -127,45 +127,97 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger) -> BackupRun:
         run.filename = filename
         run.size_bytes = size_bytes
 
-        # --- Subida a Google Drive via rclone ---
+        # --- FASE 2: MinIO backup (Adjuntos, capturas, reportes) ---
+        if cfg.include_minio_backup:
+            minio_backup_path = backup_dir / f"emerald_minio_{timestamp}.tar.gz"
+            log(f"📦 Incluyendo MinIO bucket '{cfg.minio_bucket}'...")
+
+            # Usar rclone para sincronizar el bucket MinIO
+            minio_temp_dir = backup_dir / f"minio_temp_{timestamp}"
+            minio_temp_dir.mkdir(parents=True, exist_ok=True)
+
+            # Configurar rclone para acceder a MinIO localmente
+            # Esperamos que exista un remoto 'minio' en rclone.conf
+            rclone_copy = subprocess.run(
+                ["rclone", "sync", f"minio:/{cfg.minio_bucket}", str(minio_temp_dir)],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+
+            if rclone_copy.returncode != 0:
+                log(f"⚠️  MinIO sync falló (no crítico): {rclone_copy.stderr}")
+            else:
+                # Comprimir el directorio
+                tar_result = subprocess.run(
+                    ["tar", "-czf", str(minio_backup_path), "-C", str(backup_dir), f"minio_temp_{timestamp}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+
+                if tar_result.returncode == 0 and minio_backup_path.exists():
+                    minio_size = minio_backup_path.stat().st_size
+                    log(f"✅ MinIO respaldado: {minio_backup_path.name} ({minio_size / (1024*1024):.1f} MB)")
+                    # Aumentar size_bytes del run para reflejar el total
+                    run.size_bytes = (run.size_bytes or 0) + minio_size
+                else:
+                    log(f"⚠️  Compresión de MinIO falló: {tar_result.stderr}")
+
+                # Limpiar directorio temporal
+                shutil.rmtree(minio_temp_dir, ignore_errors=True)
+        else:
+            log("📦 MinIO backup desactivado — omitiendo")
+
+        # --- FASE 3: Subida a Google Drive via rclone ---
         drive_dest = f"{cfg.drive_remote_name}:{cfg.drive_folder_id}"
         log(f"☁️  Subiendo a Google Drive → {drive_dest}")
 
-        rclone_result = subprocess.run(
-            ["rclone", "copy", str(local_path), drive_dest],
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        if rclone_result.returncode != 0:
-            log(f"❌ rclone falló: {rclone_result.stderr}")
-            raise RuntimeError(f"Subida a Drive falló: {rclone_result.stderr}")
-        log("🎉 Subida a Drive completada")
+        # Subir ambos archivos (dump + minio.tar.gz si existe)
+        files_to_upload = [str(local_path)]
+        minio_backup_path = backup_dir / f"emerald_minio_{timestamp}.tar.gz"
+        if minio_backup_path.exists():
+            files_to_upload.append(str(minio_backup_path))
 
-        # --- Réplica LAN (opcional) ---
-        if cfg.lan_backup_enabled and cfg.lan_server_ip and cfg.lan_server_user and cfg.lan_dest_folder:
-            log(f"🖧  Replicando a LAN {cfg.lan_server_ip}...")
-            scp_result = subprocess.run(
-                [
-                    "scp",
-                    "-i", cfg.lan_ssh_key_path or "/root/.ssh/id_ed25519",
-                    "-o", "StrictHostKeyChecking=no",
-                    "-o", "ConnectTimeout=10",
-                    str(local_path),
-                    f"{cfg.lan_server_user}@{cfg.lan_server_ip}:{cfg.lan_dest_folder}",
-                ],
+        for file_path in files_to_upload:
+            rclone_result = subprocess.run(
+                ["rclone", "copy", file_path, drive_dest],
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=300,
             )
-            if scp_result.returncode != 0:
-                log(f"⚠️  SCP a LAN falló (no crítico): {scp_result.stderr}")
-            else:
-                log("💾 Copia LAN completada")
+            if rclone_result.returncode != 0:
+                log(f"❌ rclone falló para {Path(file_path).name}: {rclone_result.stderr}")
+                raise RuntimeError(f"Subida a Drive falló: {rclone_result.stderr}")
+
+        log(f"🎉 Subida a Drive completada ({len(files_to_upload)} archivo/s)")
+
+        # --- FASE 4: Réplica LAN (opcional) ---
+        if cfg.lan_backup_enabled and cfg.lan_server_ip and cfg.lan_server_user and cfg.lan_dest_folder:
+            log(f"🖧  Replicando a LAN {cfg.lan_server_ip}...")
+
+            for file_path in files_to_upload:
+                scp_result = subprocess.run(
+                    [
+                        "scp",
+                        "-i", cfg.lan_ssh_key_path or "/root/.ssh/id_ed25519",
+                        "-o", "StrictHostKeyChecking=no",
+                        "-o", "ConnectTimeout=10",
+                        file_path,
+                        f"{cfg.lan_server_user}@{cfg.lan_server_ip}:{cfg.lan_dest_folder}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if scp_result.returncode != 0:
+                    log(f"⚠️  SCP a LAN falló (no crítico) para {Path(file_path).name}: {scp_result.stderr}")
+                else:
+                    log(f"💾 {Path(file_path).name} replicado a LAN")
         else:
             log("🖧  Réplica LAN desactivada — omitiendo")
 
-        # --- Retención local ---
+        # --- FASE 5: Retención local ---
         retention = cfg.retention_days
         deleted_local = 0
         for old_file in backup_dir.glob("emerald_prod_*.dump"):
@@ -175,9 +227,18 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger) -> BackupRun:
             if age_days > retention:
                 old_file.unlink()
                 deleted_local += 1
-        log(f"🧹 Retención local: {deleted_local} archivos eliminados (>{retention} días)")
 
-        # --- Retención en Drive ---
+        for old_file in backup_dir.glob("emerald_minio_*.tar.gz"):
+            age_days = (now - datetime.fromtimestamp(
+                old_file.stat().st_mtime, tz=timezone.utc
+            )).days
+            if age_days > retention:
+                old_file.unlink()
+                deleted_local += 1
+
+        log(f"🧹 Retención local: {deleted_local} archivo/s eliminados (>{retention} días)")
+
+        # --- FASE 6: Retención en Drive ---
         rclone_delete = subprocess.run(
             [
                 "rclone", "delete", drive_dest,
@@ -193,7 +254,7 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger) -> BackupRun:
             log("🧹 Retención en Drive aplicada")
 
         run.status = BackupStatus.SUCCESS
-        log("🏁 Backup finalizado con éxito")
+        log("🏁 Backup completo finalizado con éxito")
 
     except Exception as exc:
         run.status = BackupStatus.FAILED

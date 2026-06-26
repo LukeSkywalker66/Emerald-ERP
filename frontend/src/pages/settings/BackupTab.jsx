@@ -80,6 +80,8 @@ export default function BackupTab() {
     lan_server_user: '',
     lan_dest_folder: '',
     lan_ssh_key_path: '/root/.ssh/id_ed25519',
+    include_minio_backup: true,
+    minio_bucket: 'emerald-attachments',
   });
 
   const fetchConfig = useCallback(async () => {
@@ -99,6 +101,8 @@ export default function BackupTab() {
         lan_server_user: data.lan_server_user || '',
         lan_dest_folder: data.lan_dest_folder || '',
         lan_ssh_key_path: data.lan_ssh_key_path || '/root/.ssh/id_ed25519',
+        include_minio_backup: data.include_minio_backup !== undefined ? data.include_minio_backup : true,
+        minio_bucket: data.minio_bucket || 'emerald-attachments',
       });
     } catch {
       setErrorMsg('Error al cargar la configuración de backup');
@@ -137,6 +141,7 @@ export default function BackupTab() {
         lan_server_user: form.lan_server_user || null,
         lan_dest_folder: form.lan_dest_folder || null,
         lan_ssh_key_path: form.lan_ssh_key_path || null,
+        minio_bucket: form.minio_bucket || 'emerald-attachments',
       };
       const updated = await updateBackupConfig(payload);
       setConfig(updated);
@@ -350,6 +355,39 @@ export default function BackupTab() {
             <div>
               <label className="block text-zinc-300 text-xs font-medium mb-1">Ruta clave SSH</label>
               <Input value={form.lan_ssh_key_path} onChange={e => setForm(f => ({ ...f, lan_ssh_key_path: e.target.value }))} placeholder="/root/.ssh/id_ed25519" className="font-mono text-xs" />
+            </div>
+          </div>
+        )}
+
+        <hr className="border-zinc-800" />
+
+        {/* MinIO Backup */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-zinc-200 text-sm font-medium flex items-center gap-2">
+              📦
+              Respaldo de MinIO (Adjuntos)
+            </p>
+            <p className="text-zinc-500 text-xs mt-0.5">
+              Incluir bucket MinIO (fotos, capturas, reportes) en el backup comprimido.
+            </p>
+          </div>
+          <button
+            onClick={() => setForm(f => ({ ...f, include_minio_backup: !f.include_minio_backup }))}
+            className="text-zinc-400 hover:text-emerald-400 transition-colors"
+          >
+            {form.include_minio_backup
+              ? <ToggleRight size={32} className="text-emerald-400" />
+              : <ToggleLeft size={32} />}
+          </button>
+        </div>
+
+        {form.include_minio_backup && (
+          <div className="pl-4 border-l-2 border-zinc-700">
+            <div>
+              <label className="block text-zinc-300 text-xs font-medium mb-1">Bucket MinIO</label>
+              <Input value={form.minio_bucket} onChange={e => setForm(f => ({ ...f, minio_bucket: e.target.value }))} placeholder="emerald-attachments" className="font-mono text-xs" />
+              <p className="text-zinc-500 text-xs mt-0.5">Nombre del bucket a respaldar desde MinIO.</p>
             </div>
           </div>
         )}

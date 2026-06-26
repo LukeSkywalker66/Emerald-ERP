@@ -325,6 +325,8 @@ class BackupConfigUpdate(BaseModel):
     lan_server_user: Optional[str] = Field(None, max_length=100)
     lan_dest_folder: Optional[str] = Field(None, max_length=255)
     lan_ssh_key_path: Optional[str] = Field(None, max_length=255)
+    include_minio_backup: Optional[bool] = None
+    minio_bucket: Optional[str] = Field(None, max_length=100)
 
 
 class BackupConfigResponse(BaseModel):
@@ -341,6 +343,8 @@ class BackupConfigResponse(BaseModel):
     lan_server_user: Optional[str] = None
     lan_dest_folder: Optional[str] = None
     lan_ssh_key_path: Optional[str] = None
+    include_minio_backup: bool
+    minio_bucket: str
     created_at: datetime
     updated_at: datetime
 

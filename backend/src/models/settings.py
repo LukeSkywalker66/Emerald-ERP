@@ -399,9 +399,17 @@ class BackupConfig(Base, TimestampMixin):
         String(255), nullable=True, default="/root/.ssh/id_ed25519",
         comment="Ruta a la clave SSH para el servidor LAN"
     )
+    include_minio_backup: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True,
+        comment="Incluir bucket MinIO en el respaldo (adjuntos, capturas, reportes)"
+    )
+    minio_bucket: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="emerald-attachments",
+        comment="Nombre del bucket MinIO a respaldar"
+    )
 
     def __repr__(self) -> str:
-        return f"<BackupConfig(enabled={self.is_enabled}, cron='{self.cron_expression}')>"
+        return f"<BackupConfig(enabled={self.is_enabled}, minio={self.include_minio_backup}, cron='{self.cron_expression}')>"
 
 
 # ============================================
