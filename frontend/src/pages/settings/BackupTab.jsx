@@ -38,6 +38,49 @@ function formatDate(iso) {
   });
 }
 
+const CLOUD_PRESETS = {
+  gdrive: {
+    label: 'Google Drive',
+    remote: 'gdrive',
+    folderExample: 'Emerald_ERP_BackUps',
+    helper: 'Usa el remoto rclone gdrive. Ideal para operación estándar de Emerald.',
+  },
+  dropbox: {
+    label: 'Dropbox',
+    remote: 'dropbox',
+    folderExample: 'Apps/EmeraldERP/Backups',
+    helper: 'Usa el remoto rclone dropbox. Requiere autenticación previa en rclone.conf.',
+  },
+  s3: {
+    label: 'S3 / Compatible',
+    remote: 's3',
+    folderExample: 'emerald/backups',
+    helper: 'Compatible con AWS S3 y proveedores S3-compatible (Wasabi, Cloudflare R2, etc.).',
+  },
+  minio_s3: {
+    label: 'Cloud Propio (MinIO/S3)',
+    remote: 'cloud',
+    folderExample: 'emerald/backups',
+    helper: 'Para cloud propio con endpoint S3-compatible usando un remoto rclone dedicado.',
+  },
+  custom: {
+    label: 'Custom',
+    remote: '',
+    folderExample: 'ruta/personalizada/backups',
+    helper: 'Modo libre: elegí cualquier remoto rclone y ruta de destino.',
+  },
+};
+
+function detectCloudProvider(remoteName) {
+  const value = (remoteName || '').toLowerCase();
+  if (!value) return 'custom';
+  if (value === 'gdrive' || value.includes('drive')) return 'gdrive';
+  if (value === 'dropbox' || value.includes('dropbox')) return 'dropbox';
+  if (value === 's3' || value.includes('aws') || value.includes('r2') || value.includes('wasabi')) return 's3';
+  if (value.includes('minio') || value === 'cloud') return 'minio_s3';
+  return 'custom';
+}
+
 function StatusBadge({ status }) {
   const map = {
     success:  { color: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/30', label: 'Exitoso',   icon: <CheckCircle2 size={12} /> },
@@ -67,6 +110,7 @@ export default function BackupTab() {
   const [errorMsg, setErrorMsg] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
   const [expandedRun, setExpandedRun] = useState(null);
+  const [cloudProvider, setCloudProvider] = useState('gdrive');
 
   // Form state sincronizado con config
   const [form, setForm] = useState({
@@ -109,6 +153,7 @@ export default function BackupTab() {
         minio_remote_name: data.minio_remote_name || 'minio',
         rclone_config_path: data.rclone_config_path || '/root/.config/rclone/rclone.conf',
       });
+      setCloudProvider(detectCloudProvider(data.drive_remote_name));
     } catch {
       setErrorMsg('Error al cargar la configuración de backup');
     } finally {
@@ -173,6 +218,18 @@ export default function BackupTab() {
     } finally {
       setTriggering(false);
     }
+  };
+
+  const handleCloudProviderChange = (providerKey) => {
+    setCloudProvider(providerKey);
+    const preset = CLOUD_PRESETS[providerKey] || CLOUD_PRESETS.custom;
+
+    // No destructivo: sólo autocompleta remoto cuando aplica preset conocido.
+    setForm((prev) => ({
+      ...prev,
+      drive_remote_name: providerKey === 'custom' ? prev.drive_remote_name : preset.remote,
+      drive_folder_id: prev.drive_folder_id || preset.folderExample,
+    }));
   };
 
   if (loadingConfig) {
@@ -270,7 +327,32 @@ export default function BackupTab() {
           </p>
         </div>
 
-        {/* Destino principal (Drive) */}
+        {/* Destino principal (Cloud) */}
+        <div>
+          <label className="block text-zinc-300 text-sm font-medium mb-2">
+            Plataforma de destino cloud
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(CLOUD_PRESETS).map(([key, preset]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => handleCloudProviderChange(key)}
+                className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
+                  cloudProvider === key
+                    ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300'
+                    : 'border-zinc-700 bg-zinc-900/50 text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-zinc-500 text-xs mt-2">
+            {CLOUD_PRESETS[cloudProvider]?.helper}
+          </p>
+        </div>
+
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-zinc-300 text-sm font-medium mb-1 flex items-center gap-2">
@@ -285,12 +367,12 @@ export default function BackupTab() {
           </div>
           <div>
             <label className="block text-zinc-300 text-sm font-medium mb-1">
-              Carpeta destino en Drive
+              Ruta/carpeta destino cloud
             </label>
             <Input
               value={form.drive_folder_id}
               onChange={e => setForm(f => ({ ...f, drive_folder_id: e.target.value }))}
-              placeholder="Emerald_ERP_BackUps"
+              placeholder={CLOUD_PRESETS[cloudProvider]?.folderExample || 'Emerald_ERP_BackUps'}
             />
           </div>
         </div>
