@@ -436,7 +436,7 @@ class BackupRun(Base, TimestampMixin):
         comment="Timestamp de finalización"
     )
     status: Mapped[BackupStatus] = mapped_column(
-        Enum(BackupStatus, native_enum=False), nullable=False, default=BackupStatus.PENDING,
+        String(20), nullable=False, default=BackupStatus.PENDING.value,
         index=True,
         comment="Estado: pending/running/success/failed"
     )
@@ -457,7 +457,7 @@ class BackupRun(Base, TimestampMixin):
         comment="Mensaje de error si el backup falló"
     )
     triggered_by: Mapped[BackupTrigger] = mapped_column(
-        Enum(BackupTrigger, native_enum=False), nullable=False, default=BackupTrigger.SCHEDULED,
+        String(20), nullable=False, default=BackupTrigger.SCHEDULED.value,
         comment="Origen: scheduled (cron) o manual (UI)"
     )
 
