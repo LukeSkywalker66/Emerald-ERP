@@ -56,6 +56,7 @@ function StatusBadge({ status }) {
 // ─── Component ──────────────────────────────────────────────────────────
 
 export default function BackupTab() {
+  const appEnv = import.meta.env.VITE_APP_ENV || 'development';
   const [config, setConfig] = useState(null);
   const [runs, setRuns] = useState([]);
   const [totalRuns, setTotalRuns] = useState(0);
@@ -313,7 +314,7 @@ export default function BackupTab() {
               className="font-mono text-sm"
             />
             <p className="text-zinc-500 text-xs mt-1">
-              Ruta en el contenedor. Mapea a <code className="text-zinc-400">/opt/emerald-{ENV}/data/backups</code> en el host. Cada entorno tiene su propio directorio.
+              Ruta en el contenedor. Mapea a <code className="text-zinc-400">/opt/emerald-{appEnv}/data/backups</code> en el host. Cada entorno tiene su propio directorio.
             </p>
           </div>
         </div>
