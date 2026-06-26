@@ -732,8 +732,8 @@ def trigger_backup_now(
     # Crear registro previo para que la UI vea el estado inmediatamente
     run = BackupRun(
         started_at=datetime.utcnow(),
-        status=BackupStatus.PENDING,
-        triggered_by=BackupTrigger.MANUAL,
+        status=BackupStatus.PENDING.value,
+        triggered_by=BackupTrigger.MANUAL.value,
     )
     db.add(run)
     db.commit()

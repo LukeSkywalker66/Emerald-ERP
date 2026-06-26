@@ -69,8 +69,8 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger) -> BackupRun:
     log_lines: list[str] = []
     run = BackupRun(
         started_at=now,
-        status=BackupStatus.RUNNING,
-        triggered_by=triggered_by,
+        status=BackupStatus.RUNNING.value,
+        triggered_by=triggered_by.value,
     )
 
     def log(msg: str) -> None:
@@ -255,11 +255,11 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger) -> BackupRun:
         else:
             log("🧹 Retención en Drive aplicada")
 
-        run.status = BackupStatus.SUCCESS
+        run.status = BackupStatus.SUCCESS.value
         log("🏁 Backup completo finalizado con éxito")
 
     except Exception as exc:
-        run.status = BackupStatus.FAILED
+        run.status = BackupStatus.FAILED.value
         run.error_message = str(exc)
         log(f"💥 ERROR: {exc}")
         logger.exception("[BACKUP] Error durante el backup")
@@ -317,11 +317,13 @@ def run_scheduled_backup(self, triggered_by: str = "scheduled"):
         if run is None:
             # Registrar el fallo aunque no hayamos podido crear el run
             try:
+                # Asegurar que triggered_by sea un string con el valor correcto
+                trigger_value = triggered_by if isinstance(triggered_by, str) else triggered_by.value if hasattr(triggered_by, 'value') else BackupTrigger.SCHEDULED.value
                 run = BackupRun(
                     started_at=datetime.now(timezone.utc),
                     finished_at=datetime.now(timezone.utc),
-                    status=BackupStatus.FAILED,
-                    triggered_by=BackupTrigger(triggered_by) if triggered_by in BackupTrigger._value2member_map_ else BackupTrigger.SCHEDULED,
+                    status=BackupStatus.FAILED.value,
+                    triggered_by=trigger_value,
                     error_message=str(exc),
                 )
                 db.add(run)
