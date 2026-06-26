@@ -25,7 +25,7 @@ def upgrade() -> None:
         sa.Column("drive_remote_name", sa.String(100), nullable=False, server_default="gdrive"),
         sa.Column("drive_folder_id", sa.String(200), nullable=False, server_default="Emerald_ERP_BackUps"),
         sa.Column("retention_days", sa.Integer(), nullable=False, server_default="7"),
-        sa.Column("backup_dir", sa.String(255), nullable=False, server_default="/tmp/emerald_backups"),
+        sa.Column("backup_dir", sa.String(255), nullable=False, server_default="/app/data/backups"),
         sa.Column("lan_backup_enabled", sa.Boolean(), nullable=False, server_default="false"),
         sa.Column("lan_server_ip", sa.String(45), nullable=True),
         sa.Column("lan_server_user", sa.String(100), nullable=True),
@@ -40,7 +40,7 @@ def upgrade() -> None:
         "INSERT INTO backup_config (id, is_enabled, cron_expression, "
         "drive_remote_name, drive_folder_id, retention_days, backup_dir, "
         "lan_backup_enabled) VALUES (1, false, '0 2 * * *', 'gdrive', "
-        "'Emerald_ERP_BackUps', 7, '/tmp/emerald_backups', false) "
+        "'Emerald_ERP_BackUps', 7, '/app/data/backups', false) "
         "ON CONFLICT (id) DO NOTHING"
     )
 

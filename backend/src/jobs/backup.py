@@ -85,13 +85,15 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger) -> BackupRun:
             raise RuntimeError("DATABASE_URL no definida en el entorno")
 
         db_params = _parse_db_url(database_url)
+        app_env = os.environ.get("APP_ENV", "development")
 
         # --- Preparar directorio y nombre de archivo ---
         backup_dir = Path(cfg.backup_dir)
         backup_dir.mkdir(parents=True, exist_ok=True)
 
         timestamp = now.strftime("%Y-%m-%d_%H%M%S")
-        filename = f"emerald_prod_{timestamp}.dump"
+        # Incluir sufijo de entorno para evitar conflictos entre dev/staging/prod
+        filename = f"emerald_prod_{app_env}_{timestamp}.dump"
         local_path = backup_dir / filename
 
         log(f"🚀 Iniciando backup — destino: {local_path}")

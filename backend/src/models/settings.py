@@ -376,8 +376,8 @@ class BackupConfig(Base, TimestampMixin):
         comment="Días de retención local y en nube"
     )
     backup_dir: Mapped[str] = mapped_column(
-        String(255), nullable=False, default="/tmp/emerald_backups",
-        comment="Directorio temporal en el contenedor para el dump"
+        String(255), nullable=False, default="/app/data/backups",
+        comment="Directorio en el contenedor para el dump (mapea a /opt/emerald-{ENV}/data/backups en host)"
     )
     lan_backup_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False,
@@ -436,7 +436,7 @@ class BackupRun(Base, TimestampMixin):
         comment="Timestamp de finalización"
     )
     status: Mapped[BackupStatus] = mapped_column(
-        Enum(BackupStatus), nullable=False, default=BackupStatus.PENDING,
+        Enum(BackupStatus, native_enum=False), nullable=False, default=BackupStatus.PENDING,
         index=True,
         comment="Estado: pending/running/success/failed"
     )
@@ -457,7 +457,7 @@ class BackupRun(Base, TimestampMixin):
         comment="Mensaje de error si el backup falló"
     )
     triggered_by: Mapped[BackupTrigger] = mapped_column(
-        Enum(BackupTrigger), nullable=False, default=BackupTrigger.SCHEDULED,
+        Enum(BackupTrigger, native_enum=False), nullable=False, default=BackupTrigger.SCHEDULED,
         comment="Origen: scheduled (cron) o manual (UI)"
     )
 

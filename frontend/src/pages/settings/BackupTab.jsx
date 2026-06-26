@@ -74,7 +74,7 @@ export default function BackupTab() {
     drive_remote_name: 'gdrive',
     drive_folder_id: 'Emerald_ERP_BackUps',
     retention_days: 7,
-    backup_dir: '/tmp/emerald_backups',
+    backup_dir: '/app/data/backups',
     lan_backup_enabled: false,
     lan_server_ip: '',
     lan_server_user: '',
@@ -309,9 +309,12 @@ export default function BackupTab() {
             <Input
               value={form.backup_dir}
               onChange={e => setForm(f => ({ ...f, backup_dir: e.target.value }))}
-              placeholder="/tmp/emerald_backups"
+              placeholder="/app/data/backups"
               className="font-mono text-sm"
             />
+            <p className="text-zinc-500 text-xs mt-1">
+              Ruta en el contenedor. Mapea a <code className="text-zinc-400">/opt/emerald-{ENV}/data/backups</code> en el host. Cada entorno tiene su propio directorio.
+            </p>
           </div>
         </div>
 
