@@ -118,6 +118,7 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger, run: Optional[Ba
         dump_path = work_dir / dump_name
         minio_dir = work_dir / "minio"
         manifest_path = work_dir / "manifest.txt"
+        minio_report_path = work_dir / "minio_sync_report.txt"
         work_dir.mkdir(parents=True, exist_ok=True)
 
         log(f"🚀 Iniciando backup — paquete destino: {package_path}")
@@ -154,20 +155,57 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger, run: Optional[Ba
         # --- FASE 2: MinIO backup (Adjuntos, capturas, reportes) ---
         if cfg.include_minio_backup:
             log(f"📦 Incluyendo MinIO bucket '{cfg.minio_bucket}'...")
+            minio_dir.mkdir(parents=True, exist_ok=True)
 
-            # Configurar rclone para acceder a MinIO localmente
-            # Esperamos que exista un remoto 'minio' en rclone.conf
-            rclone_copy = subprocess.run(
-                [*rclone_base_cmd, "sync", f"{cfg.minio_remote_name}:/{cfg.minio_bucket}", str(minio_dir)],
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
+            bucket_name = (cfg.minio_bucket or "").strip().lstrip("/")
+            source_candidates = [
+                f"{cfg.minio_remote_name}:{bucket_name}",
+                f"{cfg.minio_remote_name}:/{bucket_name}",
+            ]
+            sync_errors: list[str] = []
+            minio_source_used = ""
+            sync_ok = False
 
-            if rclone_copy.returncode != 0:
-                log(f"⚠️  MinIO sync falló (no crítico): {rclone_copy.stderr}")
+            # Intentar ambas variantes de source para compatibilidad entre remotos rclone.
+            for source in source_candidates:
+                rclone_copy = subprocess.run(
+                    [*rclone_base_cmd, "sync", source, str(minio_dir)],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+                if rclone_copy.returncode == 0:
+                    sync_ok = True
+                    minio_source_used = source
+                    break
+                sync_errors.append(f"source={source} rc={rclone_copy.returncode} err={rclone_copy.stderr}")
+
+            if not sync_ok:
+                # Si MinIO está habilitado, su falla debe marcar fallo del backup (consistencia fuerte).
+                joined_errors = "\n".join(sync_errors)
+                raise RuntimeError(
+                    "MinIO backup está habilitado pero la sincronización falló. "
+                    f"remote={cfg.minio_remote_name} bucket={bucket_name}. Detalle:\n{joined_errors}"
+                )
+
+            minio_files = [p for p in minio_dir.rglob("*") if p.is_file()]
+            minio_report_lines = [
+                f"minio_remote={cfg.minio_remote_name}",
+                f"minio_bucket={bucket_name}",
+                f"source_used={minio_source_used}",
+                f"files_synced={len(minio_files)}",
+            ]
+            minio_report_path.write_text("\n".join(minio_report_lines) + "\n", encoding="utf-8")
+
+            if len(minio_files) == 0:
+                # El bucket puede estar vacío; dejamos traza explícita dentro del tar.
+                (minio_dir / "_EMPTY_BUCKET.txt").write_text(
+                    "MinIO bucket sincronizado sin objetos al momento del backup.\n",
+                    encoding="utf-8",
+                )
+                log("⚠️  MinIO sincronizado pero el bucket no contiene objetos")
             else:
-                log("✅ MinIO sincronizado al workspace de backup")
+                log(f"✅ MinIO sincronizado al workspace de backup ({len(minio_files)} archivo/s)")
         else:
             log("📦 MinIO backup desactivado — omitiendo")
 
@@ -177,6 +215,7 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger, run: Optional[Ba
             f"app_env={app_env}",
             f"postgres_dump={dump_name}",
             f"include_minio_backup={str(cfg.include_minio_backup).lower()}",
+            f"minio_remote_name={cfg.minio_remote_name}",
             f"minio_bucket={cfg.minio_bucket}",
         ]
         manifest_path.write_text("\n".join(manifest_lines) + "\n", encoding="utf-8")
@@ -185,6 +224,8 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger, run: Optional[Ba
             tar.add(dump_path, arcname=dump_name)
             if minio_dir.exists():
                 tar.add(minio_dir, arcname=f"minio_{cfg.minio_bucket}")
+            if minio_report_path.exists():
+                tar.add(minio_report_path, arcname="minio_sync_report.txt")
             tar.add(manifest_path, arcname="manifest.txt")
 
         if not package_path.exists() or package_path.stat().st_size == 0:
