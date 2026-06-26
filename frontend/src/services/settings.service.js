@@ -330,22 +330,22 @@ export const syncScheduledTasks = async () => {
 // ─── Backup ─────────────────────────────────────────────────────────────
 
 export const getBackupConfig = async () => {
-  const { data } = await api.get('/settings/backup/config');
+  const { data } = await api.get('/v2/settings/backup/config');
   return data;
 };
 
 export const updateBackupConfig = async (payload) => {
-  const { data } = await api.put('/settings/backup/config', payload);
+  const { data } = await api.put('/v2/settings/backup/config', payload);
   return data;
 };
 
 export const listBackupRuns = async (limit = 20) => {
-  const { data } = await api.get('/settings/backup/runs', { params: { limit } });
+  const { data } = await api.get('/v2/settings/backup/runs', { params: { limit } });
   return data;
 };
 
 export const triggerBackupNow = async () => {
-  const { data } = await api.post('/settings/backup/run-now');
+  const { data } = await api.post('/v2/settings/backup/run-now');
   return data;
 };
 
