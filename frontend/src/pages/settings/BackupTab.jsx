@@ -351,15 +351,15 @@ export default function BackupTab() {
               className="font-mono text-sm"
             />
             <p className="text-zinc-500 text-xs mt-1">
-              Ruta en el contenedor donde se arma el paquete antes de subirlo. Mapea a <code className="text-zinc-400">/opt/emerald-{appEnv}/data/backups</code> en host.
+              Ruta raíz en el contenedor. El sistema crea automáticamente el subdirectorio por entorno: <code className="text-zinc-400">{form.backup_dir}/{appEnv}</code>.
             </p>
           </div>
         </div>
 
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-xs text-zinc-400 leading-relaxed">
           <p className="text-zinc-300 font-medium mb-1">Resumen de flujo de destino</p>
-          <p>1) Se genera paquete local en <span className="font-mono text-zinc-300">{form.backup_dir}</span>.</p>
-          <p>2) Se sube a <span className="font-mono text-zinc-300">{form.drive_remote_name}:{form.drive_folder_id}</span>.</p>
+          <p>1) Se genera paquete local en <span className="font-mono text-zinc-300">{form.backup_dir}/{appEnv}</span>.</p>
+          <p>2) Se sube a <span className="font-mono text-zinc-300">{form.drive_remote_name}:{form.drive_folder_id}/{appEnv}</span>.</p>
           <p>3) Opcional: réplica LAN a <span className="font-mono text-zinc-300">{form.lan_dest_folder || '—'}</span>.</p>
         </div>
 

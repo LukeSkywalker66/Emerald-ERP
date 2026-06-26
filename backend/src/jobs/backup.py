@@ -104,7 +104,9 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger, run: Optional[Ba
         app_env = os.environ.get("APP_ENV", "development")
 
         # --- Preparar directorio y nombres de archivo ---
-        backup_dir = Path(cfg.backup_dir)
+        # Aislamiento fuerte por entorno: cada APP_ENV usa su propio subdirectorio.
+        backup_root_dir = Path(cfg.backup_dir)
+        backup_dir = backup_root_dir / app_env
         backup_dir.mkdir(parents=True, exist_ok=True)
 
         timestamp = now.strftime("%Y-%m-%d_%H%M%S")
@@ -197,7 +199,8 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger, run: Optional[Ba
         shutil.rmtree(work_dir, ignore_errors=True)
 
         # --- FASE 3: Subida a Google Drive via rclone ---
-        drive_dest = f"{cfg.drive_remote_name}:{cfg.drive_folder_id}"
+        # Aislamiento fuerte por entorno también en cloud remoto.
+        drive_dest = f"{cfg.drive_remote_name}:{cfg.drive_folder_id.rstrip('/')}/{app_env}"
         log(f"☁️  Subiendo a Google Drive → {drive_dest}")
 
         # Subir solo el paquete final
