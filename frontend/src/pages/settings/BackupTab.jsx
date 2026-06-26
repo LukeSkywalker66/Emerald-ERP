@@ -83,6 +83,8 @@ export default function BackupTab() {
     lan_ssh_key_path: '/root/.ssh/id_ed25519',
     include_minio_backup: true,
     minio_bucket: 'emerald-attachments',
+    minio_remote_name: 'minio',
+    rclone_config_path: '/root/.config/rclone/rclone.conf',
   });
 
   const fetchConfig = useCallback(async () => {
@@ -104,6 +106,8 @@ export default function BackupTab() {
         lan_ssh_key_path: data.lan_ssh_key_path || '/root/.ssh/id_ed25519',
         include_minio_backup: data.include_minio_backup !== undefined ? data.include_minio_backup : true,
         minio_bucket: data.minio_bucket || 'emerald-attachments',
+        minio_remote_name: data.minio_remote_name || 'minio',
+        rclone_config_path: data.rclone_config_path || '/root/.config/rclone/rclone.conf',
       });
     } catch {
       setErrorMsg('Error al cargar la configuración de backup');
@@ -143,6 +147,8 @@ export default function BackupTab() {
         lan_dest_folder: form.lan_dest_folder || null,
         lan_ssh_key_path: form.lan_ssh_key_path || null,
         minio_bucket: form.minio_bucket || 'emerald-attachments',
+        minio_remote_name: form.minio_remote_name || 'minio',
+        rclone_config_path: form.rclone_config_path || '/root/.config/rclone/rclone.conf',
       };
       const updated = await updateBackupConfig(payload);
       setConfig(updated);
@@ -187,7 +193,7 @@ export default function BackupTab() {
             Backup Automático de Base de Datos
           </h2>
           <p className="text-zinc-400 text-sm mt-1">
-            Genera dumps de la BD de producción y los sube a Google Drive vía rclone.
+            Genera un paquete comprimido por ejecución (Postgres + MinIO opcional) y lo replica a los destinos configurados.
           </p>
         </div>
         <div className="flex gap-2">
@@ -264,12 +270,12 @@ export default function BackupTab() {
           </p>
         </div>
 
-        {/* Drive */}
+        {/* Destino principal (Drive) */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-zinc-300 text-sm font-medium mb-1 flex items-center gap-2">
               <CloudUpload size={14} className="text-zinc-500" />
-              Remoto rclone
+              Remoto rclone (destino nube)
             </label>
             <Input
               value={form.drive_remote_name}
@@ -279,13 +285,44 @@ export default function BackupTab() {
           </div>
           <div>
             <label className="block text-zinc-300 text-sm font-medium mb-1">
-              Carpeta destino Drive
+              Carpeta destino en Drive
             </label>
             <Input
               value={form.drive_folder_id}
               onChange={e => setForm(f => ({ ...f, drive_folder_id: e.target.value }))}
               placeholder="Emerald_ERP_BackUps"
             />
+          </div>
+        </div>
+
+        {/* Runtime rclone */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-zinc-300 text-sm font-medium mb-1">
+              Ruta de rclone.conf (contenedor)
+            </label>
+            <Input
+              value={form.rclone_config_path}
+              onChange={e => setForm(f => ({ ...f, rclone_config_path: e.target.value }))}
+              placeholder="/root/.config/rclone/rclone.conf"
+              className="font-mono text-sm"
+            />
+            <p className="text-zinc-500 text-xs mt-1">
+              Ruta interna usada por el worker. Debe existir vía volume mount en Docker Compose.
+            </p>
+          </div>
+          <div>
+            <label className="block text-zinc-300 text-sm font-medium mb-1">
+              Remoto rclone para MinIO
+            </label>
+            <Input
+              value={form.minio_remote_name}
+              onChange={e => setForm(f => ({ ...f, minio_remote_name: e.target.value }))}
+              placeholder="minio"
+            />
+            <p className="text-zinc-500 text-xs mt-1">
+              Nombre de remote en rclone.conf que apunta al endpoint MinIO.
+            </p>
           </div>
         </div>
 
@@ -305,7 +342,7 @@ export default function BackupTab() {
           </div>
           <div>
             <label className="block text-zinc-300 text-sm font-medium mb-1">
-              Directorio temporal
+              Directorio local de staging
             </label>
             <Input
               value={form.backup_dir}
@@ -314,9 +351,16 @@ export default function BackupTab() {
               className="font-mono text-sm"
             />
             <p className="text-zinc-500 text-xs mt-1">
-              Ruta en el contenedor. Mapea a <code className="text-zinc-400">/opt/emerald-{appEnv}/data/backups</code> en el host. Cada entorno tiene su propio directorio.
+              Ruta en el contenedor donde se arma el paquete antes de subirlo. Mapea a <code className="text-zinc-400">/opt/emerald-{appEnv}/data/backups</code> en host.
             </p>
           </div>
+        </div>
+
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-xs text-zinc-400 leading-relaxed">
+          <p className="text-zinc-300 font-medium mb-1">Resumen de flujo de destino</p>
+          <p>1) Se genera paquete local en <span className="font-mono text-zinc-300">{form.backup_dir}</span>.</p>
+          <p>2) Se sube a <span className="font-mono text-zinc-300">{form.drive_remote_name}:{form.drive_folder_id}</span>.</p>
+          <p>3) Opcional: réplica LAN a <span className="font-mono text-zinc-300">{form.lan_dest_folder || '—'}</span>.</p>
         </div>
 
         <hr className="border-zinc-800" />

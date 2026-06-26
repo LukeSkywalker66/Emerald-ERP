@@ -407,6 +407,14 @@ class BackupConfig(Base, TimestampMixin):
         String(100), nullable=False, default="emerald-attachments",
         comment="Nombre del bucket MinIO a respaldar"
     )
+    minio_remote_name: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="minio",
+        comment="Nombre del remoto rclone para acceder a MinIO"
+    )
+    rclone_config_path: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="/root/.config/rclone/rclone.conf",
+        comment="Ruta del archivo rclone.conf dentro del contenedor"
+    )
 
     def __repr__(self) -> str:
         return f"<BackupConfig(enabled={self.is_enabled}, minio={self.include_minio_backup}, cron='{self.cron_expression}')>"

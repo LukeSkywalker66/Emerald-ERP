@@ -90,6 +90,16 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger, run: Optional[Ba
         if not database_url:
             raise RuntimeError("DATABASE_URL no definida en el entorno")
 
+        rclone_config_path = cfg.rclone_config_path or "/root/.config/rclone/rclone.conf"
+        rclone_config = Path(rclone_config_path)
+        if not rclone_config.exists():
+            raise RuntimeError(
+                "rclone.conf no encontrado en el contenedor. "
+                f"Ruta configurada: {rclone_config_path}. "
+                "Definí la ruta desde Settings > Backup y asegurá el mount del archivo en celery_worker."
+            )
+        rclone_base_cmd = ["rclone", "--config", str(rclone_config)]
+
         db_params = _parse_db_url(database_url)
         app_env = os.environ.get("APP_ENV", "development")
 
@@ -146,7 +156,7 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger, run: Optional[Ba
             # Configurar rclone para acceder a MinIO localmente
             # Esperamos que exista un remoto 'minio' en rclone.conf
             rclone_copy = subprocess.run(
-                ["rclone", "sync", f"minio:/{cfg.minio_bucket}", str(minio_dir)],
+                [*rclone_base_cmd, "sync", f"{cfg.minio_remote_name}:/{cfg.minio_bucket}", str(minio_dir)],
                 capture_output=True,
                 text=True,
                 timeout=300,
@@ -195,7 +205,7 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger, run: Optional[Ba
 
         for file_path in files_to_upload:
             rclone_result = subprocess.run(
-                ["rclone", "copy", file_path, drive_dest],
+                [*rclone_base_cmd, "copy", file_path, drive_dest],
                 capture_output=True,
                 text=True,
                 timeout=300,
@@ -264,7 +274,8 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger, run: Optional[Ba
         # --- FASE 6: Retención en Drive ---
         rclone_delete = subprocess.run(
             [
-                "rclone", "delete", drive_dest,
+                *rclone_base_cmd,
+                "delete", drive_dest,
                 "--min-age", f"{retention}d",
             ],
             capture_output=True,

@@ -327,6 +327,8 @@ class BackupConfigUpdate(BaseModel):
     lan_ssh_key_path: Optional[str] = Field(None, max_length=255)
     include_minio_backup: Optional[bool] = None
     minio_bucket: Optional[str] = Field(None, max_length=100)
+    minio_remote_name: Optional[str] = Field(None, max_length=100)
+    rclone_config_path: Optional[str] = Field(None, max_length=255)
 
 
 class BackupConfigResponse(BaseModel):
@@ -345,6 +347,8 @@ class BackupConfigResponse(BaseModel):
     lan_ssh_key_path: Optional[str] = None
     include_minio_backup: bool
     minio_bucket: str
+    minio_remote_name: str
+    rclone_config_path: str
     created_at: datetime
     updated_at: datetime
 
