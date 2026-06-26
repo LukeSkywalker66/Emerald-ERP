@@ -218,7 +218,26 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger, run: Optional[Ba
 
         # --- FASE 4: Réplica LAN (opcional) ---
         if cfg.lan_backup_enabled and cfg.lan_server_ip and cfg.lan_server_user and cfg.lan_dest_folder:
-            log(f"🖧  Replicando a LAN {cfg.lan_server_ip}...")
+            lan_base_folder = cfg.lan_dest_folder.rstrip("/")
+            lan_target_folder = f"{lan_base_folder}/{app_env}"
+            log(f"🖧  Replicando a LAN {cfg.lan_server_ip}:{lan_target_folder}...")
+
+            # Garantiza aislamiento por entorno en destino LAN (dev/staging/prod)
+            mkdir_result = subprocess.run(
+                [
+                    "ssh",
+                    "-i", cfg.lan_ssh_key_path or "/root/.ssh/id_ed25519",
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "ConnectTimeout=10",
+                    f"{cfg.lan_server_user}@{cfg.lan_server_ip}",
+                    "mkdir", "-p", lan_target_folder,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if mkdir_result.returncode != 0:
+                log(f"⚠️  No se pudo crear carpeta remota LAN {lan_target_folder}: {mkdir_result.stderr}")
 
             for file_path in files_to_upload:
                 scp_result = subprocess.run(
@@ -228,7 +247,7 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger, run: Optional[Ba
                         "-o", "StrictHostKeyChecking=no",
                         "-o", "ConnectTimeout=10",
                         file_path,
-                        f"{cfg.lan_server_user}@{cfg.lan_server_ip}:{cfg.lan_dest_folder}",
+                        f"{cfg.lan_server_user}@{cfg.lan_server_ip}:{lan_target_folder}/",
                     ],
                     capture_output=True,
                     text=True,
