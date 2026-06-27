@@ -334,6 +334,65 @@ frontend/
 
 ---
 
+## 16. Estrategia de Backup Automático de Base de Datos
+
+**Fecha de decisión:** Mayo 2026  
+**Estado:** Implementado y activo en producción.
+
+### Decisión
+El script de backup automático (`backup.sh`) y el archivo de cron (`emerald-cron`) residen en el repositorio de infraestructura **`emerald-proxy`** (`/opt/emerald-proxy/backups/`), y **no** como una tarea Celery Beat dentro de `emerald-erp`.
+
+### Justificación
+
+**1. El backup es una operación de infraestructura, no de aplicación.**
+El script ejecuta `docker exec emerald_db pg_dump ...` directamente sobre el daemon de Docker del host. Esto requiere acceso al socket de Docker y al sistema de archivos del servidor, que están fuera del dominio de una aplicación FastAPI/Celery. Una tarea Celery corriendo dentro de un contenedor no puede (ni debe) ejecutar comandos sobre el host.
+
+**2. El Proxy Global es el único componente que nunca baja.**
+`emerald-proxy` gestiona Nginx y Certbot. Incluso durante deploys de la app (donde los contenedores de Emerald se detienen y reconstruyen), el proxy sigue en pie. Si el backup viviera en Celery Beat, un deploy nocturno podría interrumpir o matar la tarea programada.
+
+**3. Independencia de entornos.**
+El mismo `backup.sh` puede apuntar a cualquier entorno (`emerald-erp`, `emerald-staging`) modificando una variable, sin necesidad de deploys de código. Si estuviera dentro de la app, requeriría un deploy por cada cambio de configuración.
+
+**4. Ciclo de vida de credenciales de infraestructura.**
+El script necesita acceso a `rclone.conf` (token OAuth de Google Drive) y a llaves SSH para réplica LAN. Estas credenciales son del servidor, no de la aplicación, y no deben circular por variables de entorno de contenedores Docker.
+
+**5. Separación de concerns documentada (Regla de Oro):**
+
+| Concerniente a... | Responsable |
+|---|---|
+| Lógica de negocio, sync de datos ISP, tareas API | `emerald-erp` + Celery Beat |
+| Backups de BD, rotación, subida a Drive, limpieza Docker | `emerald-proxy` + cron del OS |
+
+### Alternativa Evaluada y Descartada
+
+> **"Usar una tarea Celery Beat para el backup"**
+
+- ❌ Celery corre dentro de un contenedor que no tiene acceso al daemon Docker del host.
+- ❌ Si el stack de la app está caído (fallo, deploy, reinicio), el backup no se ejecuta.
+- ❌ `rclone` y sus credenciales no deben estar dentro del contenedor de la app.
+- ✅ La única parte que SÍ puede vivir en Emerald es la **UI de configuración** (pantalla en el módulo de Settings para ver logs, estado y disparar un backup manual vía endpoint que delega al script del host).
+
+### Camino de Evolución (UI en Módulo de Configuración)
+
+Si en el futuro se quiere visibilidad del backup desde la UI de Emerald, el patrón correcto es:
+
+```
+UI Settings → POST /api/v2/settings/backup/run-now
+                      ↓
+             Backend llama subprocess al script del host
+             (o escribe en una cola que el cron lee)
+                      ↓
+             backup.sh ejecuta en el contexto del host
+                      ↓
+             Resultado se guarda en tabla backup_runs (PostgreSQL)
+                      ↓
+             UI consulta GET /api/v2/settings/backup/history
+```
+
+Esto mantiene la ejecución real en el host (donde debe estar) y solo expone visibilidad y control básico desde la app.
+
+---
+
 ## Conclusion
 
 **El sistema está diseñado para escalar:**

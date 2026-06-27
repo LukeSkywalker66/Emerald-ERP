@@ -16,6 +16,7 @@ celery_app = Celery(
         "src.jobs.api_key_rotation",          # API Key rotation tasks
         "src.jobs.work_order_cleanup",        # Work Order auto-cleanup (NASA-grade)
         "src.jobs.monitoring",                # Internal monitoring engine (Strategy Pattern)
+        "src.jobs.backup",                    # Backup automático de BD a Drive
     ]
 )
 
@@ -116,6 +117,20 @@ STATIC_BEAT_SCHEDULE = {
         "task": "monitoring.periodic_check",
         "schedule": crontab(minute="*/1"),  # Cada 1 minuto (cada monitor tiene su propio intervalo)
     },
+
+    # ════════════════════════════════════════════════════════════════════════════════
+    # 💾 BACKUP AUTOMÁTICO DE BASE DE DATOS
+    # ════════════════════════════════════════════════════════════════════════════════
+    # La tarea verifica is_enabled en la config de BD antes de ejecutarse.
+    # Si is_enabled=False (default en no-prod), el backup se omite silenciosamente.
+    # Para activar: Settings → Backup → habilitar.
+    # Schedule default: 2:00 AM diario. Configurable desde UI.
+    # ════════════════════════════════════════════════════════════════════════════════
+    "backup-automatico-diario": {
+        "task": "backup.run_scheduled",
+        "schedule": crontab(hour=2, minute=0),  # 2:00 AM
+        "kwargs": {"triggered_by": "scheduled"},
+    },
 }
 
 celery_app.conf.beat_schedule = dict(STATIC_BEAT_SCHEDULE)
@@ -200,10 +215,14 @@ def build_beat_schedule_from_db() -> dict | None:
 # Intentar aplicar schedule dinámico al cargar el módulo
 _dynamic_schedule = build_beat_schedule_from_db()
 if _dynamic_schedule:
-    celery_app.conf.beat_schedule = _dynamic_schedule
+    # Mantener tareas estáticas críticas (incluyendo backup) y superponer dinámicas de DB.
+    merged_schedule = dict(STATIC_BEAT_SCHEDULE)
+    merged_schedule.update(_dynamic_schedule)
+    celery_app.conf.beat_schedule = merged_schedule
     logger.info(
-        "✅ Beat schedule dinámico aplicado: %d tarea(s) desde DB",
+        "✅ Beat schedule combinado aplicado: %d dinámica(s) + %d estática(s)",
         len(_dynamic_schedule),
+        len(STATIC_BEAT_SCHEDULE),
     )
 else:
     logger.info("📋 Usando beat_schedule estático como fallback")

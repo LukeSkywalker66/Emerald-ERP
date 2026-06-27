@@ -128,6 +128,9 @@ services:
     command: celery -A src.celery_app worker --beat --loglevel=info
     volumes:
       - ./backend:/app
+      - ./data/backups:/app/data/backups
+      - ${HOME}/.config/rclone:/root/.config/rclone:ro
+      - ${HOME}/.ssh:/root/.ssh:ro
     env_file:
       - .env
     environment:

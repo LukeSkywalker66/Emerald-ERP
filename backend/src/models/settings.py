@@ -10,7 +10,7 @@ from enum import Enum as PyEnum
 
 from sqlalchemy import (
     Column, Integer, String, DateTime, Text, ForeignKey,
-    Enum, Boolean, Float, UniqueConstraint, Index
+    Enum, Boolean, Float, UniqueConstraint, Index, BigInteger
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -29,6 +29,20 @@ class MonitorType(str, PyEnum):
     PING = "PING"          # Ping ICMP
     TCP = "TCP"            # Conexión TCP puerto
     SSL = "SSL"            # Validación certificado SSL
+
+
+class BackupStatus(str, PyEnum):
+    """Estado de una ejecución de backup."""
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
+class BackupTrigger(str, PyEnum):
+    """Cómo se disparó el backup."""
+    SCHEDULED = "scheduled"
+    MANUAL = "manual"
 
 
 class CriticalityIndex(int, PyEnum):
@@ -321,4 +335,142 @@ class MonitorCheckHistory(Base, TimestampMixin):
         return (
             f"<MonitorCheckHistory(id={self.id}, monitor_id={self.monitor_id}, "
             f"status='{self.status}', checked_at='{self.checked_at}')>"
+        )
+
+
+# ============================================
+# BACKUP CONFIG (Singleton — siempre 1 fila)
+# ============================================
+
+class BackupConfig(Base, TimestampMixin):
+    """
+    Configuración del módulo de backup automático de la base de datos.
+
+    Singleton: solo existe una fila (id=1).
+    La tarea Celery lee esta config antes de cada ejecución y aborta
+    si is_enabled=False (para entornos de no-producción).
+    """
+    __tablename__ = "backup_config"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, default=1
+    )
+    is_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False,
+        comment="Habilitar backups automáticos (False en no-prod por defecto)"
+    )
+    cron_expression: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="0 2 * * *",
+        comment="Expresión cron Celery (default: 2:00 AM diario)"
+    )
+    drive_remote_name: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="gdrive",
+        comment="Nombre del remoto rclone configurado"
+    )
+    drive_folder_id: Mapped[str] = mapped_column(
+        String(200), nullable=False, default="Emerald_ERP_BackUps",
+        comment="Carpeta destino en Google Drive (nombre o ID)"
+    )
+    retention_days: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=7,
+        comment="Días de retención local y en nube"
+    )
+    backup_dir: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="/app/data/backups",
+        comment="Directorio en el contenedor para el dump (mapea a /opt/emerald-{ENV}/data/backups en host)"
+    )
+    lan_backup_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False,
+        comment="Habilitar réplica adicional a servidor LAN"
+    )
+    lan_server_ip: Mapped[Optional[str]] = mapped_column(
+        String(45), nullable=True,
+        comment="IP del servidor LAN de backup"
+    )
+    lan_server_user: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True,
+        comment="Usuario SSH del servidor LAN"
+    )
+    lan_dest_folder: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True,
+        comment="Carpeta destino en el servidor LAN"
+    )
+    lan_ssh_key_path: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True, default="/root/.ssh/id_ed25519",
+        comment="Ruta a la clave SSH para el servidor LAN"
+    )
+    include_minio_backup: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True,
+        comment="Incluir bucket MinIO en el respaldo (adjuntos, capturas, reportes)"
+    )
+    minio_bucket: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="emerald-attachments",
+        comment="Nombre del bucket MinIO a respaldar"
+    )
+    minio_remote_name: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="minio",
+        comment="Nombre del remoto rclone para acceder a MinIO"
+    )
+    rclone_config_path: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="/root/.config/rclone/rclone.conf",
+        comment="Ruta del archivo rclone.conf dentro del contenedor"
+    )
+
+    def __repr__(self) -> str:
+        return f"<BackupConfig(enabled={self.is_enabled}, minio={self.include_minio_backup}, cron='{self.cron_expression}')>"
+
+
+# ============================================
+# BACKUP RUN (Historial de ejecuciones)
+# ============================================
+
+class BackupRun(Base, TimestampMixin):
+    """
+    Registro de cada ejecución del proceso de backup.
+
+    Almacena resultado, tamaño, log y si fue manual o programado.
+    """
+    __tablename__ = "backup_runs"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, index=True
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        comment="Timestamp de inicio del backup"
+    )
+    finished_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        comment="Timestamp de finalización"
+    )
+    status: Mapped[BackupStatus] = mapped_column(
+        String(20), nullable=False, default=BackupStatus.PENDING.value,
+        index=True,
+        comment="Estado: pending/running/success/failed"
+    )
+    filename: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True,
+        comment="Nombre del archivo dump generado"
+    )
+    size_bytes: Mapped[Optional[int]] = mapped_column(
+        BigInteger, nullable=True,
+        comment="Tamaño del dump en bytes"
+    )
+    log_output: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True,
+        comment="Salida completa del proceso de backup"
+    )
+    error_message: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True,
+        comment="Mensaje de error si el backup falló"
+    )
+    triggered_by: Mapped[BackupTrigger] = mapped_column(
+        String(20), nullable=False, default=BackupTrigger.SCHEDULED.value,
+        comment="Origen: scheduled (cron) o manual (UI)"
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<BackupRun(id={self.id}, status='{self.status}', "
+            f"triggered_by='{self.triggered_by}', started_at='{self.started_at}')>"
         )
