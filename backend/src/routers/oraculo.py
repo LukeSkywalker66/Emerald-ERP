@@ -2,7 +2,6 @@ import asyncio
 import csv
 import io
 import logging
-import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
@@ -38,9 +37,10 @@ class TraficoPunto(BaseModel):
 
 class SesionCliente(BaseModel):
     inicio: str
-    fin: str
+    fin: Optional[str] = None
     duracion: str
     ip_cliente: Optional[str] = None
+    mac_address: Optional[str] = None
     razon_desconexion: Optional[str] = None
     router: str
 
@@ -58,8 +58,9 @@ class OraculoDebugResponse(BaseModel):
 
 class SesionIpCliente(BaseModel):
     inicio: str
-    fin: str
+    fin: Optional[str] = None
     ip_cliente: Optional[str] = None
+    mac_address: Optional[str] = None
     router: str
     razon_desconexion: Optional[str] = None
 
@@ -138,52 +139,6 @@ def _to_operator_router(router_value: Optional[str]) -> str:
     return router
 
 
-def _extract_ipv4_candidates(message_text: str) -> list[str]:
-    ipv4_pattern = r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
-    candidates = re.findall(ipv4_pattern, message_text)
-    cleaned: list[str] = []
-    for candidate in candidates:
-        parts = candidate.split(".")
-        if len(parts) == 4 and all(part.isdigit() and 0 <= int(part) <= 255 for part in parts):
-            cleaned.append(candidate)
-    return cleaned
-
-
-def _extract_session_ip(message_text: str) -> Optional[str]:
-    text = message_text.lower()
-    direct_patterns = (
-        r"logged in\s*,\s*((?:\d{1,3}\.){3}\d{1,3})",
-        r"authenticated\s*,?\s*((?:\d{1,3}\.){3}\d{1,3})",
-        r"(?:assigned|asignada|asignado|ip)\s*[:=]\s*((?:\d{1,3}\.){3}\d{1,3})",
-        r"(?:address|cliente|client)\s*[:=]\s*((?:\d{1,3}\.){3}\d{1,3})",
-        r"(?:ip_cliente|ip cliente)\s*[:=]\s*((?:\d{1,3}\.){3}\d{1,3})",
-    )
-
-    for pattern in direct_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            return match.group(1)
-
-    candidates = _extract_ipv4_candidates(message_text)
-    if not candidates:
-        return None
-
-    if "logged in" in text:
-        login_match = re.search(r"logged in\s*,\s*((?:\d{1,3}\.){3}\d{1,3})", text, re.IGNORECASE)
-        if login_match:
-            return login_match.group(1)
-
-    if "authenticated" in text:
-        auth_match = re.search(r"authenticated\s*,?\s*((?:\d{1,3}\.){3}\d{1,3})", text, re.IGNORECASE)
-        if auth_match:
-            return auth_match.group(1)
-
-    for candidate in candidates:
-        if config.MK_HOST and candidate != config.MK_HOST:
-            return candidate
-    return candidates[0]
-
-
 def _merge_traffic_points(points: list[TraficoPunto]) -> list[TraficoPunto]:
     merged: dict[str, TraficoPunto] = {}
     for point in points:
@@ -214,58 +169,50 @@ def _build_influx_interval_query(
     raw_measurement = config.ORACULO_INFLUX_RAW_MEASUREMENT
     resumen_measurement = config.ORACULO_INFLUX_RESUMEN_MEASUREMENT
     in_bytes_field = config.ORACULO_INFLUX_IN_BYTES_FIELD
+    out_bytes_field = config.ORACULO_INFLUX_OUT_BYTES_FIELD
     resumen_ip_tag = config.ORACULO_INFLUX_RESUMEN_IP_TAG
-    sentido_tag = config.ORACULO_INFLUX_RESUMEN_SENTIDO_TAG
-    sentido_descarga = config.ORACULO_INFLUX_SENTIDO_DESCARGA
-    sentido_subida = config.ORACULO_INFLUX_SENTIDO_SUBIDA
     node_tag = config.ORACULO_INFLUX_NODE_TAG
-    realtime_window_seconds = config.ORACULO_INFLUX_REALTIME_WINDOW_SECONDS
-    resumen_window_seconds = config.ORACULO_INFLUX_RESUMEN_WINDOW_SECONDS
     node_clause = f' and r["{node_tag}"] == "{nodo_ip}"' if node_tag and nodo_ip else ""
 
     if force_raw or rango in _REALTIME_RANGES:
-        return f'''
+        bucket = raw_bucket
+        measurement = raw_measurement
+        window_seconds = config.ORACULO_INFLUX_REALTIME_WINDOW_SECONDS
+        descarga_ip_cond = f'r["dst"] == ip'
+        subida_ip_cond = f'r["src"] == ip'
+        aggregation = "    |> aggregateWindow(every: 1m, fn: sum, createEmpty: false)\n"
+    elif rango in _HISTORY_RANGES:
+        bucket = resumen_bucket
+        measurement = resumen_measurement
+        window_seconds = config.ORACULO_INFLUX_RESUMEN_WINDOW_SECONDS
+        descarga_ip_cond = f'r["{resumen_ip_tag}"] == "{ip_cliente}"'
+        subida_ip_cond = f'r["{resumen_ip_tag}"] == "{ip_cliente}"'
+        aggregation = ""
+    else:
+        raise HTTPException(status_code=400, detail=f"Rango no soportado: {rango}")
+
+    return f'''
 ip = "{ip_cliente}"
 
-descarga = from(bucket: "{raw_bucket}")
+descarga = from(bucket: "{bucket}")
     |> range(start: time(v: "{start_iso}"), stop: time(v: "{stop_iso}"))
-    |> filter(fn: (r) => r["_measurement"] == "{raw_measurement}" and r["_field"] == "{in_bytes_field}" and r["dst"] == ip{node_clause})
-    |> keep(columns: ["_time", "_value"])
-    |> aggregateWindow(every: 1m, fn: sum, createEmpty: false)
-    |> set(key: "{sentido_tag}", value: "{sentido_descarga}")
+    |> filter(fn: (r) => r["_measurement"] == "{measurement}" and r["_field"] == "{in_bytes_field}" and {descarga_ip_cond}{node_clause})
+{aggregation}    |> set(key: "_dir", value: "descarga")
 
-subida = from(bucket: "{raw_bucket}")
+subida = from(bucket: "{bucket}")
     |> range(start: time(v: "{start_iso}"), stop: time(v: "{stop_iso}"))
-    |> filter(fn: (r) => r["_measurement"] == "{raw_measurement}" and r["_field"] == "{in_bytes_field}" and r["src"] == ip{node_clause})
-    |> keep(columns: ["_time", "_value"])
-    |> aggregateWindow(every: 1m, fn: sum, createEmpty: false)
-    |> set(key: "{sentido_tag}", value: "{sentido_subida}")
+    |> filter(fn: (r) => r["_measurement"] == "{measurement}" and r["_field"] == "{out_bytes_field}" and {subida_ip_cond}{node_clause})
+{aggregation}    |> set(key: "_dir", value: "subida")
 
 union(tables: [descarga, subida])
-    |> pivot(rowKey:["_time"], columnKey: ["{sentido_tag}"], valueColumn: "_value")
+    |> pivot(rowKey:["_time"], columnKey: ["_dir"], valueColumn: "_value")
     |> map(fn: (r) => ({{
-    r with descarga_mbps: float(v: r["{sentido_descarga}"]) * 8.0 / {realtime_window_seconds}.0 / 1024.0 / 1024.0,
-    subida_mbps: float(v: r["{sentido_subida}"]) * 8.0 / {realtime_window_seconds}.0 / 1024.0 / 1024.0
+    r with descarga_mbps: float(v: r["descarga"]) * 8.0 / {window_seconds}.0 / 1024.0 / 1024.0,
+    subida_mbps: float(v: r["subida"]) * 8.0 / {window_seconds}.0 / 1024.0 / 1024.0
     }}))
     |> keep(columns: ["_time", "descarga_mbps", "subida_mbps"])
     |> sort(columns: ["_time"], desc: false)
 '''
-
-    if rango in _HISTORY_RANGES:
-        return f'''
-from(bucket: "{resumen_bucket}")
-    |> range(start: time(v: "{start_iso}"), stop: time(v: "{stop_iso}"))
-    |> filter(fn: (r) => r["_measurement"] == "{resumen_measurement}" and r["_field"] == "{in_bytes_field}" and r["{resumen_ip_tag}"] == "{ip_cliente}"{node_clause})
-    |> pivot(rowKey:["_time"], columnKey: ["{sentido_tag}"], valueColumn: "_value")
-    |> map(fn: (r) => ({{
-        r with descarga_mbps: float(v: r["{sentido_descarga}"]) * 8.0 / {resumen_window_seconds}.0 / 1024.0 / 1024.0,
-        subida_mbps: float(v: r["{sentido_subida}"]) * 8.0 / {resumen_window_seconds}.0 / 1024.0 / 1024.0
-    }}))
-    |> keep(columns: ["_time", "descarga_mbps", "subida_mbps"])
-    |> sort(columns: ["_time"], desc: false)
-'''
-
-    raise HTTPException(status_code=400, detail=f"Rango no soportado: {rango}")
 
 
 def _query_influx_interval(
@@ -371,7 +318,7 @@ def _query_graylog_raw(usuario_pppoe: str, limite: int, range_sec: Optional[int]
     endpoint = f"{graylog_url.rstrip('/')}/api/search/universal/relative"
     fetch_limit = min(max(limite * 8, 200), 5000)
     params = {
-        "query": f'"{usuario_pppoe}"',
+        "query": f'"{usuario_pppoe}" AND pppoe_action:*',
         "range": range_sec if range_sec is not None else config.ORACULO_GRAYLOG_RANGE_SEC,
         "limit": fetch_limit,
         "sort": config.ORACULO_GRAYLOG_SORT,
@@ -411,8 +358,10 @@ def _query_graylog_raw(usuario_pppoe: str, limite: int, range_sec: Optional[int]
                         {
                             "message": {
                                 "timestamp": row.get("timestamp"),
-                                "source": row.get("source") or row.get("gl2_remote_ip"),
-                                "message": row.get("message", ""),
+                                "pppoe_action": row.get("pppoe_action"),
+                                "framed_ip": row.get("framed_ip"),
+                                "mac_address": row.get("mac_address"),
+                                "router_ip": row.get("router_ip"),
                             }
                         }
                     )
@@ -447,43 +396,37 @@ def _query_graylog_raw(usuario_pppoe: str, limite: int, range_sec: Optional[int]
     return []
 
 
-def _extract_disconnect_reason(message_text: str) -> Optional[str]:
-    terminating_match = re.search(r"terminating\.\.\.\s*-\s*(.+)$", message_text, re.IGNORECASE)
-    if terminating_match:
-        reason = terminating_match.group(1).strip()
-        if reason:
-            return reason
-
-    reason_match = re.search(r"(?:reason|razon|motivo)\s*[:=]\s*(.+)$", message_text, re.IGNORECASE)
-    if reason_match:
-        reason = reason_match.group(1).strip()
-        if reason and any(char.isalpha() for char in reason):
-            return reason
-
-    out_match = re.search(r"logged out\s*,\s*(.+)$", message_text, re.IGNORECASE)
-    if out_match:
-        possible_reason = out_match.group(1).strip()
-        if possible_reason and "user" not in possible_reason.lower() and any(char.isalpha() for char in possible_reason):
-            return possible_reason
-
-    discon_match = re.search(r"disconnected\s*,\s*(.+)$", message_text, re.IGNORECASE)
-    if discon_match:
-        reason = discon_match.group(1).strip()
-        if reason and any(char.isalpha() for char in reason):
-            return reason
-
-    if "disconnected" in message_text.lower():
-        return "Desconectado"
-
-    return None
-
-
 def _parse_graylog_timestamp(raw_timestamp: str) -> datetime:
     normalized = raw_timestamp.replace("Z", "+00:00")
     parsed = datetime.fromisoformat(normalized)
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed
+
+
+def _parse_graylog_evento(
+    msg: dict,
+) -> tuple[Optional[str], Optional[datetime], Optional[str], Optional[str], Optional[str], str]:
+    """Devuelve (accion, timestamp, ip_cliente, mac_address, razon_desconexion, router)."""
+    accion = str(msg.get("pppoe_action") or "").strip().lower()
+    if accion not in ("logged in", "logged out"):
+        return None, None, None, None, None, "Desconocido"
+
+    timestamp_raw = msg.get("timestamp")
+    if not timestamp_raw:
+        return None, None, None, None, None, "Desconocido"
+
+    try:
+        timestamp = _parse_graylog_timestamp(str(timestamp_raw))
+    except Exception:
+        return None, None, None, None, None, "Desconocido"
+
+    router = _to_operator_router(str(msg.get("router_ip") or "Desconocido"))
+    if accion == "logged in":
+        return accion, timestamp, msg.get("framed_ip") or None, msg.get("mac_address") or None, None, router
+
+    # "logged out" → fin de sesión
+    return accion, timestamp, None, None, "Cierre de sesión", router
 
 
 def _format_duration(start: datetime, end: datetime) -> str:
@@ -504,45 +447,19 @@ def _pair_sessions(usuario_pppoe: str, graylog_messages: list[dict], limite: int
 
     for envelope in graylog_messages:
         msg = envelope.get("message", {})
-        text = str(msg.get("message", ""))
-        if not text:
+        accion, ts, ip_cliente, mac_address, razon, router = _parse_graylog_evento(msg)
+        if accion is None or ts is None:
             continue
-
-        lower_text = text.lower()
-        if usuario_pppoe.lower() not in lower_text:
-            continue
-
-        is_login = "logged in" in lower_text
-        is_logout = any(key in lower_text for key in ("logged out", "disconnected", "logout"))
-        if not is_login and not is_logout:
-            continue
-
-        timestamp_raw = msg.get("timestamp")
-        if not timestamp_raw:
-            continue
-
-        try:
-            timestamp = _parse_graylog_timestamp(str(timestamp_raw))
-        except Exception:
-            continue
-
-        router = (
-            msg.get("source")
-            or msg.get("router")
-            or msg.get("device_name")
-            or msg.get("gl2_remote_ip")
-            or "Desconocido"
-        )
-        ip_cliente = _extract_session_ip(text)
 
         eventos.append(
             {
-                "ts": timestamp,
-                "is_login": is_login,
-                "is_logout": is_logout,
-                "reason": _extract_disconnect_reason(text),
-                "router": _to_operator_router(str(router)),
+                "ts": ts,
+                "is_login": accion == "logged in",
+                "is_logout": accion == "logged out",
                 "ip_cliente": ip_cliente,
+                "mac_address": mac_address,
+                "reason": razon,
+                "router": router,
             }
         )
 
@@ -570,8 +487,9 @@ def _pair_sessions(usuario_pppoe: str, graylog_messages: list[dict], limite: int
                     inicio=inicio_ts.isoformat(),
                     fin=fin_ts.isoformat(),
                     duracion=_format_duration(inicio_ts, fin_ts),
-                    ip_cliente=inicio_ev.get("ip_cliente") or ev.get("ip_cliente"),
-                    razon_desconexion=ev.get("reason"),
+                    ip_cliente=inicio_ev.get("ip_cliente"),
+                    mac_address=inicio_ev.get("mac_address"),
+                    razon_desconexion="Cierre de sesión",
                     router=ev.get("router") or inicio_ev.get("router") or "Desconocido",
                 )
             )
@@ -581,9 +499,10 @@ def _pair_sessions(usuario_pppoe: str, graylog_messages: list[dict], limite: int
         sesiones.append(
             SesionCliente(
                 inicio=inicio_ts.isoformat(),
-                fin="Activa",
+                fin=None,
                 duracion=_format_duration(inicio_ts, now),
                 ip_cliente=inicio_ev.get("ip_cliente"),
+                mac_address=inicio_ev.get("mac_address"),
                 razon_desconexion=None,
                 router=inicio_ev.get("router") or "Desconocido",
             )
@@ -599,45 +518,19 @@ def _query_graylog_session_windows(usuario_pppoe: str, limite: int, range_sec: O
 
     for envelope in raw_messages:
         msg = envelope.get("message", {})
-        text = str(msg.get("message", ""))
-        if not text:
+        accion, ts, ip_cliente, mac_address, razon, router = _parse_graylog_evento(msg)
+        if accion is None or ts is None:
             continue
-
-        lower_text = text.lower()
-        if usuario_pppoe.lower() not in lower_text:
-            continue
-
-        is_login = "logged in" in lower_text
-        is_logout = any(key in lower_text for key in ("logged out", "disconnected", "logout"))
-        if not is_login and not is_logout:
-            continue
-
-        timestamp_raw = msg.get("timestamp")
-        if not timestamp_raw:
-            continue
-
-        try:
-            timestamp = _parse_graylog_timestamp(str(timestamp_raw))
-        except Exception:
-            continue
-
-        router = (
-            msg.get("source")
-            or msg.get("router")
-            or msg.get("device_name")
-            or msg.get("gl2_remote_ip")
-            or "Desconocido"
-        )
-        ip_cliente = _extract_session_ip(text)
 
         eventos.append(
             {
-                "inicio": timestamp.isoformat(),
+                "inicio": ts.isoformat(),
                 "ip_cliente": ip_cliente,
-                "router": _to_operator_router(str(router)),
-                "razon_desconexion": _extract_disconnect_reason(text),
-                "is_login": is_login,
-                "is_logout": is_logout,
+                "mac_address": mac_address,
+                "router": router,
+                "razon_desconexion": razon,
+                "is_login": accion == "logged in",
+                "is_logout": accion == "logged out",
             }
         )
 
@@ -656,10 +549,11 @@ def _query_graylog_session_windows(usuario_pppoe: str, limite: int, range_sec: O
             sesiones.append(
                 SesionIpCliente(
                     inicio=current_login["inicio"],
-                    fin=current_login.get("fin", ev["inicio"]),
+                    fin=current_login["fin"],
                     ip_cliente=current_login.get("ip_cliente"),
+                    mac_address=current_login.get("mac_address"),
                     router=current_login.get("router", "Desconocido"),
-                    razon_desconexion=ev.get("razon_desconexion"),
+                    razon_desconexion="Cierre de sesión",
                 )
             )
             current_login = None
@@ -672,10 +566,11 @@ def _query_graylog_session_windows(usuario_pppoe: str, limite: int, range_sec: O
         sesiones.append(
             SesionIpCliente(
                 inicio=current_login["inicio"],
-                fin=datetime.now(timezone.utc).isoformat(),
+                fin=None,
                 ip_cliente=current_login.get("ip_cliente"),
+                mac_address=current_login.get("mac_address"),
                 router=current_login.get("router", "Desconocido"),
-                razon_desconexion=current_login.get("razon_desconexion"),
+                razon_desconexion=None,
             )
         )
 

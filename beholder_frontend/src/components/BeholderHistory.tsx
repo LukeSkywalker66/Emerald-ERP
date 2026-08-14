@@ -33,9 +33,10 @@ interface Trafico {
 
 interface Sesion {
   inicio: string;
-  fin: string;
+  fin?: string | null;
   duracion: string;
   ip_cliente?: string;
+  mac_address?: string;
   razon_desconexion?: string;
   router: string;
 }
@@ -247,6 +248,9 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
   const formatDateTime = (isoString: string) => {
     try {
       const date = new Date(isoString);
+      if (Number.isNaN(date.getTime())) {
+        return "—";
+      }
       return date.toLocaleString("es-AR", {
         year: "numeric",
         month: "2-digit",
@@ -364,6 +368,9 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
                     IP Cliente
                   </th>
                   <th className="px-3 py-2 text-left font-semibold text-emerald-300">
+                    MAC
+                  </th>
+                  <th className="px-3 py-2 text-left font-semibold text-emerald-300">
                     Motivo Desconexión
                   </th>
                 </tr>
@@ -378,7 +385,7 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
                       {formatDateTime(sesion.inicio)}
                     </td>
                     <td className="px-3 py-2 text-gray-200">
-                      {sesion.fin ? formatDateTime(sesion.fin) : "Activa"}
+                      {sesion.fin ? formatDateTime(sesion.fin) : "Activa actualmente"}
                     </td>
                     <td className="px-3 py-2 text-gray-300 font-semibold">
                       {formatDuracion(sesion.duracion)}
@@ -388,6 +395,9 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
                     </td>
                     <td className="px-3 py-2 text-amber-300">
                       {sesion.ip_cliente || "-"}
+                    </td>
+                    <td className="px-3 py-2 text-gray-300">
+                      {sesion.mac_address || "-"}
                     </td>
                     <td className="px-3 py-2">
                       <span
