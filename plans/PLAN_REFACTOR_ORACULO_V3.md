@@ -440,3 +440,41 @@ Archivo: [`beholder_frontend/src/components/BeholderHistory.tsx`](beholder_front
 - No se agregan librerías.
 - No se modifican `_normalize_pppoe_segments`, `_merge_traffic_points`, cache TTL ni la
   resolución de nodo (`_resolve_pppoe_node_context`).
+
+## 9. Ajuste posterior — campo router (rango CIDR)
+
+Tras validación con Graylog real, el campo `router_ip` pasó a contener el rango de red del
+nodo (ej. `138.59.172.0/22`) y debe mostrarse **tal cual, sin mapeo**.
+
+Cambios en [`oraculo.py`](backend/src/routers/oraculo.py):
+
+1. En [`_parse_graylog_evento()`](backend/src/routers/oraculo.py:424):
+   ```python
+   router = str(msg.get("router_ip") or "Desconocido")
+   ```
+   (se elimina el llamado a `_to_operator_router()`).
+2. Eliminar el código muerto resultante:
+   - `_ORACULO_NODO_IP_MAP_REVERSE` ([`oraculo.py:83`](backend/src/routers/oraculo.py:83)).
+   - `_to_operator_router()` ([`oraculo.py:123`](backend/src/routers/oraculo.py:123)).
+
+Se conserva `_resolve_influx_node_ip()` y `ORACULO_NODO_IP_MAP`, que siguen usándose para
+mapear el nodo hacia la IP/tag `source` de Influx (eso NO es el display del router).
+
+## 10. InfluxDB — Esquema Netflow rediseñado (implementado)
+
+Reglas aplicadas en [`oraculo.py`](backend/src/routers/oraculo.py) y [`config.py`](backend/src/config.py):
+
+1. **Bucket dinámico por rango:**
+   - `rango_segundos <= 6h` → bucket `netflow`, `aggregateWindow 1m`.
+   - `rango_segundos > 6h` → bucket `netflow_resumen`, `aggregateWindow 5m`.
+2. **Dirección por Field (sin tag `sentido`):**
+   - Descarga = `in_bytes_sum`.
+   - Subida = `out_bytes_sum`.
+3. **Filtro de cliente exclusivo por tag `ip_cliente`** (se eliminan `src`, `dst` y el
+   filtro de nodo por `source`).
+4. **Measurement `netflow` en ambos buckets** (default `ORACULO_INFLUX_RESUMEN_MEASUREMENT`
+   actualizado de `resumen_5m` a `netflow`, también en el `.env` de dev).
+5. Se eliminó el fallback a bucket raw para rangos históricos y los parámetros internos
+   `nodo_ip`/`force_raw` de las funciones de consulta.
+
+Validado en dev: `trafico-pppoe` responde 200 y `debug` reporta Influx + Graylog OK.

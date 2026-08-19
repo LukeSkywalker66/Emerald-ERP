@@ -33,6 +33,20 @@ class TraficoPunto(BaseModel):
     tiempo: str
     descarga_mbps: float
     subida_mbps: float
+    descarga_bytes: int = 0
+    subida_bytes: int = 0
+
+
+class ResumenTrafico(BaseModel):
+    total_descarga_bytes: int
+    total_subida_bytes: int
+    pico_descarga_mbps: float
+    pico_subida_mbps: float
+
+
+class TraficoSerie(BaseModel):
+    puntos: list[TraficoPunto]
+    resumen: ResumenTrafico
 
 
 class SesionCliente(BaseModel):
@@ -65,8 +79,6 @@ class SesionIpCliente(BaseModel):
     razon_desconexion: Optional[str] = None
 
 
-_REALTIME_RANGES = {"15m", "30m", "60m"}
-_HISTORY_RANGES = {"12h", "24h", "7d", "30d"}
 _RANGE_SECONDS = {
     "15m": 15 * 60,
     "30m": 30 * 60,
@@ -80,11 +92,6 @@ _RANGE_SECONDS = {
 _GRAYLOG_SESSION_CACHE: dict[str, tuple[float, list[SesionIpCliente]]] = {}
 _GRAYLOG_SESSION_CACHE_LOCK = asyncio.Lock()
 _REQUEST_LOGGER = logging.getLogger("uvicorn.error")
-_ORACULO_NODO_IP_MAP_REVERSE = {
-    value: key
-    for key, value in config.ORACULO_NODO_IP_MAP.items()
-    if key and value
-}
 
 
 def _is_transient_error(exc: Exception) -> bool:
@@ -120,25 +127,6 @@ def _resolve_influx_node_ip(router_ip: Optional[str]) -> Optional[str]:
     return config.ORACULO_NODO_IP_MAP.get(router_ip, router_ip)
 
 
-def _to_operator_router(router_value: Optional[str]) -> str:
-    if not router_value:
-        return "Desconocido"
-
-    router = router_value.strip()
-    if not router:
-        return "Desconocido"
-
-    mapped = config.ORACULO_NODO_IP_MAP.get(router)
-    if mapped:
-        return mapped
-
-    reverse_mapped = _ORACULO_NODO_IP_MAP_REVERSE.get(router)
-    if reverse_mapped:
-        return reverse_mapped
-
-    return router
-
-
 def _merge_traffic_points(points: list[TraficoPunto]) -> list[TraficoPunto]:
     merged: dict[str, TraficoPunto] = {}
     for point in points:
@@ -151,6 +139,8 @@ def _merge_traffic_points(points: list[TraficoPunto]) -> list[TraficoPunto]:
             tiempo=point.tiempo,
             descarga_mbps=round(current.descarga_mbps + point.descarga_mbps, 4),
             subida_mbps=round(current.subida_mbps + point.subida_mbps, 4),
+            descarga_bytes=current.descarga_bytes + point.descarga_bytes,
+            subida_bytes=current.subida_bytes + point.subida_bytes,
         )
 
     return [merged[key] for key in sorted(merged.keys())]
@@ -158,11 +148,10 @@ def _merge_traffic_points(points: list[TraficoPunto]) -> list[TraficoPunto]:
 
 def _build_influx_interval_query(
     ip_cliente: str,
+    router_pub: str,
     rango: str,
     start_iso: str,
     stop_iso: str,
-    nodo_ip: Optional[str] = None,
-    force_raw: bool = False,
 ) -> str:
     raw_bucket = config.ORACULO_INFLUX_RAW_BUCKET
     resumen_bucket = config.ORACULO_INFLUX_RESUMEN_BUCKET
@@ -170,57 +159,52 @@ def _build_influx_interval_query(
     resumen_measurement = config.ORACULO_INFLUX_RESUMEN_MEASUREMENT
     in_bytes_field = config.ORACULO_INFLUX_IN_BYTES_FIELD
     out_bytes_field = config.ORACULO_INFLUX_OUT_BYTES_FIELD
-    resumen_ip_tag = config.ORACULO_INFLUX_RESUMEN_IP_TAG
-    node_tag = config.ORACULO_INFLUX_NODE_TAG
-    node_clause = f' and r["{node_tag}"] == "{nodo_ip}"' if node_tag and nodo_ip else ""
+    ip_tag = config.ORACULO_INFLUX_RESUMEN_IP_TAG
+    router_tag = config.ORACULO_INFLUX_ROUTER_PUB_TAG
 
-    if force_raw or rango in _REALTIME_RANGES:
+    rango_segundos = _RANGE_SECONDS.get(rango)
+    if not rango_segundos:
+        raise HTTPException(status_code=400, detail=f"Rango no soportado: {rango}")
+
+    if rango_segundos <= 6 * 60 * 60:
         bucket = raw_bucket
         measurement = raw_measurement
-        window_seconds = config.ORACULO_INFLUX_REALTIME_WINDOW_SECONDS
-        descarga_ip_cond = f'r["dst"] == ip'
-        subida_ip_cond = f'r["src"] == ip'
-        aggregation = "    |> aggregateWindow(every: 1m, fn: sum, createEmpty: false)\n"
-    elif rango in _HISTORY_RANGES:
+        window = "1m"
+        window_seconds = 60
+    else:
         bucket = resumen_bucket
         measurement = resumen_measurement
-        window_seconds = config.ORACULO_INFLUX_RESUMEN_WINDOW_SECONDS
-        descarga_ip_cond = f'r["{resumen_ip_tag}"] == "{ip_cliente}"'
-        subida_ip_cond = f'r["{resumen_ip_tag}"] == "{ip_cliente}"'
-        aggregation = ""
-    else:
-        raise HTTPException(status_code=400, detail=f"Rango no soportado: {rango}")
+        window = "5m"
+        window_seconds = 300
+
+    router_clause = f' and r["{router_tag}"] == "{router_pub}"' if router_pub else ""
 
     return f'''
 ip = "{ip_cliente}"
 
-descarga = from(bucket: "{bucket}")
+from(bucket: "{bucket}")
     |> range(start: time(v: "{start_iso}"), stop: time(v: "{stop_iso}"))
-    |> filter(fn: (r) => r["_measurement"] == "{measurement}" and r["_field"] == "{in_bytes_field}" and {descarga_ip_cond}{node_clause})
-{aggregation}    |> set(key: "_dir", value: "descarga")
-
-subida = from(bucket: "{bucket}")
-    |> range(start: time(v: "{start_iso}"), stop: time(v: "{stop_iso}"))
-    |> filter(fn: (r) => r["_measurement"] == "{measurement}" and r["_field"] == "{out_bytes_field}" and {subida_ip_cond}{node_clause})
-{aggregation}    |> set(key: "_dir", value: "subida")
-
-union(tables: [descarga, subida])
-    |> pivot(rowKey:["_time"], columnKey: ["_dir"], valueColumn: "_value")
+    |> filter(fn: (r) => r["_measurement"] == "{measurement}" and (r["_field"] == "{in_bytes_field}" or r["_field"] == "{out_bytes_field}") and r["{ip_tag}"] == ip{router_clause})
+    |> aggregateWindow(every: {window}, fn: sum, createEmpty: false)
+    |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
     |> map(fn: (r) => ({{
-    r with descarga_mbps: float(v: r["descarga"]) * 8.0 / {window_seconds}.0 / 1024.0 / 1024.0,
-    subida_mbps: float(v: r["subida"]) * 8.0 / {window_seconds}.0 / 1024.0 / 1024.0
+    _time: r._time,
+    descarga_bytes: (if exists r["{in_bytes_field}"] then float(v: r["{in_bytes_field}"]) else 0.0),
+    subida_bytes: (if exists r["{out_bytes_field}"] then float(v: r["{out_bytes_field}"]) else 0.0),
+    descarga_mbps: (if exists r["{in_bytes_field}"] then float(v: r["{in_bytes_field}"]) else 0.0) * 8.0 / {window_seconds}.0 / 1000000.0,
+    subida_mbps: (if exists r["{out_bytes_field}"] then float(v: r["{out_bytes_field}"]) else 0.0) * 8.0 / {window_seconds}.0 / 1000000.0
     }}))
-    |> keep(columns: ["_time", "descarga_mbps", "subida_mbps"])
+    |> keep(columns: ["_time", "descarga_mbps", "subida_mbps", "descarga_bytes", "subida_bytes"])
     |> sort(columns: ["_time"], desc: false)
 '''
 
 
 def _query_influx_interval(
     ip_cliente: str,
+    router_pub: str,
     rango: str,
     start_iso: str,
     stop_iso: str,
-    nodo_ip: Optional[str] = None,
 ) -> list[TraficoPunto]:
     influx_url = config.ORACULO_INFLUX_URL
     influx_token = config.ORACULO_INFLUX_TOKEN
@@ -230,7 +214,7 @@ def _query_influx_interval(
     if not influx_url or not influx_token or not influx_org:
         raise HTTPException(status_code=500, detail="Credenciales de InfluxDB incompletas")
 
-    flux_query = _build_influx_interval_query(ip_cliente, rango, start_iso, stop_iso, nodo_ip=nodo_ip)
+    flux_query = _build_influx_interval_query(ip_cliente, router_pub, rango, start_iso, stop_iso)
 
     attempts = max(config.ORACULO_RETRY_ATTEMPTS, 1)
     last_exc: Optional[Exception] = None
@@ -263,45 +247,19 @@ def _query_influx_interval(
             subida_raw = record.values.get("subida_mbps")
             descarga = float(descarga_raw) if descarga_raw is not None else 0.0
             subida = float(subida_raw) if subida_raw is not None else 0.0
+            descarga_bytes_raw = record.values.get("descarga_bytes")
+            subida_bytes_raw = record.values.get("subida_bytes")
+            descarga_bytes = int(float(descarga_bytes_raw)) if descarga_bytes_raw is not None else 0
+            subida_bytes = int(float(subida_bytes_raw)) if subida_bytes_raw is not None else 0
             puntos.append(
                 TraficoPunto(
                     tiempo=timestamp.isoformat(),
                     descarga_mbps=round(descarga, 4),
                     subida_mbps=round(subida, 4),
+                    descarga_bytes=descarga_bytes,
+                    subida_bytes=subida_bytes,
                 )
             )
-
-    if not puntos and rango in _HISTORY_RANGES:
-        fallback_query = _build_influx_interval_query(
-            ip_cliente,
-            rango,
-            start_iso,
-            stop_iso,
-            nodo_ip=nodo_ip,
-            force_raw=True,
-        )
-        try:
-            with InfluxDBClient(url=influx_url, token=influx_token, org=influx_org, timeout=timeout_ms) as client:
-                fallback_tables = client.query_api().query(query=fallback_query, org=influx_org)
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Fallo consultando InfluxDB: {exc}") from exc
-
-        for table in fallback_tables:
-            for record in table.records:
-                timestamp = record.get_time()
-                if timestamp is None:
-                    continue
-                descarga_raw = record.values.get("descarga_mbps")
-                subida_raw = record.values.get("subida_mbps")
-                descarga = float(descarga_raw) if descarga_raw is not None else 0.0
-                subida = float(subida_raw) if subida_raw is not None else 0.0
-                puntos.append(
-                    TraficoPunto(
-                        tiempo=timestamp.isoformat(),
-                        descarga_mbps=round(descarga, 4),
-                        subida_mbps=round(subida, 4),
-                    )
-                )
 
     return puntos
 
@@ -421,7 +379,7 @@ def _parse_graylog_evento(
     except Exception:
         return None, None, None, None, None, "Desconocido"
 
-    router = _to_operator_router(str(msg.get("router_ip") or "Desconocido"))
+    router = str(msg.get("router_ip") or "Desconocido")
     if accion == "logged in":
         return accion, timestamp, msg.get("framed_ip") or None, msg.get("mac_address") or None, None, router
 
@@ -494,7 +452,8 @@ def _pair_sessions(usuario_pppoe: str, graylog_messages: list[dict], limite: int
                 )
             )
 
-    for inicio_ev in logins_abiertos:
+    if logins_abiertos:
+        inicio_ev = logins_abiertos[-1]
         inicio_ts = inicio_ev["ts"]
         sesiones.append(
             SesionCliente(
@@ -591,15 +550,19 @@ def _to_utc_datetime(raw_iso: str) -> Optional[datetime]:
 def _normalize_pppoe_segments(
     sesiones: list[SesionIpCliente],
     rango_segundos: int,
-) -> list[tuple[str, str, str]]:
+) -> list[tuple[str, str, str, str]]:
     now = datetime.now(timezone.utc)
     rango_segundos = max(rango_segundos, 1)
     window_start = now - timedelta(seconds=rango_segundos)
     window_end = now
 
-    prepared: list[tuple[str, datetime, datetime]] = []
+    prepared: list[tuple[str, str, datetime, datetime]] = []
     for sesion in sesiones:
         if not sesion.ip_cliente:
+            continue
+
+        router_pub = (sesion.router or "").strip()
+        if not router_pub or router_pub == "Desconocido":
             continue
 
         start_dt = _to_utc_datetime(sesion.inicio)
@@ -618,26 +581,26 @@ def _normalize_pppoe_segments(
         if clamped_end <= clamped_start:
             continue
 
-        prepared.append((sesion.ip_cliente.strip(), clamped_start, clamped_end))
+        prepared.append((sesion.ip_cliente.strip(), router_pub, clamped_start, clamped_end))
 
     if not prepared:
         return []
 
-    prepared.sort(key=lambda row: (row[0], row[1], row[2]))
-    merged: list[tuple[str, datetime, datetime]] = []
-    for ip, start_dt, end_dt in prepared:
+    prepared.sort(key=lambda row: (row[0], row[1], row[2], row[3]))
+    merged: list[tuple[str, str, datetime, datetime]] = []
+    for ip, router_pub, start_dt, end_dt in prepared:
         if not merged:
-            merged.append((ip, start_dt, end_dt))
+            merged.append((ip, router_pub, start_dt, end_dt))
             continue
 
-        prev_ip, prev_start, prev_end = merged[-1]
-        if ip == prev_ip and start_dt <= (prev_end + timedelta(seconds=1)):
-            merged[-1] = (prev_ip, prev_start, max(prev_end, end_dt))
+        prev_ip, prev_router, prev_start, prev_end = merged[-1]
+        if ip == prev_ip and router_pub == prev_router and start_dt <= (prev_end + timedelta(seconds=1)):
+            merged[-1] = (prev_ip, prev_router, prev_start, max(prev_end, end_dt))
             continue
 
-        merged.append((ip, start_dt, end_dt))
+        merged.append((ip, router_pub, start_dt, end_dt))
 
-    return [(ip, start.isoformat(), end.isoformat()) for ip, start, end in merged]
+    return [(ip, router_pub, start.isoformat(), end.isoformat()) for ip, router_pub, start, end in merged]
 
 
 async def _get_cached_graylog_sessions(
@@ -673,19 +636,19 @@ async def _get_cached_graylog_sessions(
 async def _query_influx_interval_async(
     sem: asyncio.Semaphore,
     ip_cliente: str,
+    router_pub: str,
     rango: str,
     start_iso: str,
     stop_iso: str,
-    nodo_ip: Optional[str],
 ) -> list[TraficoPunto]:
     async with sem:
         return await asyncio.to_thread(
             _query_influx_interval,
             ip_cliente,
+            router_pub,
             rango,
             start_iso,
             stop_iso,
-            nodo_ip,
         )
 
 
@@ -712,7 +675,7 @@ async def _build_pppoe_traffic_series(
     usuario_pppoe: str,
     rango: str,
     limite: int = 100,
-) -> tuple[list[TraficoPunto], dict[str, str | int | float]]:
+) -> tuple[TraficoSerie, dict[str, str | int | float]]:
     metrics: dict[str, str | int | float] = {
         "cache": "unknown",
         "segments": 0,
@@ -741,13 +704,21 @@ async def _build_pppoe_traffic_series(
     segmentos = _normalize_pppoe_segments(sesiones, rango_segundos)
     metrics["segments"] = len(segmentos)
     if not segmentos:
-        return [], metrics
+        return TraficoSerie(
+            puntos=[],
+            resumen=ResumenTrafico(
+                total_descarga_bytes=0,
+                total_subida_bytes=0,
+                pico_descarga_mbps=0.0,
+                pico_subida_mbps=0.0,
+            ),
+        ), metrics
 
     max_concurrency = max(config.ORACULO_INFLUX_MAX_CONCURRENCY, 1)
     sem = asyncio.Semaphore(max_concurrency)
     tasks = [
-        _query_influx_interval_async(sem, ip_cliente, rango, start_iso, stop_iso, nodo_influx_ip)
-        for ip_cliente, start_iso, stop_iso in segmentos
+        _query_influx_interval_async(sem, ip_cliente, router_pub, rango, start_iso, stop_iso)
+        for ip_cliente, router_pub, start_iso, stop_iso in segmentos
     ]
 
     influx_t0 = time.perf_counter()
@@ -759,7 +730,14 @@ async def _build_pppoe_traffic_series(
     for batch in batches:
         merged_points.extend(batch)
 
-    return _merge_traffic_points(merged_points), metrics
+    puntos = _merge_traffic_points(merged_points)
+    resumen = ResumenTrafico(
+        total_descarga_bytes=sum(p.descarga_bytes for p in puntos),
+        total_subida_bytes=sum(p.subida_bytes for p in puntos),
+        pico_descarga_mbps=max((p.descarga_mbps for p in puntos), default=0.0),
+        pico_subida_mbps=max((p.subida_mbps for p in puntos), default=0.0),
+    )
+    return TraficoSerie(puntos=puntos, resumen=resumen), metrics
 
 
 def _probe_influx() -> ProbeResult:
@@ -822,22 +800,23 @@ def _probe_graylog() -> ProbeResult:
     return ProbeResult(ok=True, time_sec=round(time.perf_counter() - start, 3), detail="OK")
 
 
-def _query_influx_trafico(ip_cliente: str, rango: str, nodo_ip: Optional[str] = None) -> list[TraficoPunto]:
+def _query_influx_trafico(ip_cliente: str, rango: str, router_pub: Optional[str] = None) -> list[TraficoPunto]:
     now = datetime.now(timezone.utc)
     rango_segundos = _RANGE_SECONDS.get(rango)
     if not rango_segundos:
         raise HTTPException(status_code=400, detail=f"Rango no soportado: {rango}")
     start_iso = (now - timedelta(seconds=rango_segundos)).isoformat()
     stop_iso = now.isoformat()
-    return _query_influx_interval(ip_cliente, rango, start_iso, stop_iso, nodo_ip=nodo_ip)
+    return _query_influx_interval(ip_cliente, router_pub or "", rango, start_iso, stop_iso)
 
 
 @router.get("/trafico/{ip_cliente}", response_model=list[TraficoPunto])
 async def obtener_trafico_cliente(
     ip_cliente: str,
     rango: Literal["15m", "30m", "60m", "12h", "24h", "7d", "30d"] = Query(default="24h"),
+    router_pub: Optional[str] = Query(default=None),
 ) -> list[TraficoPunto]:
-    return await asyncio.to_thread(_query_influx_trafico, ip_cliente, rango)
+    return await asyncio.to_thread(_query_influx_trafico, ip_cliente, rango, router_pub)
 
 
 @router.get("/sesiones/{usuario_pppoe}", response_model=list[SesionCliente])
@@ -849,11 +828,11 @@ async def obtener_historial_sesiones(
     return _pair_sessions(usuario_pppoe, mensajes, limite)
 
 
-@router.get("/trafico-pppoe/{usuario_pppoe}", response_model=list[TraficoPunto])
+@router.get("/trafico-pppoe/{usuario_pppoe}", response_model=TraficoSerie)
 async def obtener_trafico_pppoe(
     usuario_pppoe: str,
     rango: Literal["15m", "30m", "60m", "12h", "24h", "7d", "30d"] = Query(default="24h"),
-) -> list[TraficoPunto]:
+) -> TraficoSerie:
     total_t0 = time.perf_counter()
     status_code = 200
     points_count = 0
@@ -866,9 +845,9 @@ async def obtener_trafico_pppoe(
     error_text = ""
 
     try:
-        puntos, metrics = await _build_pppoe_traffic_series(usuario_pppoe, rango)
-        points_count = len(puntos)
-        return puntos
+        serie, metrics = await _build_pppoe_traffic_series(usuario_pppoe, rango)
+        points_count = len(serie.puntos)
+        return serie
     except HTTPException as exc:
         status_code = exc.status_code
         error_text = str(exc.detail)

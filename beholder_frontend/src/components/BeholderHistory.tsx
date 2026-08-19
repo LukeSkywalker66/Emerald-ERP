@@ -31,6 +31,18 @@ interface Trafico {
   subida_mbps: number;
 }
 
+interface ResumenTrafico {
+  total_descarga_bytes: number;
+  total_subida_bytes: number;
+  pico_descarga_mbps: number;
+  pico_subida_mbps: number;
+}
+
+interface TraficoSerie {
+  puntos: Trafico[];
+  resumen: ResumenTrafico;
+}
+
 interface Sesion {
   inicio: string;
   fin?: string | null;
@@ -51,6 +63,7 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
   const [error, setError] = useState<string | null>(null);
   const [graphError, setGraphError] = useState<string | null>(null);
   const [trafico, setTrafico] = useState<Trafico[]>([]);
+  const [resumen, setResumen] = useState<ResumenTrafico | null>(null);
   const [sesiones, setSesiones] = useState<Sesion[]>([]);
   const [rango, setRango] = useState("15m"); // Rango de tráfico inicial, liviano para cargar más rápido
 
@@ -92,17 +105,20 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
       if (traficoRes.status === "fulfilled") {
         const traficoResponse = traficoRes.value;
         if (traficoResponse.ok) {
-          const traficoData: Trafico[] = await traficoResponse.json();
-          setTrafico(traficoData);
+          const traficoData: TraficoSerie = await traficoResponse.json();
+          setTrafico(traficoData.puntos ?? []);
+          setResumen(traficoData.resumen ?? null);
           setGraphError(null);
         } else {
           setTrafico([]);
+          setResumen(null);
           setGraphError(
             `El backend no pudo generar el gráfico (${traficoResponse.status}). Se muestran las sesiones igualmente.`
           );
         }
       } else {
         setTrafico([]);
+        setResumen(null);
         setGraphError(
           "No se pudo cargar el gráfico de tráfico. Se muestran las sesiones igualmente."
         );
@@ -110,6 +126,7 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
     } catch (err: any) {
       setError(err.message || "Error cargando historial. Intenta de nuevo.");
       setTrafico([]);
+      setResumen(null);
       setSesiones([]);
     } finally {
       setLoading(false);
@@ -138,16 +155,19 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
           `El backend no pudo generar el gráfico (${res.status}).`
         );
         setTrafico([]);
+        setResumen(null);
         return;
       }
 
-      const data: Trafico[] = await res.json();
-      setTrafico(data);
+      const data: TraficoSerie = await res.json();
+      setTrafico(data.puntos ?? []);
+      setResumen(data.resumen ?? null);
     } catch (err: any) {
       setGraphError(
         err.message || "Error cargando datos del rango. Intenta de nuevo."
       );
       setTrafico([]);
+      setResumen(null);
     } finally {
       setLoading(false);
     }
@@ -271,6 +291,15 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
     return duracionStr;
   };
 
+  // Función para formatear bytes
+  const formatBytes = (bytes: number) => {
+    if (!bytes) return "0 B";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    const val = bytes / Math.pow(1024, i);
+    return `${val.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
+  };
+
   return (
     <div className="mt-6 bg-gradient-to-b from-gray-900 to-gray-950 rounded-xl border border-gray-700 shadow-lg p-6 text-gray-100">
       {/* Encabezado con selector de rango */}
@@ -317,6 +346,28 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
         <div className="bg-amber-900 bg-opacity-30 border border-amber-700 rounded-lg p-4 mb-6">
           <p className="text-amber-200 font-semibold">ℹ️ Gráfico no disponible</p>
           <p className="text-amber-100 text-sm mt-1">{graphError}</p>
+        </div>
+      )}
+
+      {/* Rótulo de resumen */}
+      {resumen && !loading && (
+        <div className="mb-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-gray-800 bg-opacity-60 rounded-lg p-3 border border-gray-700">
+            <p className="text-xs text-gray-400">Total descargado</p>
+            <p className="text-emerald-400 font-bold text-lg">{formatBytes(resumen.total_descarga_bytes)}</p>
+          </div>
+          <div className="bg-gray-800 bg-opacity-60 rounded-lg p-3 border border-gray-700">
+            <p className="text-xs text-gray-400">Total subido</p>
+            <p className="text-blue-400 font-bold text-lg">{formatBytes(resumen.total_subida_bytes)}</p>
+          </div>
+          <div className="bg-gray-800 bg-opacity-60 rounded-lg p-3 border border-gray-700">
+            <p className="text-xs text-gray-400">Pico descarga</p>
+            <p className="text-emerald-400 font-bold text-lg">{resumen.pico_descarga_mbps.toFixed(2)} Mbps</p>
+          </div>
+          <div className="bg-gray-800 bg-opacity-60 rounded-lg p-3 border border-gray-700">
+            <p className="text-xs text-gray-400">Pico subida</p>
+            <p className="text-blue-400 font-bold text-lg">{resumen.pico_subida_mbps.toFixed(2)} Mbps</p>
+          </div>
         </div>
       )}
 
