@@ -31,11 +31,24 @@ interface Trafico {
   subida_mbps: number;
 }
 
+interface ResumenTrafico {
+  total_descarga_bytes: number;
+  total_subida_bytes: number;
+  pico_descarga_mbps: number;
+  pico_subida_mbps: number;
+}
+
+interface TraficoSerie {
+  puntos: Trafico[];
+  resumen: ResumenTrafico;
+}
+
 interface Sesion {
   inicio: string;
-  fin: string;
+  fin?: string | null;
   duracion: string;
   ip_cliente?: string;
+  mac_address?: string;
   razon_desconexion?: string;
   router: string;
 }
@@ -50,6 +63,7 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
   const [error, setError] = useState<string | null>(null);
   const [graphError, setGraphError] = useState<string | null>(null);
   const [trafico, setTrafico] = useState<Trafico[]>([]);
+  const [resumen, setResumen] = useState<ResumenTrafico | null>(null);
   const [sesiones, setSesiones] = useState<Sesion[]>([]);
   const [rango, setRango] = useState("15m"); // Rango de tráfico inicial, liviano para cargar más rápido
 
@@ -91,17 +105,20 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
       if (traficoRes.status === "fulfilled") {
         const traficoResponse = traficoRes.value;
         if (traficoResponse.ok) {
-          const traficoData: Trafico[] = await traficoResponse.json();
-          setTrafico(traficoData);
+          const traficoData: TraficoSerie = await traficoResponse.json();
+          setTrafico(traficoData.puntos ?? []);
+          setResumen(traficoData.resumen ?? null);
           setGraphError(null);
         } else {
           setTrafico([]);
+          setResumen(null);
           setGraphError(
             `El backend no pudo generar el gráfico (${traficoResponse.status}). Se muestran las sesiones igualmente.`
           );
         }
       } else {
         setTrafico([]);
+        setResumen(null);
         setGraphError(
           "No se pudo cargar el gráfico de tráfico. Se muestran las sesiones igualmente."
         );
@@ -109,6 +126,7 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
     } catch (err: any) {
       setError(err.message || "Error cargando historial. Intenta de nuevo.");
       setTrafico([]);
+      setResumen(null);
       setSesiones([]);
     } finally {
       setLoading(false);
@@ -137,16 +155,19 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
           `El backend no pudo generar el gráfico (${res.status}).`
         );
         setTrafico([]);
+        setResumen(null);
         return;
       }
 
-      const data: Trafico[] = await res.json();
-      setTrafico(data);
+      const data: TraficoSerie = await res.json();
+      setTrafico(data.puntos ?? []);
+      setResumen(data.resumen ?? null);
     } catch (err: any) {
       setGraphError(
         err.message || "Error cargando datos del rango. Intenta de nuevo."
       );
       setTrafico([]);
+      setResumen(null);
     } finally {
       setLoading(false);
     }
@@ -169,17 +190,62 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
     );
   }
 
-  // Construir datos para el gráfico
-  const chartLabels = trafico.map((t) => {
-    const date = new Date(t.tiempo);
-    return date.toLocaleTimeString("es-AR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  });
+  // Construir datos para el gráfico con relleno de ceros en el lapso solicitado
+  const rangeToMs = (rango: string): number => {
+    const map: Record<string, number> = {
+      "15m": 15 * 60 * 1000,
+      "30m": 30 * 60 * 1000,
+      "60m": 60 * 60 * 1000,
+      "12h": 12 * 60 * 60 * 1000,
+      "24h": 24 * 60 * 60 * 1000,
+      "7d": 7 * 24 * 60 * 60 * 1000,
+      "30d": 30 * 24 * 60 * 60 * 1000,
+    };
+    return map[rango] ?? 24 * 60 * 60 * 1000;
+  };
 
-  const descargaData = trafico.map((t) => t.descarga_mbps);
-  const subidaData = trafico.map((t) => t.subida_mbps);
+  const buildZeroFilledSeries = (
+    trafico: Trafico[],
+    rango: string
+  ): { labels: string[]; descarga: number[]; subida: number[] } => {
+    const rangeMs = rangeToMs(rango);
+    // resolución nativa: 1m para <=6h, 5m para >6h
+    const bucketMs =
+      rango === "15m" || rango === "30m" || rango === "60m" ? 60 * 1000 : 5 * 60 * 1000;
+    const now = Date.now();
+    const start = Math.floor((now - rangeMs) / bucketMs) * bucketMs;
+    const end = Math.floor(now / bucketMs) * bucketMs;
+
+    const slots = new Map<number, { d: number; s: number }>();
+    for (const t of trafico) {
+      const ts = new Date(t.tiempo).getTime();
+      if (Number.isNaN(ts)) continue;
+      const slot = Math.floor(ts / bucketMs) * bucketMs;
+      const cur = slots.get(slot) ?? { d: 0, s: 0 };
+      cur.d += t.descarga_mbps;
+      cur.s += t.subida_mbps;
+      slots.set(slot, cur);
+    }
+
+    const labels: string[] = [];
+    const descarga: number[] = [];
+    const subida: number[] = [];
+    for (let slot = start; slot <= end; slot += bucketMs) {
+      labels.push(
+        new Date(slot).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
+      );
+      const v = slots.get(slot);
+      descarga.push(v ? Number(v.d.toFixed(2)) : 0);
+      subida.push(v ? Number(v.s.toFixed(2)) : 0);
+    }
+    return { labels, descarga, subida };
+  };
+
+  const {
+    labels: chartLabels,
+    descarga: descargaData,
+    subida: subidaData,
+  } = buildZeroFilledSeries(trafico, rango);
 
   const chartData: ChartData<"line", number[], string> = {
     labels: chartLabels,
@@ -209,7 +275,7 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
 
   const chartOptions: ChartOptions<"line"> = {
     responsive: true,
-    maintainAspectRatio: true,
+    maintainAspectRatio: false,
     interaction: {
       mode: "index" as const,
       intersect: false,
@@ -247,6 +313,9 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
   const formatDateTime = (isoString: string) => {
     try {
       const date = new Date(isoString);
+      if (Number.isNaN(date.getTime())) {
+        return "—";
+      }
       return date.toLocaleString("es-AR", {
         year: "numeric",
         month: "2-digit",
@@ -265,6 +334,15 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
     // Esperamos formato como "00:45:30" o descripción
     if (!duracionStr) return "-";
     return duracionStr;
+  };
+
+  // Función para formatear volumen real (bytes crudos, sin multiplicar por 8)
+  const formatBytes = (bytes: number) => {
+    if (!bytes) return "0 B";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    const val = bytes / Math.pow(1024, i);
+    return `${val.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
   };
 
   return (
@@ -316,14 +394,37 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
         </div>
       )}
 
+      {/* Rótulo de resumen */}
+      {resumen && !loading && (
+        <div className="mb-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-gray-800 bg-opacity-60 rounded-lg p-3 border border-gray-700">
+            <p className="text-xs text-gray-400">Total descargado</p>
+            <p className="text-emerald-400 font-bold text-lg">{formatBytes(resumen.total_descarga_bytes)}</p>
+          </div>
+          <div className="bg-gray-800 bg-opacity-60 rounded-lg p-3 border border-gray-700">
+            <p className="text-xs text-gray-400">Total subido</p>
+            <p className="text-blue-400 font-bold text-lg">{formatBytes(resumen.total_subida_bytes)}</p>
+          </div>
+          <div className="bg-gray-800 bg-opacity-60 rounded-lg p-3 border border-gray-700">
+            <p className="text-xs text-gray-400">Pico descarga</p>
+            <p className="text-emerald-400 font-bold text-lg">{resumen.pico_descarga_mbps.toFixed(2)} Mbps</p>
+          </div>
+          <div className="bg-gray-800 bg-opacity-60 rounded-lg p-3 border border-gray-700">
+            <p className="text-xs text-gray-400">Pico subida</p>
+            <p className="text-blue-400 font-bold text-lg">{resumen.pico_subida_mbps.toFixed(2)} Mbps</p>
+          </div>
+        </div>
+      )}
+
       {/* Gráfico */}
       {!loading && trafico.length > 0 && (
         <div className="mb-8 bg-gray-800 bg-opacity-50 rounded-lg p-4 border border-gray-700">
-          <Line
-            data={chartData}
-            options={chartOptions}
-            height={250}
-          />
+          <div style={{ height: "40vh", maxHeight: "420px", minHeight: "220px" }}>
+            <Line data={chartData} options={chartOptions} />
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            ℹ️ Los tramos planos en 0 indican períodos sin datos de tráfico.
+          </p>
         </div>
       )}
 
@@ -364,6 +465,9 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
                     IP Cliente
                   </th>
                   <th className="px-3 py-2 text-left font-semibold text-emerald-300">
+                    MAC
+                  </th>
+                  <th className="px-3 py-2 text-left font-semibold text-emerald-300">
                     Motivo Desconexión
                   </th>
                 </tr>
@@ -378,7 +482,7 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
                       {formatDateTime(sesion.inicio)}
                     </td>
                     <td className="px-3 py-2 text-gray-200">
-                      {sesion.fin ? formatDateTime(sesion.fin) : "Activa"}
+                      {sesion.fin ? formatDateTime(sesion.fin) : "Activa actualmente"}
                     </td>
                     <td className="px-3 py-2 text-gray-300 font-semibold">
                       {formatDuracion(sesion.duracion)}
@@ -388,6 +492,9 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
                     </td>
                     <td className="px-3 py-2 text-amber-300">
                       {sesion.ip_cliente || "-"}
+                    </td>
+                    <td className="px-3 py-2 text-gray-300">
+                      {sesion.mac_address || "-"}
                     </td>
                     <td className="px-3 py-2">
                       <span
