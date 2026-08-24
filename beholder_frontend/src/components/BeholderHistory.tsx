@@ -190,17 +190,62 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
     );
   }
 
-  // Construir datos para el gráfico
-  const chartLabels = trafico.map((t) => {
-    const date = new Date(t.tiempo);
-    return date.toLocaleTimeString("es-AR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  });
+  // Construir datos para el gráfico con relleno de ceros en el lapso solicitado
+  const rangeToMs = (rango: string): number => {
+    const map: Record<string, number> = {
+      "15m": 15 * 60 * 1000,
+      "30m": 30 * 60 * 1000,
+      "60m": 60 * 60 * 1000,
+      "12h": 12 * 60 * 60 * 1000,
+      "24h": 24 * 60 * 60 * 1000,
+      "7d": 7 * 24 * 60 * 60 * 1000,
+      "30d": 30 * 24 * 60 * 60 * 1000,
+    };
+    return map[rango] ?? 24 * 60 * 60 * 1000;
+  };
 
-  const descargaData = trafico.map((t) => t.descarga_mbps);
-  const subidaData = trafico.map((t) => t.subida_mbps);
+  const buildZeroFilledSeries = (
+    trafico: Trafico[],
+    rango: string
+  ): { labels: string[]; descarga: number[]; subida: number[] } => {
+    const rangeMs = rangeToMs(rango);
+    // resolución nativa: 1m para <=6h, 5m para >6h
+    const bucketMs =
+      rango === "15m" || rango === "30m" || rango === "60m" ? 60 * 1000 : 5 * 60 * 1000;
+    const now = Date.now();
+    const start = Math.floor((now - rangeMs) / bucketMs) * bucketMs;
+    const end = Math.floor(now / bucketMs) * bucketMs;
+
+    const slots = new Map<number, { d: number; s: number }>();
+    for (const t of trafico) {
+      const ts = new Date(t.tiempo).getTime();
+      if (Number.isNaN(ts)) continue;
+      const slot = Math.floor(ts / bucketMs) * bucketMs;
+      const cur = slots.get(slot) ?? { d: 0, s: 0 };
+      cur.d += t.descarga_mbps;
+      cur.s += t.subida_mbps;
+      slots.set(slot, cur);
+    }
+
+    const labels: string[] = [];
+    const descarga: number[] = [];
+    const subida: number[] = [];
+    for (let slot = start; slot <= end; slot += bucketMs) {
+      labels.push(
+        new Date(slot).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
+      );
+      const v = slots.get(slot);
+      descarga.push(v ? Number(v.d.toFixed(2)) : 0);
+      subida.push(v ? Number(v.s.toFixed(2)) : 0);
+    }
+    return { labels, descarga, subida };
+  };
+
+  const {
+    labels: chartLabels,
+    descarga: descargaData,
+    subida: subidaData,
+  } = buildZeroFilledSeries(trafico, rango);
 
   const chartData: ChartData<"line", number[], string> = {
     labels: chartLabels,
@@ -230,7 +275,7 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
 
   const chartOptions: ChartOptions<"line"> = {
     responsive: true,
-    maintainAspectRatio: true,
+    maintainAspectRatio: false,
     interaction: {
       mode: "index" as const,
       intersect: false,
@@ -291,7 +336,7 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
     return duracionStr;
   };
 
-  // Función para formatear bytes
+  // Función para formatear volumen real (bytes crudos, sin multiplicar por 8)
   const formatBytes = (bytes: number) => {
     if (!bytes) return "0 B";
     const units = ["B", "KB", "MB", "GB", "TB"];
@@ -374,11 +419,12 @@ export default function BeholderHistory({ usuarioPPPoE }: BeholderHistoryProps) 
       {/* Gráfico */}
       {!loading && trafico.length > 0 && (
         <div className="mb-8 bg-gray-800 bg-opacity-50 rounded-lg p-4 border border-gray-700">
-          <Line
-            data={chartData}
-            options={chartOptions}
-            height={250}
-          />
+          <div style={{ height: "40vh", maxHeight: "420px", minHeight: "220px" }}>
+            <Line data={chartData} options={chartOptions} />
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            ℹ️ Los tramos planos en 0 indican períodos sin datos de tráfico.
+          </p>
         </div>
       )}
 
