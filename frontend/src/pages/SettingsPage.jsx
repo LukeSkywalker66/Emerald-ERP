@@ -537,6 +537,16 @@ export default function SettingsPage() {
           </TabsContent>
         )}
 
+        {/* ═══ Product Groups Tab (solo admin) ═══ */}
+        {isAdmin && (
+          <TabsContent value="product-groups" className="space-y-6">
+            <div>
+              <h2 className="text-xl font-bold text-zinc-50 mb-6">Grupos de Producto</h2>
+              <ProductGroupsTab />
+            </div>
+          </TabsContent>
+        )}
+
         {/* ═══ Backup Tab (solo admin) ═══ */}
         {isAdmin && (
           <TabsContent value="backup" className="space-y-6">
