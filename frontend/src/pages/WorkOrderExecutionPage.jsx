@@ -127,6 +127,9 @@ export default function WorkOrderExecutionPage() {
   const needsInspection = Boolean(location.state?.needsInspection);
   const inspectionBlockMessage =
     location.state?.inspectionMessage || 'Complete la inspección del vehículo primero';
+  // Equipos Bloqueados: si el técnico tiene una OT vencida sin cerrar,
+  // puede VER cualquier OT y cerrar la vencida, pero no INICIAR tareas nuevas.
+  const blockNewTasks = Boolean(location.state?.blockNewTasks);
 
   // State
   const [workOrder, setWorkOrder] = useState(null);
@@ -396,15 +399,15 @@ export default function WorkOrderExecutionPage() {
                 <Button
                   size="sm"
                   onClick={handleStartWork}
-                  disabled={isSubmitting || needsInspection || isExpired}
+                  disabled={isSubmitting || needsInspection || (blockNewTasks && !isExpired)}
                   title={
                     needsInspection
                       ? inspectionBlockMessage
-                      : isExpired
-                        ? 'OT vencida. Use "Cerrar OT" para completarla o marcarla como no realizada.'
+                      : blockNewTasks && !isExpired
+                        ? 'Tenés una OT vencida sin cerrar. Cerrala antes de iniciar una tarea nueva.'
                         : 'Iniciar trabajo'
                   }
-                  className={`h-9 ${isExpired ? 'bg-zinc-700 opacity-50 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                  className={`h-9 ${(blockNewTasks && !isExpired) ? 'bg-zinc-700 opacity-50 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}
                 >
                   <Play size={14} className="mr-1" />
                   Iniciar

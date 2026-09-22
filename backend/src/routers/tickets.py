@@ -8,7 +8,7 @@ import uuid
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
-from sqlalchemy import select, text, func
+from sqlalchemy import select, text, func, or_, exists
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from src.database import get_db
@@ -29,6 +29,9 @@ from src.models import (
     TicketCategory,
     TicketReason,
     User,
+    # Infraestructura / CRM (tablas 'connections' y 'clientes' de la DB principal Emerald)
+    Connection,
+    Cliente,
 )
 from src.schemas.tickets import (
     TicketCreate,
@@ -383,9 +386,39 @@ def list_tickets(
     
     if search:
         search_pattern = f"%{search.lower()}%"
-        query = query.filter(
-            (Ticket.subject.ilike(search_pattern))
+
+        # La búsqueda cubre asunto, descripción y los datos del cliente/conexión
+        # referenciados por cualquiera de los tres campos de conexión del ticket
+        # (principal, origen o destino).
+        def _conn_client_exists(fk_column):
+            return exists().where(
+                Connection.connection_id == fk_column,
+                Connection.customer_id == Cliente.id,
+                or_(
+                    Cliente.name.ilike(search_pattern),
+                    Cliente.doc_number.ilike(search_pattern),
+                    Connection.pppoe_username.ilike(search_pattern),
+                    Connection.direccion.ilike(search_pattern),
+                ),
+            )
+
+        client_match = or_(
+            _conn_client_exists(Ticket.connection_id),
+            _conn_client_exists(Ticket.origin_connection_id),
+            _conn_client_exists(Ticket.destination_connection_id),
         )
+
+        search_conditions = [
+            Ticket.subject.ilike(search_pattern),
+            Ticket.description.ilike(search_pattern),
+            client_match,
+        ]
+
+        # Si el término es numérico, también permite buscar por ID de ticket
+        if search.strip().isdigit():
+            search_conditions.append(Ticket.id == int(search.strip()))
+
+        query = query.filter(or_(*search_conditions))
     
     # Filtro de tags (OR logic)
     if tags:
@@ -696,11 +729,18 @@ def create_ticket(
     
     # Auto-crear OT según tipo
     if payload.ticket_type in [TicketType.installation, TicketType.withdrawal, TicketType.relocation]:
-        ot_type_map = {
-            TicketType.installation: WorkOrderType.install,
-            TicketType.withdrawal: WorkOrderType.pickup,
-            TicketType.relocation: WorkOrderType.install,
-        }
+        # WorkOrderType ya no tiene el valor genérico 'install': la migración
+        # 2026_06_07_002 lo dividió en 'install_ftth' e 'install_aire'. Resolver
+        # el tipo de OT según la tecnología declarada; por defecto FTTH.
+        if payload.ticket_type == TicketType.installation and payload.installation_tech == "wireless":
+            resolved_ot_type = WorkOrderType.install_aire
+        else:
+            ot_type_map = {
+                TicketType.installation: WorkOrderType.install_ftth,
+                TicketType.withdrawal: WorkOrderType.pickup,
+                TicketType.relocation: WorkOrderType.install_ftth,
+            }
+            resolved_ot_type = ot_type_map[payload.ticket_type]
         
         # Nota más descriptiva para la OT (reutiliza la descripción del ticket)
         wo_note = payload.description or (
@@ -714,7 +754,7 @@ def create_ticket(
             db,
             ticket=ticket,
             author_id=user_id,
-            ot_type=ot_type_map[payload.ticket_type],
+            ot_type=resolved_ot_type,
             priority=ticket_priority,
             operational_instruction=wo_note,
             extra_custom_data={

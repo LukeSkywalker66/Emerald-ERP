@@ -646,9 +646,19 @@ def update_work_order(
     target_final_state = payload.status in final_states if payload.status else False
     
     if scheduled_start_aware and scheduled_start_aware < now - grace_period:
-        # Si está en progreso y tiene fecha pasada, bloquear SOLO si NO intenta cerrar/completar
+        # Si está en progreso y tiene fecha pasada, bloquear SOLO si NO intenta cerrar/completar.
+        # EXCEPCIÓN: permitir INICIAR (in_progress) una OT vencida que todavía no arrancó
+        # (scheduled/assigned/pending_closure) para que el contador registre el tiempo empleado.
+        allow_start_overdue = (
+            payload.status == WorkOrderStatus.in_progress
+            and wo.status in [
+                WorkOrderStatus.scheduled,
+                WorkOrderStatus.assigned,
+                WorkOrderStatus.pending_closure,
+            ]
+        )
         if wo.status not in [WorkOrderStatus.pending_planning, WorkOrderStatus.coordinated]:
-            if not target_final_state:  # Solo bloquear si NO es un cierre
+            if not target_final_state and not allow_start_overdue:
                 raise HTTPException(
                     status_code=status.HTTP_423_LOCKED,
                     detail=f"Orden programada para {scheduled_start_aware.strftime('%d/%m %H:%M')}. No se puede editar OTs con fecha pasada.",

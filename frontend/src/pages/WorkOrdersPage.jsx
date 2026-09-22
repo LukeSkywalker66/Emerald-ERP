@@ -394,23 +394,48 @@ export default function WorkOrdersPage() {
 
           <div className="space-y-2">
             {pendingClosureOrders.map((wo) => (
-              <button
+              <div
                 key={wo.id}
-                type="button"
-                onClick={() => openPendingClosureDialog(wo.id)}
-                disabled={isOpeningCloseDialog}
-                className="w-full text-left rounded-lg border border-rose-800/60 bg-zinc-900/70 px-3 py-2 hover:bg-zinc-800/80 transition disabled:opacity-60"
+                role="button"
+                tabIndex={0}
+                onClick={() =>
+                  navigate(`/app/work-orders/${wo.id}/execute`, {
+                    state: { blockNewTasks: true },
+                  })
+                }
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    navigate(`/app/work-orders/${wo.id}/execute`, {
+                      state: { blockNewTasks: true },
+                    });
+                  }
+                }}
+                className="w-full text-left rounded-lg border border-rose-800/60 bg-zinc-900/70 px-3 py-2 hover:bg-zinc-800/80 transition cursor-pointer"
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-rose-100">OT #{wo.id} · {wo.client_name || 'Sin cliente'}</p>
                     <p className="text-xs text-zinc-300 truncate">{wo.address || 'Sin dirección'} · Programada: {formatScheduledDate(wo.scheduled_start || wo.scheduled_at)}</p>
                   </div>
-                  <Badge variant="outline" className="border-rose-600 text-rose-300">
-                    Cerrar ahora
-                  </Badge>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge variant="outline" className="border-zinc-600 text-zinc-300">
+                      Ver detalles
+                    </Badge>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openPendingClosureDialog(wo.id);
+                      }}
+                      disabled={isOpeningCloseDialog}
+                      className="rounded-lg border border-rose-600 text-rose-300 px-2 py-1 text-xs hover:bg-rose-950/30 disabled:opacity-60"
+                    >
+                      Cerrar ahora
+                    </button>
+                  </div>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         </div>
@@ -570,13 +595,13 @@ export default function WorkOrdersPage() {
                   <TableRow
                     key={wo.id}
                     onClick={() => {
-                      if (hasPendingClosureBlock) return;
                       navigate(`/app/work-orders/${wo.id}/execute`, {
                         state: {
                           needsInspection: hasInspectionBlock,
                           inspectionMessage: hasInspectionBlock
                             ? 'Complete la inspección del vehículo primero'
                             : null,
+                          blockNewTasks: hasPendingClosureBlock,
                         },
                       });
                     }}
