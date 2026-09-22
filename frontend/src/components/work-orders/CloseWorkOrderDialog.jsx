@@ -329,6 +329,7 @@ export default function CloseWorkOrderDialog({
         className="max-w-3xl bg-zinc-900 border-zinc-800 p-0"
         onInteractOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
+        showCloseButton={false}
       >
         <div className="w-full bg-zinc-900 rounded-lg p-6 space-y-6">
           {/* Header */}

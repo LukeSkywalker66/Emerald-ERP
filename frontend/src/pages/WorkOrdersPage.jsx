@@ -259,8 +259,10 @@ export default function WorkOrdersPage() {
   const formatScheduledDate = (dateStr) => {
     if (!dateStr) return '-';
     const date = new Date(dateStr);
-    return date.toLocaleDateString('es-AR', { 
-      day: '2-digit', 
+    if (Number.isNaN(date.getTime())) return '-';
+    // toLocaleString (no toLocaleDateString) para incluir hora y minutos
+    return date.toLocaleString('es-AR', {
+      day: '2-digit',
       month: 'short',
       hour: '2-digit',
       minute: '2-digit',
@@ -641,7 +643,7 @@ export default function WorkOrdersPage() {
 
                     {/* Fecha programada - visible para todos */}
                     <TableCell className="text-xs text-zinc-400">
-                      {formatScheduledDate(wo.scheduled_at)}
+                      {formatScheduledDate(wo.scheduled_start || wo.scheduled_at)}
                     </TableCell>
 
                     {/* Fecha de creación - solo admins */}

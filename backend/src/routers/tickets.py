@@ -632,6 +632,7 @@ def create_ticket(
     if payload.ticket_type == TicketType.installation:
         try:
             installation_sync_result = sync_installation_context(
+                db=db,
                 destination_connection_id=payload.destination_connection_id,
                 customer_dni=payload.customer_dni,
                 ispcube_customer=payload.ispcube_customer,

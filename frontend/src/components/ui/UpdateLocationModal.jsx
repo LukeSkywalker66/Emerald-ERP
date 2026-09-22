@@ -135,7 +135,7 @@ export default function UpdateLocationModal({
           </div>
 
           {/* Status indicator */}
-          {parseSuccess === 'success' && (
+          {parseSuccess === 'success' && !error && (
             <div className="flex items-center gap-2 text-emerald-400 text-sm bg-emerald-900/20 border border-emerald-700/30 rounded-lg px-3 py-2">
               <CheckCircle2 size={16} />
               <span>
@@ -144,10 +144,10 @@ export default function UpdateLocationModal({
             </div>
           )}
 
-          {parseSuccess === 'error' && (
+          {error && (
             <div className="flex items-center gap-2 text-red-400 text-sm bg-red-900/20 border border-red-700/30 rounded-lg px-3 py-2">
               <AlertCircle size={16} />
-              <span>{error || 'No se pudieron extraer coordenadas'}</span>
+              <span>{error}</span>
             </div>
           )}
         </div>

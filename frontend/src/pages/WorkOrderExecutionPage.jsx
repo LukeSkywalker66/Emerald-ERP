@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   ChevronLeft,
+  ExternalLink,
   Play,
   CheckCircle2,
   AlertCircle,
@@ -342,6 +343,7 @@ export default function WorkOrderExecutionPage() {
   const priority = PRIORITY_CONFIG[normalizedPriority] || PRIORITY_CONFIG.medium;
   const assignmentLabel = workOrder?.team_name || workOrder?.technician_name || 'sin asignar';
   const isTeamAssignment = Boolean(workOrder?.team_name);
+  const ticketId = workOrder?.ticket_info?.id || workOrder?.ticket_id;
 
   return (
     <div className="min-h-screen bg-zinc-950">
@@ -454,6 +456,21 @@ export default function WorkOrderExecutionPage() {
       <div className="px-4 md:px-6 py-4 md:py-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Columna Izquierda: Información */}
         <div className="space-y-4">
+          {/* Ticket de Origen — siempre disponible */}
+          {ticketId && (
+            <Button
+              variant="outline"
+              onClick={() => navigate(`/app/tickets/${ticketId}`)}
+              className="w-full h-11 justify-between border-emerald-600/50 text-emerald-300 hover:bg-emerald-900/30"
+            >
+              <span className="flex items-center gap-2">
+                <ClipboardList size={16} />
+                Ver Ticket de Origen #{ticketId}
+              </span>
+              <ExternalLink size={16} />
+            </Button>
+          )}
+
           {/* Cliente */}
           <div className="p-4 rounded-lg border border-zinc-800 bg-zinc-900/50">
             <h2 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
@@ -477,6 +494,22 @@ export default function WorkOrderExecutionPage() {
                   </p>
                 </div>
               )}
+
+              {/* Teléfono — siempre visible, con fallback si no hay dato */}
+              <div>
+                <p className="text-zinc-500 text-xs mb-1">Teléfono</p>
+                {workOrder?.ticket_info?.contact_phone ? (
+                  <a
+                    href={`tel:${workOrder.ticket_info.contact_phone}`}
+                    className="flex items-center gap-2 text-emerald-400 hover:text-emerald-300 text-sm"
+                  >
+                    <Phone size={14} className="flex-shrink-0" />
+                    {workOrder.ticket_info.contact_phone}
+                  </a>
+                ) : (
+                  <p className="text-zinc-500 text-sm italic">Sin teléfono registrado</p>
+                )}
+              </div>
 
               {workOrder?.ticket_info?.address && (
                 <div>
@@ -529,16 +562,33 @@ export default function WorkOrderExecutionPage() {
                 </button>
               </div>
 
-              {workOrder?.ticket_info?.contact_phone && (
+              {workOrder?.ticket_info?.pppoe_username && (
                 <div>
-                  <p className="text-zinc-500 text-xs mb-1">Teléfono</p>
-                  <a
-                    href={`tel:${workOrder.ticket_info.contact_phone}`}
-                    className="flex items-center gap-2 text-emerald-400 hover:text-emerald-300 text-sm"
-                  >
-                    <Phone size={14} />
-                    {workOrder.ticket_info.contact_phone}
-                  </a>
+                  <p className="text-zinc-500 text-xs mb-1">Usuario PPPoE</p>
+                  <p className="text-zinc-300 font-mono text-sm flex items-center gap-2">
+                    <Wifi size={14} className="text-zinc-400 flex-shrink-0" />
+                    {workOrder.ticket_info.pppoe_username}
+                  </p>
+                </div>
+              )}
+
+              {workOrder?.ticket_info?.plan_name && (
+                <div>
+                  <p className="text-zinc-500 text-xs mb-1">Plan</p>
+                  <p className="text-zinc-300 text-sm">
+                    {workOrder.ticket_info.plan_name}
+                    {workOrder?.ticket_info?.plan_speed ? ` · ${workOrder.ticket_info.plan_speed}` : ''}
+                  </p>
+                </div>
+              )}
+
+              {workOrder?.ticket_info?.node_name && (
+                <div>
+                  <p className="text-zinc-500 text-xs mb-1">Nodo</p>
+                  <p className="text-zinc-300 text-sm">
+                    {workOrder.ticket_info.node_name}
+                    {workOrder?.ticket_info?.node_ip ? ` (${workOrder.ticket_info.node_ip})` : ''}
+                  </p>
                 </div>
               )}
             </div>

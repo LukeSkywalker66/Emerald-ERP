@@ -161,7 +161,7 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
       });
       onSuccess(ticket);
     } catch (err) {
-      setError(err.message);
+      setError(err.response?.data?.detail || err.message || 'Error al crear la instalación');
     } finally {
       setIsSubmitting(false);
     }
@@ -281,6 +281,12 @@ export default function InstallationWizard({ onBack, onSuccess, categoryId }) {
             className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none"
           />
         </div>
+        {error && (
+          <div className="p-3 rounded-lg border border-rose-700/50 bg-rose-950/30 flex gap-2 text-rose-300 text-sm">
+            <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+        )}
         <div className="flex justify-between pt-4 border-t border-zinc-800">
           <Button variant="outline" onClick={() => setStep(2)} className="border-zinc-700">
             <ChevronLeft size={16} className="mr-1" />
