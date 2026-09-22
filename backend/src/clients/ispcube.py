@@ -260,11 +260,25 @@ def obtener_cliente_por_dni(dni: str):
     try:
         resp = _request("GET", url, params=params)
         cliente = resp.json()
-        
+
         if cliente and isinstance(cliente, dict):
+            # ISPCube: doc_number puede devolver conexiones desactualizadas
+            # (no incluye conexiones recién creadas). Refrescamos por customer_id.
+            customer_id = cliente.get("id")
+            connections = cliente.get("connections", [])
+            if customer_id:
+                try:
+                    fresh = obtener_cliente_por_id(customer_id)
+                    if fresh and fresh.get("customer"):
+                        cliente = fresh["customer"]
+                        connections = cliente.get("connections", [])
+                except Exception as fresh_exc:
+                    logger.warning(
+                        f"No se pudo refrescar conexiones del cliente {customer_id}: {fresh_exc}"
+                    )
             return {
                 "customer": cliente,
-                "connections": cliente.get("connections", [])
+                "connections": connections
             }
         return None
     except Exception as e:

@@ -270,20 +270,24 @@ def generate_delivery_proposal(
                 )
 
             required_total = required_base / product.unit_size
+            # `available_base` viene en unidades base (ej: 0.9 m de drop).
+            # Para comparar contra `required_total` (unidades compuestas),
+            # hay que convertir a compuestas dividiendo por unit_size.
             available_for_display = available_base
-            deficit = required_total - available_for_display
+            available_composite = available_base / product.unit_size
+            deficit = required_total - available_composite
             if deficit <= 0:
                 continue
 
             suggested_composite_units = math.ceil(deficit)
             suggested_qty = float(suggested_composite_units)
             required_base_total = required_base
-            available_base_total = available_base * product.unit_size
+            available_base_total = available_base
             display_unit = product.composite_unit_label or "u."
 
             logger.info(
                 f"  → {product.name}: {required_base} {product.unit_measure or 'base'} "
-                f"≈ {required_total} {display_unit}; disponible {available_for_display} {display_unit}, "
+                f"≈ {required_total} {display_unit}; disponible {available_composite} {display_unit}, "
                 f"sugerido {suggested_composite_units} {display_unit}"
             )
 

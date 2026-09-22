@@ -40,6 +40,14 @@ const priorityConfig = {
   low: { label: 'Baja', variant: 'default' },
 };
 
+const ticketTypeConfig = {
+  technical: { label: 'Soporte técnico', chip: 'bg-emerald-500/10 border-emerald-500/50 text-emerald-200' },
+  installation: { label: 'Instalación', chip: 'bg-blue-500/10 border-blue-500/50 text-blue-200' },
+  withdrawal: { label: 'Retiro', chip: 'bg-zinc-600/30 border-zinc-500/30 text-zinc-100' },
+  relocation: { label: 'Traslado', chip: 'bg-purple-500/15 border-purple-500/40 text-purple-200' },
+  administrative: { label: 'Administrativo', chip: 'bg-amber-500/15 border-amber-500/40 text-amber-200' },
+};
+
 function StatusBadge({ status }) {
   const config = statusConfig[status] || statusConfig.pending;
   const variantClasses = {
@@ -72,11 +80,21 @@ function PriorityBadge({ priority }) {
   );
 }
 
+function TicketTypeBadge({ ticketType }) {
+  const config = ticketTypeConfig[ticketType] || ticketTypeConfig.technical;
+  return (
+    <Badge variant="outline" className={`${config.chip} text-xs font-medium border`}>
+      {config.label}
+    </Badge>
+  );
+}
+
 export default function TicketsPage() {
   const navigate = useNavigate();
   const [tickets, setTickets] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -101,7 +119,7 @@ export default function TicketsPage() {
         offset: offset,
         order_by: sortField,
         order_dir: sortDirection,
-        search: searchQuery || undefined,
+        search: debouncedSearchQuery || undefined,
         status: statusFilter || undefined,
         priority: priorityFilter || undefined,
         tags: tagsFilter.length ? tagsFilter : undefined,
@@ -129,9 +147,18 @@ export default function TicketsPage() {
     loadTags();
   }, []);
 
+  // Debounce de la búsqueda: evita una request al backend por cada tecla.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+      setCurrentPage(1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   useEffect(() => {
     loadTickets();
-  }, [currentPage, pageSize, sortField, sortDirection, searchQuery, statusFilter, priorityFilter, tagsFilter]);
+  }, [currentPage, pageSize, sortField, sortDirection, debouncedSearchQuery, statusFilter, priorityFilter, tagsFilter]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -384,9 +411,7 @@ export default function TicketsPage() {
                     </TableCell>
                     <TableCell>
                       {ticket.ticket_type ? (
-                        <Badge variant="outline" className="text-xs bg-zinc-800 text-zinc-300 border-zinc-700">
-                          {ticket.ticket_type}
-                        </Badge>
+                        <TicketTypeBadge ticketType={ticket.ticket_type} />
                       ) : (
                         <span className="text-sm text-zinc-500">N/D</span>
                       )}

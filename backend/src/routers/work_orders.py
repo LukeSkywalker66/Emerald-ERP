@@ -462,8 +462,9 @@ def get_work_order_detail(
                 "plan_name": conn_snap.get("plan_name"),
                 "plan_speed": conn_snap.get("plan_speed"),
             })
-        # 2) Fallback: consultar DB si no hay snapshot y hay connection_id
-        elif wo.ticket.connection_id:
+        # 2) Fallback: consultar DB si no hay snapshot y hay connection_id.
+        #    Instalaciones/traslados usan destination/origin_connection_id.
+        elif (wo.ticket.connection_id or wo.ticket.destination_connection_id or wo.ticket.origin_connection_id):
             conn_row = db.execute(
                 text(
                     """
@@ -500,7 +501,7 @@ def get_work_order_detail(
                     LIMIT 1
                     """
                 ),
-                {"conn_id": wo.ticket.connection_id},
+                {"conn_id": wo.ticket.connection_id or wo.ticket.destination_connection_id or wo.ticket.origin_connection_id},
             ).first()
 
             if conn_row:
@@ -646,9 +647,26 @@ def update_work_order(
     target_final_state = payload.status in final_states if payload.status else False
     
     if scheduled_start_aware and scheduled_start_aware < now - grace_period:
-        # Si está en progreso y tiene fecha pasada, bloquear SOLO si NO intenta cerrar/completar
+        # Si está en progreso y tiene fecha pasada, bloquear SOLO si NO intenta cerrar/completar.
+        # EXCEPCIONES:
+        # - INICIAR (in_progress) una OT vencida que todavía no arrancó
+        #   (scheduled/assigned/pending_closure) para que el contador registre el tiempo.
+        # - Actualizar SOLO la geolocalización (lat/lng), que el técnico debe poder
+        #   registrar aunque la OT esté vencida.
+        update_fields = payload.model_dump(exclude_unset=True)
+        is_location_only = bool(update_fields) and set(update_fields.keys()).issubset(
+            {"latitude", "longitude"}
+        )
+        allow_start_overdue = (
+            payload.status == WorkOrderStatus.in_progress
+            and wo.status in [
+                WorkOrderStatus.scheduled,
+                WorkOrderStatus.assigned,
+                WorkOrderStatus.pending_closure,
+            ]
+        )
         if wo.status not in [WorkOrderStatus.pending_planning, WorkOrderStatus.coordinated]:
-            if not target_final_state:  # Solo bloquear si NO es un cierre
+            if not target_final_state and not allow_start_overdue and not is_location_only:
                 raise HTTPException(
                     status_code=status.HTTP_423_LOCKED,
                     detail=f"Orden programada para {scheduled_start_aware.strftime('%d/%m %H:%M')}. No se puede editar OTs con fecha pasada.",
@@ -1070,8 +1088,16 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
             "tags": [],  # Por performance, no cargamos tags en listado
         }
 
-    # Enriquecer con datos de conexión si existe (fallback cuando faltan datos clave)
-    if wo.ticket and wo.ticket.connection_id and (not client_name or not address):
+    # Enriquecer con datos de conexión si existe (fallback cuando faltan datos clave).
+    # Para instalaciones/traslados la conexión vive en destination/origin_connection_id,
+    # no en connection_id (que puede ser NULL), así que usamos el id efectivo.
+    effective_connection_id = (
+        wo.ticket.connection_id
+        or wo.ticket.destination_connection_id
+        or wo.ticket.origin_connection_id
+    ) if wo.ticket else None
+
+    if wo.ticket and effective_connection_id and (not client_name or not address):
         try:
             conn_row = db.execute(
                 text(
@@ -1113,7 +1139,7 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
                     LIMIT 1
                     """
                 ),
-                {"conn_id": wo.ticket.connection_id},
+                {"conn_id": effective_connection_id},
             ).first()
 
             if conn_row:
@@ -1131,7 +1157,7 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
                     ticket_dict['contact_info']['neighborhood'] = conn_row[11]
         except Exception as e:
             # Si falla la consulta, usar datos fallback del ticket
-            print(f"⚠️  Error enriqueciendo conexión {wo.ticket.connection_id}: {e}")
+            print(f"⚠️  Error enriqueciendo conexión {effective_connection_id}: {e}")
             pass
 
     return {

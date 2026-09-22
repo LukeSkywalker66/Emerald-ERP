@@ -25,8 +25,22 @@ def get_customer_by_dni(dni: str) -> Optional[Dict[str, Any]]:
         if not customer_id:
             return None
 
-        # Usar conexiones provistas en el payload de cliente (read-only)
+        # ISPCube devuelve `connections` desactualizadas al buscar por doc_number:
+        # no incluye conexiones recién creadas. El lookup por customer_id devuelve la
+        # lista completa y fresca, así que lo usamos como fuente para las conexiones.
         connections = customer_data.get("connections") or []
+        try:
+            fresh_pack = isp_client.obtener_cliente_por_id(customer_id)
+            if fresh_pack and fresh_pack.get("customer"):
+                fresh_customer = fresh_pack["customer"]
+                fresh_connections = fresh_customer.get("connections")
+                if isinstance(fresh_connections, list):
+                    customer_data = fresh_customer
+                    connections = fresh_connections
+        except Exception as fresh_exc:
+            logger.warning(
+                f"No se pudo refrescar conexiones del cliente {customer_id} desde ISPCube: {fresh_exc}"
+            )
 
         return {"customer": customer_data, "connections": connections}
     except Exception as exc:

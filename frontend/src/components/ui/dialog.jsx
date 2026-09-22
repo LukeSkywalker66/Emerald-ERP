@@ -26,18 +26,15 @@ export function Dialog({ open = false, onOpenChange, children, portal = true }) 
   };
 
   const handleOutsideClick = useCallback(() => {
-    const event = {
+    // Los modales NO deben cerrarse al hacer click fuera: el cierre debe ser
+    // explícito (botón "Cancelar"/"Cerrar" o la cruz superior). Esto evita
+    // pérdida de información durante altas y modificaciones.
+    interactOutsideHandler?.({
       defaultPrevented: false,
       preventDefault() {
         this.defaultPrevented = true;
       },
-    };
-
-    interactOutsideHandler?.(event);
-
-    if (!event.defaultPrevented) {
-      handleOpenChange(false);
-    }
+    });
   }, [interactOutsideHandler]);
 
   useEffect(() => {
@@ -46,18 +43,13 @@ export function Dialog({ open = false, onOpenChange, children, portal = true }) 
     const handleKeyDown = (event) => {
       if (event.key !== 'Escape') return;
 
-      const customEvent = {
+      // Escape tampoco cierra: el cierre debe ser explícito (botón o cruz).
+      escapeKeyHandler?.({
         defaultPrevented: false,
         preventDefault() {
           this.defaultPrevented = true;
         },
-      };
-
-      escapeKeyHandler?.(customEvent);
-
-      if (!customEvent.defaultPrevented) {
-        handleOpenChange(false);
-      }
+      });
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -115,6 +107,7 @@ export function DialogContent({
   className = '',
   onInteractOutside,
   onEscapeKeyDown,
+  showCloseButton = true,
 }) {
   const context = React.useContext(DialogContext);
 
@@ -137,6 +130,16 @@ export function DialogContent({
       onClick={(e) => e.stopPropagation()}
       className={`relative z-[60] w-full max-w-lg rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-lg ${className}`}
     >
+      {showCloseButton && (
+        <button
+          type="button"
+          onClick={() => context?.onOpenChange?.(false)}
+          aria-label="Cerrar"
+          className="absolute top-3 right-3 z-10 p-1 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
+        >
+          <X size={18} />
+        </button>
+      )}
       {children}
     </div>
   );

@@ -3,8 +3,15 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
+from sqlalchemy.orm import Session
+
+from src import models
 from src.clients import ispcube
-from src.db.postgres import Database
+from src.services.location_resolver import (
+    get_or_create_city,
+    get_or_create_neighborhood,
+    resolve_address_data,
+)
 
 
 class InstallationSyncError(Exception):
@@ -31,21 +38,105 @@ def _normalize_selected_connection(connection: Dict[str, Any], customer_id: Any)
     }
 
 
+def _sync_installation_to_session(
+    db: Session,
+    customer_data: Dict[str, Any],
+    connections_data: List[Dict[str, Any]],
+) -> None:
+    """Sincroniza cliente + conexiones en la MISMA sesión transaccional del ticket.
+
+    NO hace commit: la transacción la cierra el caller. Así, si la creación del
+    ticket falla, ni el cliente ni la conexión quedan persistidos y un segundo
+    intento no encuentra la conexión ya "existente" en Emerald.
+    """
+    from src.jobs.sync import mapear_cliente
+
+    customer_id = customer_data.get("id")
+    if not customer_id:
+        raise InstallationValidationError("Payload de cliente inválido: falta id")
+
+    # 1) Cliente
+    mapped_cliente = mapear_cliente(customer_data)
+    existing_cliente = db.query(models.Cliente).filter_by(id=customer_id).first()
+    if existing_cliente:
+        for key, value in mapped_cliente.items():
+            if hasattr(existing_cliente, key):
+                setattr(existing_cliente, key, value)
+    else:
+        db.merge(
+            models.Cliente(
+                id=mapped_cliente.get("id"),
+                code=mapped_cliente.get("code"),
+                name=mapped_cliente.get("name"),
+                doc_number=mapped_cliente.get("doc_number"),
+                address=mapped_cliente.get("address"),
+                status=mapped_cliente.get("status"),
+                raw_data=customer_data,
+            )
+        )
+
+    # 2) Contactos (emails + teléfonos)
+    for email_obj in customer_data.get("contact_emails") or []:
+        if email_obj.get("email"):
+            db.add(models.ClienteEmail(customer_id=customer_id, email=email_obj.get("email")))
+    for tel_obj in customer_data.get("phones") or []:
+        if tel_obj.get("number"):
+            db.add(models.ClienteTelefono(customer_id=customer_id, number=tel_obj.get("number")))
+
+    # 3) Conexiones
+    for conn in connections_data:
+        if not conn.get("id"):
+            continue
+
+        resolved = resolve_address_data({"connection": conn, "client": customer_data})
+        city = get_or_create_city(db, resolved.get("city_name"))
+        neighborhood = get_or_create_neighborhood(
+            db, resolved.get("neighborhood_name"), city.id if city else None
+        )
+
+        conn_id = conn.get("id")
+        existing_conn = db.query(models.Connection).filter_by(connection_id=conn_id).first()
+        if existing_conn:
+            existing_conn.pppoe_username = str(conn.get("user") or "")
+            existing_conn.customer_id = customer_id
+            existing_conn.node_id = conn.get("node_id")
+            existing_conn.plan_id = conn.get("plan_id")
+            existing_conn.direccion = conn.get("direccion") or conn.get("address")
+            existing_conn.city_id = city.id if city else None
+            existing_conn.neighborhood_id = neighborhood.id if neighborhood else None
+        else:
+            db.add(
+                models.Connection(
+                    connection_id=conn_id,
+                    pppoe_username=str(conn.get("user") or ""),
+                    customer_id=customer_id,
+                    node_id=conn.get("node_id"),
+                    plan_id=conn.get("plan_id"),
+                    direccion=conn.get("direccion") or conn.get("address"),
+                    city_id=city.id if city else None,
+                    neighborhood_id=neighborhood.id if neighborhood else None,
+                )
+            )
+
+    db.flush()
+
+
 def sync_installation_context(
     *,
+    db: Session,
     destination_connection_id: int,
     customer_dni: Optional[str],
     ispcube_customer: Optional[Dict[str, Any]],
     ispcube_connections: Optional[List[Dict[str, Any]]],
 ) -> Dict[str, Any]:
-    """
-    Sincroniza cliente + conexión de instalación usando la misma lógica base del nightly sync.
+    """Sincroniza cliente + conexión de instalación en la sesión transaccional del ticket.
 
     Reglas:
     - Si viene payload del wizard, se usa como fuente primaria.
     - Si no viene payload completo, consulta ISPCube por DNI.
     - Siempre sincroniza SOLO la conexión seleccionada por el operador.
-    
+    - Opera sobre `db` (sin commit propio) para que cliente/conexión/ticket sean atómicos.
+
     Retorna dict con:
     - customer_id, connection_id: IDs sincronizados
     - timeline_event: Dict para evento de timeline (humanizado + auditoría técnica)
@@ -89,21 +180,24 @@ def sync_installation_context(
 
     normalized_connection = _normalize_selected_connection(selected_connection, customer_id)
 
-    db_sync = Database()
     try:
-        db_sync.sync_cliente_instalacion(
+        _sync_installation_to_session(
+            db,
             customer_data=customer_payload,
             connections_data=[normalized_connection],
         )
+    except InstallationValidationError:
+        raise
     except Exception as exc:
-        raise InstallationSyncError(f"No se pudo sincronizar cliente/conexión de instalación: {exc}") from exc
-    finally:
-        db_sync.close()
+        db.rollback()
+        raise InstallationSyncError(
+            f"No se pudo sincronizar cliente/conexión de instalación: {exc}"
+        ) from exc
 
     # Construir mensaje humanizado para timeline (sin detalles técnicos para el usuario)
     client_name = customer_payload.get("name", "Cliente")
     direction = normalized_connection.get("direccion", "ubicación sin especificar")
-    
+
     timeline_content = f"✅ Instalación: cliente confirmado desde ISPCube ({client_name}, {direction})"
 
     return {
