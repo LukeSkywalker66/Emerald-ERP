@@ -48,6 +48,12 @@ class CompletionError(Exception):
     pass
 
 
+# Tolerancia para comparaciones de stock con floats. Evita falsos "stock
+# insuficiente" al consumir la última unidad de un producto compuesto
+# (blister/bobina) por deriva de precisión en float (ej. 0.9999999999 vs 1.0).
+_FLOAT_EPSILON = 1e-9
+
+
 def complete_work_order_with_inventory(
     db: Session,
     work_order: WorkOrder,
@@ -293,7 +299,7 @@ def _process_bulk_item(
         # ya está normalizado en unidades compuestas.
         quantity_to_deduct = item.quantity / product.unit_size
 
-    if not stock_entry or stock_entry.quantity < quantity_to_deduct:
+    if not stock_entry or (stock_entry.quantity + _FLOAT_EPSILON) < quantity_to_deduct:
         raise CompletionError(
             f"Stock insuficiente de {product.name}: "
             f"disponible {stock_entry.quantity if stock_entry else 0}, "
@@ -432,7 +438,7 @@ def _process_composite_tracked_serial_item(
     consume_qty = float(item.quantity)
     if consume_qty <= 0:
         raise CompletionError("La cantidad consumida debe ser mayor a 0")
-    if consume_qty > current_remaining:
+    if consume_qty > current_remaining + _FLOAT_EPSILON:
         raise CompletionError(
             f"Consumo inválido para {item.serial_number}: disponible {current_remaining}, requerido {consume_qty}"
         )
