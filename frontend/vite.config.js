@@ -33,6 +33,14 @@ export default defineConfig(({ mode }) => {
     //   - npm run build:debug → true (source maps para debugging)
     build: {
       sourcemap: process.env.VITE_ENABLE_SOURCEMAPS === 'true',
+      // Solo alerta chunks genuinamente pesados (ej. lucide-react), alineado
+      // con el objetivo Q3 de "reducir warnings de bundle/chunks".
+      //
+      // NOTA: NO se usa `manualChunks` para separar react/react-dom. Al dividir
+      // React en un chunk aparte se rompe el interop default de React (undefined.useLayoutEffect)
+      // en librerías como react-big-calendar/radix. Rollup ya particiona automáticamente
+      // los chunks por las rutas lazy (React.lazy).
+      chunkSizeWarningLimit: 500, // KB
     },
     server: {
       host: true,
