@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import * as inventoryService from '@/services/inventory.service';
 import workOrdersService from '@/services/workOrders.service';
 import coordinationService from '@/services/coordination.service';
@@ -32,6 +32,9 @@ export default function useMaterialSelector(workOrderId, context = {}) {
   // Warehouse del técnico
   const [currentWarehouse, setCurrentWarehouse] = useState(null);
   const [warehouseStock, setWarehouseStock] = useState(null);
+
+  // Items ya registrados en esta OT (para no ofrecer stock que ya fue consumido)
+  const [existingItems, setExistingItems] = useState([]);
 
   // Producto seleccionado y seriales disponibles
   const [selectedProduct, setSelectedProduct] = useState(null);
@@ -73,6 +76,13 @@ export default function useMaterialSelector(workOrderId, context = {}) {
     const serialEntry = entries.find((entry) => Array.isArray(entry.serial_items) && entry.serial_items.length > 0);
     return serialEntry?.serial_items || [];
   }, [getStockItemsForProduct]);
+
+  // Cantidad ya registrada en la OT para un producto (en unidades base).
+  const getAlreadyAddedQuantity = useCallback((productId) => {
+    return (existingItems || [])
+      .filter((item) => item.product_id === productId)
+      .reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
+  }, [existingItems]);
 
   /**
    * Cargar inventario: productos + warehouse + stock
@@ -130,7 +140,7 @@ export default function useMaterialSelector(workOrderId, context = {}) {
     try {
       const direct = await inventoryService.getMyWarehouse(userId);
       if (direct) return direct;
-    } catch (e) {
+    } catch {
       // ignorar
     }
 
@@ -165,6 +175,16 @@ export default function useMaterialSelector(workOrderId, context = {}) {
         if (cancelled) return;
         setProducts(productsData || []);
       }
+
+      // Cargar items ya registrados en la OT para descontarlos del disponible.
+      if (workOrderId) {
+        try {
+          const woDetail = await workOrdersService.getWorkOrderDetail(workOrderId);
+          if (!cancelled) setExistingItems(woDetail?.items || []);
+        } catch {
+          // Si falla, se mantiene el listado anterior; no bloquear la carga.
+        }
+      }
     } catch (err) {
       if (cancelled) return;
       console.error('[useMaterialSelector] Error loading inventory:', err);
@@ -174,7 +194,7 @@ export default function useMaterialSelector(workOrderId, context = {}) {
     }
 
     return () => { cancelled = true; };
-  }, [user?.id, resolveWarehouse, teamIdFromWorkOrder]);
+  }, [user?.id, resolveWarehouse, teamIdFromWorkOrder, workOrderId]);
 
   /**
    * Refrescar stock del warehouse actual
@@ -234,11 +254,21 @@ export default function useMaterialSelector(workOrderId, context = {}) {
     if (selectedProduct.type === 'BULK') {
       const stockEntries = getStockItemsForProduct(selectedProduct.id, warehouseStock);
       const stockBulkEntry = stockEntries.find((entry) => typeof entry.quantity === 'number' && entry.quantity > 0);
-      return stockBulkEntry?.quantity || 1;
+      const rawQty = stockBulkEntry?.quantity || 0;
+      const alreadyAdded = getAlreadyAddedQuantity(selectedProduct.id);
+
+      // Compuesto: el stock viene en unidades compuestas (blister/bobina),
+      // pero el técnico consume en unidades base (conectores/metros).
+      if (selectedProduct.is_composite && selectedProduct.unit_size) {
+        const baseAvailable = rawQty * selectedProduct.unit_size;
+        return Math.max(0, baseAvailable - alreadyAdded);
+      }
+
+      return Math.max(0, rawQty - alreadyAdded);
     }
 
     return availableSerials.length || 1;
-  }, [selectedProduct, warehouseStock, availableSerials, getSelectedSerial, isTrackedCompositeProduct, getStockItemsForProduct]);
+  }, [selectedProduct, warehouseStock, availableSerials, getSelectedSerial, isTrackedCompositeProduct, getStockItemsForProduct, getAlreadyAddedQuantity]);
 
   /**
    * Validar formulario antes de agregar
@@ -283,8 +313,14 @@ export default function useMaterialSelector(workOrderId, context = {}) {
         warehouse_id: currentWarehouse.id,
       });
 
-      // Refrescar stock después de agregar
+      // Refrescar stock e items ya registrados después de agregar
       await refreshStock();
+      try {
+        const woDetail = await workOrdersService.getWorkOrderDetail(workOrderId);
+        setExistingItems(woDetail?.items || []);
+      } catch {
+        // Si falla la recarga, el listado previo se mantiene; no bloquear.
+      }
 
       // Resetear formulario
       setForm({ product_id: '', quantity: 1, serial_number: '', notes: '' });

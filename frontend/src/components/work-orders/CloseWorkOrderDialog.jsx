@@ -622,6 +622,11 @@ export default function CloseWorkOrderDialog({
             {/* PASO 4: CONFIRMACIÓN + NOTA DE CONEXIÓN */}
             {step === 4 && (
               <div className="space-y-4">
+                {uploadError && (
+                  <div className="p-3 bg-red-900/30 border border-red-700/50 rounded text-sm text-red-200 mb-4">
+                    {uploadError}
+                  </div>
+                )}
                 <div>
                   <h3 className="font-medium text-white mb-3">Confirmación y Notas</h3>
                   

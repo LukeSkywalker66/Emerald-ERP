@@ -51,7 +51,35 @@ export default function MaterialSelectorForm({ materialState, onAdd, compact = f
     ? availableSerials.reduce((sum, s) => sum + (s.remaining_quantity ?? s.initial_quantity ?? 0), 0)
     : 0;
 
-  const unitLabel = selectedProduct?.unit_measure || selectedProduct?.composite_unit_label || 'u.';
+  // Unidad base legible en español (evita tokens en inglés como "units").
+  const unitLabel = (() => {
+    const raw = (selectedProduct?.unit_measure || '').trim();
+    const lower = raw.toLowerCase();
+    if (!lower) return 'u.';
+    if (lower === 'm' || lower === 'mts' || lower === 'metros' || lower === 'metro') return 'm';
+    if (['units', 'unit', 'pcs', 'pieces', 'piece'].includes(lower)) return 'u.';
+    return raw;
+  })();
+
+  // Saldo compuesto formateado de forma natural para el técnico:
+  //   "1 Blister + 3 u."  (blisters enteros + sobrante en unidades base)
+  //   "9 u."              (menos de un blister)
+  // Evita decimales confusos como "0.9".
+  // Usa getMaxQuantity() para descontar lo ya registrado en la OT.
+  const compositeStockDisplay = (() => {
+    if (!selectedProduct?.is_composite || !selectedProduct?.unit_size) return null;
+    const unitSize = selectedProduct.unit_size;
+    const compLabel = selectedProduct.composite_unit_label || 'blister';
+    const availableBase = getMaxQuantity();
+    const rawQty = availableBase / unitSize;
+    const whole = Math.floor(rawQty + 1e-9);
+    const remBase = Math.round((rawQty - whole) * unitSize * 1000) / 1000;
+    const parts = [];
+    if (whole > 0) parts.push(`${whole} ${compLabel}`);
+    if (remBase > 0) parts.push(`${remBase} ${unitLabel}`);
+    if (parts.length === 0) parts.push(`0 ${unitLabel}`);
+    return parts.join(' + ');
+  })();
 
   return (
     <div className="space-y-3">
@@ -139,7 +167,10 @@ export default function MaterialSelectorForm({ materialState, onAdd, compact = f
             <div className="mt-2">
               {selectedProduct.type === 'BULK' && !isCompositeTracked ? (
                 <p className="text-xs text-emerald-300 font-medium">
-                  Stock disponible: <span className="font-bold">{getMaxQuantity()}</span> {unitLabel}
+                  Stock disponible:{' '}
+                  <span className="font-bold">
+                    {compositeStockDisplay || `${getMaxQuantity()} ${unitLabel}`}
+                  </span>
                 </p>
               ) : isCompositeTracked ? (
                 <div className="flex items-center gap-2">
@@ -167,19 +198,42 @@ export default function MaterialSelectorForm({ materialState, onAdd, compact = f
               Cantidad *
             </label>
           )}
-          <input
-            type="number"
-            min="1"
-            max={getMaxQuantity()}
-            value={form.quantity}
-            onChange={(e) =>
-              setForm((prev) => ({ ...prev, quantity: parseInt(e.target.value, 10) }))
-            }
-            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-          />
+          {selectedProduct.is_composite && selectedProduct.unit_size ? (
+            <>
+              <p className="text-xs text-zinc-500 mb-1">
+                1 {selectedProduct.composite_unit_label || 'unidad compuesta'} = {selectedProduct.unit_size} {unitLabel}
+              </p>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                max={getMaxQuantity()}
+                value={form.quantity}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, quantity: parseFloat(e.target.value) || '' }))
+                }
+                placeholder={`Consumidos en ${unitLabel}`}
+                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+              />
+            </>
+          ) : (
+            <input
+              type="number"
+              min="1"
+              max={getMaxQuantity()}
+              value={form.quantity}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, quantity: parseInt(e.target.value, 10) }))
+              }
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+            />
+          )}
           {compact && (
             <p className="text-xs text-zinc-500 mt-1">
-              Disp: <span className="text-emerald-400 font-medium">{getMaxQuantity()} {unitLabel}</span>
+              Disp:{' '}
+              <span className="text-emerald-400 font-medium">
+                {compositeStockDisplay || `${getMaxQuantity()} ${unitLabel}`}
+              </span>
             </p>
           )}
         </div>
