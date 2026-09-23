@@ -95,6 +95,16 @@ def _sync_installation_to_session(
         )
 
         conn_id = conn.get("id")
+        # Coordenadas: vienen del cliente ISPCube (top-level lat/lng) o de la conexión.
+        lat = (
+            conn.get("lat") or conn.get("latitude")
+            or customer_data.get("lat") or customer_data.get("latitude")
+        )
+        lng = (
+            conn.get("lng") or conn.get("longitude")
+            or customer_data.get("lng") or customer_data.get("longitude")
+        )
+
         existing_conn = db.query(models.Connection).filter_by(connection_id=conn_id).first()
         if existing_conn:
             existing_conn.pppoe_username = str(conn.get("user") or "")
@@ -104,6 +114,10 @@ def _sync_installation_to_session(
             existing_conn.direccion = conn.get("direccion") or conn.get("address")
             existing_conn.city_id = city.id if city else None
             existing_conn.neighborhood_id = neighborhood.id if neighborhood else None
+            if lat is not None:
+                existing_conn.latitude = lat
+            if lng is not None:
+                existing_conn.longitude = lng
         else:
             db.add(
                 models.Connection(
@@ -115,6 +129,8 @@ def _sync_installation_to_session(
                     direccion=conn.get("direccion") or conn.get("address"),
                     city_id=city.id if city else None,
                     neighborhood_id=neighborhood.id if neighborhood else None,
+                    latitude=lat,
+                    longitude=lng,
                 )
             )
 

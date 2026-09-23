@@ -571,8 +571,11 @@ def confirm_delivery(
     if delivery.status == DeliveryStatus.COMPLETED:
         raise ValueError(f"La entrega {delivery_id} ya fue completada")
 
-    # Si hubo escaneo manual, transferimos SOLO esos ítems.
-    # Si no hubo escaneo, usamos PROPOSAL como fallback retrocompatible.
+    # Si hubo escaneo manual, lo escaneado es la verdad para los productos cubiertos.
+    # Los ítems BULK de la propuesta no se registran por scan (solo se validan),
+    # así que se transfieren según lo propuesto. Los ítems serializados de la
+    # propuesta que no fueron reemplazados por un scan se cubren con el fallback
+    # de serial disponible del depósito origen.
     delivery_items = db.execute(
         select(MaterialDeliveryItem)
         .options(joinedload(MaterialDeliveryItem.product))
@@ -580,9 +583,17 @@ def confirm_delivery(
     ).scalars().all()
 
     manual_items = [i for i in delivery_items if i.source == DeliveryItemSource.MANUAL]
-    items_to_transfer = manual_items if manual_items else [
-        i for i in delivery_items if i.source == DeliveryItemSource.PROPOSAL
-    ]
+    proposal_items = [i for i in delivery_items if i.source == DeliveryItemSource.PROPOSAL]
+    manual_product_ids = {i.product_id for i in manual_items if i.product_id}
+
+    if manual_items:
+        items_to_transfer = list(manual_items)
+        for pi in proposal_items:
+            if pi.product_id in manual_product_ids:
+                continue
+            items_to_transfer.append(pi)
+    else:
+        items_to_transfer = proposal_items
 
     # Ejecutar transferencia de stock para cada item
     from src.services.inventory_service import transfer_stock_bulk, transfer_stock_serial
@@ -602,7 +613,7 @@ def confirm_delivery(
                 ).scalars().first()
                 serial_id = by_number.id if by_number else None
 
-            if not serial_id and manual_items:
+            if not serial_id and item.source == DeliveryItemSource.MANUAL:
                 raise ValueError(
                     f"Falta serial escaneado para '{item.product.name if item.product else item.product_id}'. "
                     f"No se puede confirmar la entrega con ítems manuales incompletos."
@@ -647,10 +658,11 @@ def confirm_delivery(
             )
 
     # Normalizar snapshot final: si hubo escaneo manual, la entrega completada
-    # debe reflejar exclusivamente lo efectivamente escaneado/seleccionado.
+    # debe reflejar lo efectivamente escaneado/seleccionado. Solo se eliminan
+    # las propuestas reemplazadas por scans (los bulk de propuesta se conservan).
     if manual_items:
-        for item in delivery_items:
-            if item.source == DeliveryItemSource.PROPOSAL:
+        for item in proposal_items:
+            if item.product_id in manual_product_ids:
                 db.delete(item)
 
     delivery.status = DeliveryStatus.COMPLETED

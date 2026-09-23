@@ -79,13 +79,30 @@ def create_work_order_for_ticket(
     )
 
     ticket_custom_data = dict(getattr(ticket, "custom_data", {}) or {})
-    connection_snapshot = build_connection_snapshot(db, ticket.connection_id)
+
+    # La ubicación canónica vive en la conexión. Las OTs ligadas a una conexión
+    # (técnicas, altas, traslados, retiros) heredan sus coordenadas; las OTs de
+    # infraestructura sin conexión conservan la lat/lng que reciban por parámetro.
+    effective_connection_id = (
+        ticket.connection_id
+        or getattr(ticket, "destination_connection_id", None)
+        or getattr(ticket, "origin_connection_id", None)
+    )
+    connection_snapshot = build_connection_snapshot(db, effective_connection_id)
+
+    resolved_latitude = latitude
+    resolved_longitude = longitude
+    if connection_snapshot:
+        if resolved_latitude is None:
+            resolved_latitude = connection_snapshot.get("latitude")
+        if resolved_longitude is None:
+            resolved_longitude = connection_snapshot.get("longitude")
 
     custom_data = {
         **ticket_custom_data,
         "priority": resolved_priority.value,
         "client_id": getattr(ticket, "client_id", None),
-        "connection_id": ticket.connection_id,
+        "connection_id": effective_connection_id,
         "address": getattr(ticket, "address", None) or getattr(ticket, "availability_note", None),
         "connection": connection_snapshot,
     }
@@ -100,8 +117,8 @@ def create_work_order_for_ticket(
         priority=resolved_priority,
         notes=instruction,
         custom_data=custom_data,
-        latitude=latitude,
-        longitude=longitude,
+        latitude=resolved_latitude,
+        longitude=resolved_longitude,
     )
     db.add(work_order)
     db.flush()

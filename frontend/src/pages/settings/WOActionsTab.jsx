@@ -11,6 +11,10 @@ export default function WOActionsTab() {
   const [filterOt, setFilterOt] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    ot_type: '', code: '', name: '', description: '', requires_notes: false,
+  });
 
   const loadData = useCallback(async () => {
     try {
@@ -65,6 +69,17 @@ export default function WOActionsTab() {
     }
   };
 
+  const handleCreate = async () => {
+    try {
+      await workOrderTypesService.createWOAction(createForm);
+      setShowCreateForm(false);
+      setCreateForm({ ot_type: '', code: '', name: '', description: '', requires_notes: false });
+      await loadData();
+    } catch (err) {
+      alert('Error: ' + (err.response?.data?.detail || err.message));
+    }
+  };
+
   const getTypeName = (code) => otTypes.find(t => t.code === code)?.name || code;
 
   if (loading) {
@@ -73,7 +88,7 @@ export default function WOActionsTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2 items-center">
+      <div className="flex gap-2 items-center justify-between">
         <select value={filterOt} onChange={(e) => setFilterOt(e.target.value)}
           className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-white text-sm">
           <option value="">Todos los tipos</option>
@@ -81,7 +96,56 @@ export default function WOActionsTab() {
             <option key={t.id} value={t.code}>{t.name}</option>
           ))}
         </select>
+        <Button size="sm" variant="outline" onClick={() => setShowCreateForm(!showCreateForm)} className="h-8 text-xs">
+          {showCreateForm ? 'Cancelar' : (<><Plus size={14} className="mr-1" /> Nueva Acción</>)}
+        </Button>
       </div>
+
+      {showCreateForm && (
+        <div className="p-4 rounded-lg border border-emerald-800/50 bg-emerald-950/20 space-y-3">
+          <h4 className="text-sm font-medium text-emerald-300">Nueva Acción de Cierre</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-zinc-400 block mb-1">Tipo de OT *</label>
+              <select value={createForm.ot_type} onChange={(e) => setCreateForm({ ...createForm, ot_type: e.target.value })}
+                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white text-sm">
+                <option value="">Seleccionar tipo...</option>
+                {otTypes.filter(t => t.is_active).map(t => (
+                  <option key={t.id} value={t.code}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-zinc-400 block mb-1">Código *</label>
+              <input value={createForm.code} onChange={(e) => setCreateForm({ ...createForm, code: e.target.value })}
+                placeholder="ej: configurar_wifi"
+                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white text-sm font-mono" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-zinc-400 block mb-1">Nombre *</label>
+              <input value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
+                placeholder="ej: Configurar WiFi"
+                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-zinc-400 block mb-1">Descripción</label>
+              <input value={createForm.description} onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
+                placeholder="Cuándo se usa esta acción"
+                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white text-sm" />
+            </div>
+            <label className="flex items-center gap-2 text-xs text-zinc-400">
+              <input type="checkbox" checked={createForm.requires_notes}
+                onChange={(e) => setCreateForm({ ...createForm, requires_notes: e.target.checked })} />
+              Requiere notas
+            </label>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowCreateForm(false)}>Cancelar</Button>
+            <Button size="sm" onClick={handleCreate} disabled={!createForm.ot_type || !createForm.code || !createForm.name}
+              className="bg-emerald-600 hover:bg-emerald-700">Crear Acción</Button>
+          </div>
+        </div>
+      )}
 
       {Object.entries(groupedActions).map(([otType, items]) => (
         <div key={otType} className="p-3 rounded-lg border border-zinc-800 bg-zinc-900/30">
