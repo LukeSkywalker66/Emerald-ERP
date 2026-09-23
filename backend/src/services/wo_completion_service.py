@@ -91,7 +91,14 @@ def complete_work_order_with_inventory(
     if not ticket:
         raise CompletionError("Ticket asociado no encontrado")
 
-    connection_id = ticket.connection_id
+    # Resolver la conexión efectiva: los tickets de instalación usan
+    # destination_connection_id y los de traslado origin_connection_id,
+    # pudiendo quedar connection_id en NULL.
+    connection_id = (
+        ticket.connection_id
+        or ticket.destination_connection_id
+        or ticket.origin_connection_id
+    )
     if not connection_id:
         raise CompletionError(
             "El ticket no tiene una conexión asociada. "

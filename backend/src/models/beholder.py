@@ -56,8 +56,10 @@ class Connection(Base):
     direccion = Column(String)
     city_id = Column(Integer, ForeignKey("cities.id"), index=True, nullable=True)
     neighborhood_id = Column(Integer, ForeignKey("neighborhoods.id"), index=True, nullable=True)
-    latitude = Column(Numeric(10, 8), nullable=True, comment="Latitud de la dirección de la conexión")
-    longitude = Column(Numeric(10, 8), nullable=True, comment="Longitud de la dirección de la conexión")
+    # Fuente de verdad de geolocalización: cada conexión tiene un lugar físico.
+    # work_orders.lat/lng es solo un snapshot operativo que hereda/actualiza estos valores.
+    latitude = Column(Numeric(10, 8), nullable=True, comment="Latitud de la dirección de la conexión (fuente de verdad)")
+    longitude = Column(Numeric(10, 8), nullable=True, comment="Longitud de la dirección de la conexión (fuente de verdad)")
     installation_signal_dbm = Column(
         Numeric(6, 2), nullable=True,
         comment="Nivel de señal óptica/RSSI al momento de la instalación (dBm). "

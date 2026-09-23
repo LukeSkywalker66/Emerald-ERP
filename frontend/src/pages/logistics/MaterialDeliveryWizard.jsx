@@ -320,30 +320,16 @@ export default function MaterialDeliveryWizard() {
     setSubmitting(true);
     setError(null);
     try {
-      let currentDelivery = delivery;
-
-      // Create delivery if not exists
-      if (!currentDelivery) {
-        if (!selectedFromWarehouse) {
-          throw new Error('Seleccioná el depósito de origen');
-        }
-        currentDelivery = await logisticsService.createDelivery({
-          team_id: parseInt(selectedTeam),
-          warehouse_from_id: parseInt(selectedFromWarehouse),
-          warehouse_to_id: selectedTeamData?.warehouse_id,
-          notes: '',
-        });
+      if (!delivery?.id) {
+        throw new Error('No hay entrega preparada para confirmar');
       }
 
-      // Generate proposal via API
-      if (proposalItems.length > 0) {
-        currentDelivery = await logisticsService.generateProposal(currentDelivery.id);
-      }
-
-      // Confirm delivery
-      const result = await logisticsService.confirmDelivery(currentDelivery.id);
+      // Confirmar lo ya persistido en la entrega (sin regenerar la propuesta).
+      // La propuesta que se vio/ajustó en el paso 2 y lo escaneado en el paso 3
+      // es exactamente lo que se transfiere.
+      const result = await logisticsService.confirmDelivery(delivery.id);
       setDelivery(result);
-      setCurrentStep(4);
+      navigate('/app/logistics/deliveries');
     } catch (err) {
       console.error('Error confirming delivery:', err);
       const detail3 = err.response?.data?.detail; const msg3 = typeof detail3 === 'string' ? detail3 : Array.isArray(detail3) ? detail3.map(d => d.msg || d.message).join(', ') : err.message || 'Error al confirmar entrega'; setError(msg3);
@@ -351,6 +337,18 @@ export default function MaterialDeliveryWizard() {
       setSubmitting(false);
     }
   };
+
+  // Cancelar el DRAFT si el usuario abandona el flujo sin confirmar.
+  const handleCancel = useCallback(async () => {
+    if (delivery?.id && delivery.status !== 'COMPLETED' && delivery.status !== 'CANCELLED') {
+      try {
+        await logisticsService.cancelDelivery(delivery.id);
+      } catch (e) {
+        console.warn('No se pudo cancelar la entrega en borrador:', e);
+      }
+    }
+    navigate('/app/logistics/deliveries');
+  }, [delivery, navigate]);
 
   const closeProposalConflict = useCallback((accepted) => {
     if (!proposalConflict) return;
@@ -510,7 +508,7 @@ export default function MaterialDeliveryWizard() {
           </p>
         </div>
         <button
-          onClick={() => navigate('/app/logistics/deliveries')}
+          onClick={handleCancel}
           className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors flex items-center space-x-2"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -1132,7 +1130,7 @@ export default function MaterialDeliveryWizard() {
             </div>
           )}
 
-          {delivery?.status !== 'COMPLETED' && (
+          {delivery?.status !== 'COMPLETED' ? (
             <button
               onClick={handleConfirm}
               disabled={submitting}
@@ -1150,6 +1148,23 @@ export default function MaterialDeliveryWizard() {
                 </>
               )}
             </button>
+          ) : (
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                onClick={() => navigate('/app/logistics/deliveries')}
+                className="flex-1 py-4 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors flex items-center justify-center space-x-2 font-semibold"
+              >
+                <ArrowLeft className="w-5 h-5" />
+                <span>Volver al inicio</span>
+              </button>
+              <button
+                onClick={() => navigate('/app/logistics/deliveries/new')}
+                className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center space-x-2 font-semibold"
+              >
+                <Plus className="w-5 h-5" />
+                <span>Nueva entrega</span>
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -1158,7 +1173,7 @@ export default function MaterialDeliveryWizard() {
       {currentStep < 4 && (
         <div className="flex justify-between">
           <button
-            onClick={() => currentStep > 1 ? setCurrentStep(currentStep - 1) : navigate('/app/logistics/deliveries')}
+            onClick={() => currentStep > 1 ? setCurrentStep(currentStep - 1) : handleCancel()}
             className="px-6 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors flex items-center space-x-2"
           >
             <ArrowLeft className="w-4 h-4" />

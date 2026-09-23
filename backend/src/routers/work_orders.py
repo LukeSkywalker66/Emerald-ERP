@@ -21,6 +21,7 @@ from src.models.tickets import (
     ResolutionCategory,
 )
 from src.models.user import User
+from src.models import Connection
 from src.models.coordination import Team, TeamMember
 from src.models.fleet import VehicleInspection
 from src.schemas.tickets import (
@@ -750,6 +751,25 @@ def update_work_order(
     # Aplicar actualizaciones
     for key, value in update_data.items():
         setattr(wo, key, value)
+
+    # G4: write-through de geolocalización hacia la conexión (fuente de verdad).
+    # Cuando se guarda una ubicación y la OT está ligada a una conexión, se graba
+    # también en connections.lat/lng (lo usan técnicos y coordinación por igual).
+    if 'latitude' in update_data or 'longitude' in update_data:
+        effective_conn_id = (
+            wo.ticket.connection_id
+            or wo.ticket.destination_connection_id
+            or wo.ticket.origin_connection_id
+        ) if wo.ticket else None
+        if effective_conn_id and (wo.latitude is not None or wo.longitude is not None):
+            conn = db.query(Connection).filter(
+                Connection.connection_id == effective_conn_id
+            ).first()
+            if conn:
+                if wo.latitude is not None:
+                    conn.latitude = wo.latitude
+                if wo.longitude is not None:
+                    conn.longitude = wo.longitude
     
     # Flag modified para campos JSONB (photo_urls, custom_data)
     if 'photo_urls' in update_data:
