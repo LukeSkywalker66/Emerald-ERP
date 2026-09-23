@@ -37,21 +37,16 @@ services:
     env_file:
       - .env
 
-  # 3. Frontend
+  # 3. Frontend (build estático + nginx interno, puerto 80)
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - VITE_APP_ENV=${APP_ENV}
+        - VITE_API_URL=${VITE_API_URL:-/api}
     container_name: emerald_frontend_staging
     restart: always
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    environment:
-      - VITE_APP_ENV=${APP_ENV}
-      - VITE_API_URL=${VITE_API_URL:-/api}
-      - INTERNAL_API_URL=http://backend:8500
-      - CHOKIDAR_USEPOLLING=true
     depends_on:
       - backend
 

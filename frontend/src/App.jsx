@@ -1,49 +1,52 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, lazy } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import DashboardLayout from './layouts/DashboardLayout';
 import LoginPage from './pages/LoginPage';
-import DashboardPage from './pages/DashboardPage';
-import TicketsPage from './pages/TicketsPage';
-import TicketDetailPage from './pages/TicketDetailPage';
-import WorkOrderExecutionPage from './pages/WorkOrderExecutionPage';
-import CoordinationPage from './pages/CoordinationPage';
-import WorkOrdersPage from './pages/WorkOrdersPage';
-import ConnectionsPage from './pages/ConnectionsPage';
-import NodesPage from './pages/NodesPage';
-import CustomersPage from './pages/CustomersPage';
-import ClientesPage from './pages/ClientesPage';
-import InventarioPage from './pages/InventarioPage';
-import SettingsPage from './pages/SettingsPage';
-import NotFoundPage from './pages/NotFoundPage';
-import LoadingScreen from './components/ui/LoadingScreen';
 import RoleGuard from './components/auth/RoleGuard';
+import PageFallback from './components/ui/PageFallback';
+
+// Code splitting: páginas bajo demanda (React.lazy).
+// Prioridad tácticas para campo: Tickets y OT (lista + detalle).
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const TicketsPage = lazy(() => import('./pages/TicketsPage'));
+const TicketDetailPage = lazy(() => import('./pages/TicketDetailPage'));
+const WorkOrdersPage = lazy(() => import('./pages/WorkOrdersPage'));
+const WorkOrderExecutionPage = lazy(() => import('./pages/WorkOrderExecutionPage'));
+const CoordinationPage = lazy(() => import('./pages/CoordinationPage'));
+const ConnectionsPage = lazy(() => import('./pages/ConnectionsPage'));
+const NodesPage = lazy(() => import('./pages/NodesPage'));
+const CustomersPage = lazy(() => import('./pages/CustomersPage'));
+const ClientesPage = lazy(() => import('./pages/ClientesPage'));
+const InventarioPage = lazy(() => import('./pages/InventarioPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 // Audit Module Pages
-import AuditLogsPage from './pages/audit/AuditLogsPage';
+const AuditLogsPage = lazy(() => import('./pages/audit/AuditLogsPage'));
 
 // Inventory Module Pages
-import InventoryDashboard from './pages/inventory/InventoryDashboard';
-import WarehouseList from './pages/inventory/WarehouseList';
-import WarehouseDetail from './pages/inventory/WarehouseDetail';
-import ProductCatalog from './pages/inventory/ProductCatalog';
-import StockTransferWizard from './pages/inventory/StockTransferWizard';
-import StockAdjustments from './pages/inventory/StockAdjustments';
-import MovementsHistory from './pages/inventory/MovementsHistory';
-import StockAlerts from './pages/inventory/StockAlerts';
-import FleetPage from './pages/fleet/FleetPage';
+const InventoryDashboard = lazy(() => import('./pages/inventory/InventoryDashboard'));
+const WarehouseList = lazy(() => import('./pages/inventory/WarehouseList'));
+const WarehouseDetail = lazy(() => import('./pages/inventory/WarehouseDetail'));
+const ProductCatalog = lazy(() => import('./pages/inventory/ProductCatalog'));
+const StockTransferWizard = lazy(() => import('./pages/inventory/StockTransferWizard'));
+const StockAdjustments = lazy(() => import('./pages/inventory/StockAdjustments'));
+const MovementsHistory = lazy(() => import('./pages/inventory/MovementsHistory'));
+const StockAlerts = lazy(() => import('./pages/inventory/StockAlerts'));
+const FleetPage = lazy(() => import('./pages/fleet/FleetPage'));
 
 // Engineering Module Pages
-import EngineeringBoardPage from './pages/engineering/EngineeringBoardPage';
+const EngineeringBoardPage = lazy(() => import('./pages/engineering/EngineeringBoardPage'));
 
 // Coordination Module Pages
-import CuadrillasPage from './pages/coordination/CuadrillasPage';
+const CuadrillasPage = lazy(() => import('./pages/coordination/CuadrillasPage'));
 
 // Logistics Module Pages
-import MaterialDeliveryDashboard from './pages/logistics/MaterialDeliveryDashboard';
-import MaterialDeliveryWizard from './pages/logistics/MaterialDeliveryWizard';
-import MaterialReceiptWizard from './pages/logistics/MaterialReceiptWizard';
-import BarcodeLabelPrinter from './pages/logistics/BarcodeLabelPrinter';
+const MaterialDeliveryDashboard = lazy(() => import('./pages/logistics/MaterialDeliveryDashboard'));
+const MaterialDeliveryWizard = lazy(() => import('./pages/logistics/MaterialDeliveryWizard'));
+const MaterialReceiptWizard = lazy(() => import('./pages/logistics/MaterialReceiptWizard'));
+const BarcodeLabelPrinter = lazy(() => import('./pages/logistics/BarcodeLabelPrinter'));
 
 const PrivateRoute = ({ children }) => {
   const { isAuthenticated } = useAuth();
@@ -51,7 +54,7 @@ const PrivateRoute = ({ children }) => {
 };
 
 const AppRoutes = () => (
-  <Suspense fallback={<LoadingScreen />}>
+  <Suspense fallback={<PageFallback />}>
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       
