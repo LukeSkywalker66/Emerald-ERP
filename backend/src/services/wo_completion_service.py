@@ -48,6 +48,12 @@ class CompletionError(Exception):
     pass
 
 
+# Tolerancia para comparaciones de stock con floats. Evita falsos "stock
+# insuficiente" al consumir la última unidad de un producto compuesto
+# (blister/bobina) por deriva de precisión en float (ej. 0.9999999999 vs 1.0).
+_FLOAT_EPSILON = 1e-9
+
+
 def complete_work_order_with_inventory(
     db: Session,
     work_order: WorkOrder,
@@ -110,6 +116,11 @@ def complete_work_order_with_inventory(
     if not items:
         logger.warning(f"OT #{work_order.id} completada sin items de inventario")
 
+    # Resolver el warehouse MOBILE desde el equipo asignado a la OT (consistente
+    # con el frontend), no desde el usuario que ejecuta el cierre. Así un
+    # coordinador/admin puede cerrar la OT y descontar del depósito correcto.
+    warehouse_id = _get_work_order_warehouse_id(db, work_order, current_user.id)
+
     # ============================================================
     # 2. Procesar cada item
     # ============================================================
@@ -117,7 +128,7 @@ def complete_work_order_with_inventory(
 
     for item in items:
         try:
-            _process_item(db, item, connection_id, current_user.id, work_order.id)
+            _process_item(db, item, connection_id, current_user.id, work_order.id, warehouse_id)
         except CompletionError as e:
             errors.append(str(e))
 
@@ -213,6 +224,7 @@ def _process_item(
     connection_id: int,
     user_id: int,
     work_order_id: int,
+    warehouse_id: Optional[int] = None,
 ) -> None:
     """
     Procesa un item individual:
@@ -253,7 +265,7 @@ def _process_item(
         return
 
     if product.type == "BULK":
-        _process_bulk_item(db, item, product, connection_id, user_id, work_order_id)
+        _process_bulk_item(db, item, product, connection_id, user_id, work_order_id, warehouse_id)
     elif product.type == "SERIALIZED":
         _process_serialized_item(db, item, product, connection_id, user_id, work_order_id)
     else:
@@ -267,16 +279,22 @@ def _process_bulk_item(
     connection_id: int,
     user_id: int,
     work_order_id: int,
+    warehouse_id: Optional[int] = None,
 ) -> None:
     """Descarga stock BULK del warehouse del técnico."""
-    # Buscar el stock bulk (asumimos warehouse del técnico desde el item)
-    # Nota: El warehouse_id se pasa al crear el item, pero si no está,
-    # buscamos en el warehouse MOBILE del técnico.
+    # Warehouse a descontar: el resuelto desde el equipo de la OT; si no se pudo
+    # resolver, se cae al warehouse MOBILE del usuario que ejecuta el cierre.
+    resolved_warehouse_id = warehouse_id or _get_technician_warehouse_id(db, user_id)
+    if not resolved_warehouse_id:
+        raise CompletionError(
+            f"No se pudo determinar el depósito móvil del técnico para descontar {product.name}"
+        )
+
     stock_entry = (
         db.query(StockBulk)
         .filter(
             StockBulk.product_id == item.product_id,
-            StockBulk.warehouse_id == _get_technician_warehouse_id(db, user_id),
+            StockBulk.warehouse_id == resolved_warehouse_id,
         )
         .first()
     )
@@ -289,19 +307,20 @@ def _process_bulk_item(
             raise CompletionError(
                 f"El producto compuesto {product.name} no tiene unit_size válido"
             )
-        # La OT sigue reportando unidades base (metros); el stock físico
-        # ya está normalizado en unidades compuestas.
-        quantity_to_deduct = item.quantity / product.unit_size
+        # La OT reporta unidades base (conectores/metros); el stock físico está
+        # normalizado en unidades compuestas (blisters/bobinas). Se convierte
+        # base → compuesta y se redondea para evitar deriva de float.
+        quantity_to_deduct = round(item.quantity / product.unit_size, 6)
 
-    if not stock_entry or stock_entry.quantity < quantity_to_deduct:
+    if not stock_entry or (stock_entry.quantity + _FLOAT_EPSILON) < quantity_to_deduct:
         raise CompletionError(
             f"Stock insuficiente de {product.name}: "
             f"disponible {stock_entry.quantity if stock_entry else 0}, "
             f"requerido {quantity_to_deduct}"
         )
 
-    # Descontar stock
-    stock_entry.quantity -= quantity_to_deduct
+    # Descontar stock: redondear y clampear a 0 exacto (nunca negativo ni 1e-9 residual).
+    stock_entry.quantity = round(max(0.0, stock_entry.quantity - quantity_to_deduct), 6)
 
     if product.is_composite:
         notes_suffix = (
@@ -432,7 +451,7 @@ def _process_composite_tracked_serial_item(
     consume_qty = float(item.quantity)
     if consume_qty <= 0:
         raise CompletionError("La cantidad consumida debe ser mayor a 0")
-    if consume_qty > current_remaining:
+    if consume_qty > current_remaining + _FLOAT_EPSILON:
         raise CompletionError(
             f"Consumo inválido para {item.serial_number}: disponible {current_remaining}, requerido {consume_qty}"
         )
@@ -515,6 +534,41 @@ def _get_technician_warehouse_id(db: Session, user_id: int) -> Optional[int]:
         return warehouse.id
 
     return None
+
+
+def _get_work_order_warehouse_id(
+    db: Session, work_order: WorkOrder, user_id: int
+) -> Optional[int]:
+    """
+    Resuelve el warehouse MOBILE de la cuadrilla asignada a la OT.
+
+    Prioriza el team_id de la OT (consistente con el frontend, que carga el
+    stock desde el vehículo de la cuadrilla), luego el técnico asignado y por
+    último el usuario que ejecuta el cierre. Evita descontar del depósito
+    equivocado cuando un coordinador/admin cierra la OT en nombre del técnico.
+    """
+    from src.models.coordination import Team, TeamMember
+    from src.models.fleet import Vehicle
+
+    team_id = work_order.team_id
+    if not team_id and work_order.technician_id:
+        member = (
+            db.query(TeamMember)
+            .filter(TeamMember.user_id == work_order.technician_id)
+            .first()
+        )
+        if member:
+            team_id = member.team_id
+
+    if team_id:
+        team = db.query(Team).filter(Team.id == team_id).first()
+        if team and team.vehicle_id:
+            vehicle = db.query(Vehicle).filter(Vehicle.id == team.vehicle_id).first()
+            if vehicle and vehicle.warehouse_id:
+                return vehicle.warehouse_id
+
+    # Fallback: warehouse MOBILE del usuario que ejecuta el cierre (comportamiento previo)
+    return _get_technician_warehouse_id(db, user_id)
 
 
 def _get_virtual_warehouse_id(db: Session) -> int:

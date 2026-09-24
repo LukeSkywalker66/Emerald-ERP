@@ -1885,6 +1885,11 @@ def complete_work_order(
             installation_signal_dbm=payload.installation_signal_dbm,
         )
     except CompletionError as e:
+        # Registrar el detalle exacto del error para diagnóstico: el log HTTP
+        # solo muestra "422 Unprocessable Entity" sin el motivo.
+        logger.error(
+            f"❌ [COMPLETE] Error al completar OT #{work_order_id}: {e}"
+        )
         raise HTTPException(status_code=422, detail=str(e))
 
     db.commit()

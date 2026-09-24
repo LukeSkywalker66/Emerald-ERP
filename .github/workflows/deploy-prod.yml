@@ -4,15 +4,14 @@ on:
   push:
     branches:
       - master
-  pull_request:
-    branches:
-      - master
-    types:
-      - closed
 
+# Un merge a master YA dispara el evento `push`. El trigger `pull_request` era
+# redundante y provocaba DOS runs simultáneos del deploy. Lo eliminamos y, además,
+# cancel-in-progress=false hace que los deploys se ENCOLEN en vez de cancelarse
+# a mitad de camino (causa raíz del deploy a medias que rompió producción).
 concurrency:
   group: deploy-production-master
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -39,7 +38,9 @@ jobs:
             docker compose -f docker-compose.yml build
             docker compose -f docker-compose.yml up -d
             docker compose -f docker-compose.yml exec -T backend alembic upgrade head
-            docker compose -f docker-compose.yml exec -T nginx nginx -s reload
+            # `restart` (no `reload`) para forzar a nginx a re-resolver la IP del
+            # contenedor frontend recreado (evita el 502 por DNS stale).
+            docker compose -f docker-compose.yml restart nginx
 
       - name: Post-deploy health check
         uses: appleboy/ssh-action@v1.0.3

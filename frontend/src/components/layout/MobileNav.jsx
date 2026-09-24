@@ -9,6 +9,7 @@
  * Visible solo en pantallas < 768px (md breakpoint)
  */
 
+/* global __APP_VERSION__ */
 import React, { useState } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { Ticket, ClipboardList, Menu, LogOut, User as UserIcon } from 'lucide-react';
@@ -134,7 +135,7 @@ export default function MobileNav() {
                     {/* Footer info */}
                     <div className="pt-4 mt-4 border-t border-zinc-800">
                       <p className="text-xs text-zinc-600 text-center font-mono">
-                        Emerald ERP v2.1.0
+                        Emerald ERP v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'}
                       </p>
                     </div>
                   </div>

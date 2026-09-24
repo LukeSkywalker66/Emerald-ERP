@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
+import { normalizeRole } from '@/utils/permissions';
 import api from '@/api/client';
 import workOrdersService from '@/services/workOrders.service';
 import coordinationService from '@/services/coordination.service';
@@ -76,20 +77,22 @@ const TYPE_CONFIG = {
 export default function WorkOrdersPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const role = normalizeRole(user?.role);
+
   // Roles que ven columnas adicionales (Programada, Creada, Asignada)
-  const canSeeAdminColumns = useMemo(() =>
-    user?.role === 'admin' || user?.role === 'coordinator' || user?.role === 'operator' || user?.role === 'super_user',
-    [user]
+  const canSeeAdminColumns = useMemo(
+    () => ['admin', 'coordinator', 'operator'].includes(role),
+    [role]
   );
 
   // Roles que pueden filtrar por técnico (solo admin y operator)
-  const canFilterByTechnician = useMemo(() =>
-    user?.role === 'admin' || user?.role === 'operator',
-    [user]
+  const canFilterByTechnician = useMemo(
+    () => ['admin', 'operator'].includes(role),
+    [role]
   );
 
   // Detectar si es técnico (para bifurcación de fetch)
-  const isTechnician = useMemo(() => user?.role === 'tecnico', [user]);
+  const isTechnician = useMemo(() => role === 'tecnico', [role]);
 
   // Team info for technician view
   const [teamInfo, setTeamInfo] = useState(null);

@@ -222,11 +222,15 @@ const ROLE_ALIAS = {
   tech: 'tecnico',
   super_user: 'admin',
   superuser: 'admin',
+  superadmin: 'admin',
+  // Nombres en español: los roles se crearon con estos nombres en la BD.
+  operador: 'operator',
+  coordinador: 'coordinator',
 };
 
-const normalizeRole = (role) => {
+export const normalizeRole = (role) => {
   if (!role || typeof role !== 'string') return null;
-  const lower = role.toLowerCase();
+  const lower = role.toLowerCase().trim();
   return ROLE_ALIAS[lower] || lower;
 };
 
