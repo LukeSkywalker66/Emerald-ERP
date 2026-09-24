@@ -37,6 +37,7 @@ import workOrderTypesService from '@/services/workOrderTypes.service';
 import useMaterialSelector from '@/components/work-orders/useMaterialSelector';
 import MaterialSelectorForm from '@/components/work-orders/MaterialSelectorForm';
 import { useAuth } from '@/context/AuthContext';
+import { normalizeRole } from '@/utils/permissions';
 import CloseWorkOrderDialog from '@/components/work-orders/CloseWorkOrderDialog';
 import WorkOrderCompletedSummary from '@/components/work-orders/WorkOrderCompletedSummary';
 import UpdateLocationModal from '@/components/ui/UpdateLocationModal';
@@ -124,6 +125,7 @@ export default function WorkOrderExecutionPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const role = normalizeRole(user?.role);
 
   const needsInspection = Boolean(location.state?.needsInspection);
   const inspectionBlockMessage =
@@ -347,7 +349,7 @@ export default function WorkOrderExecutionPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950">
-      {needsInspection && user?.role === 'tecnico' && (
+      {needsInspection && role === 'tecnico' && (
         <div className="sticky top-0 z-[60] border-b border-amber-700/60 bg-amber-950/80 px-4 md:px-6 py-2">
           <p className="text-xs md:text-sm text-amber-200">
             🚐 Control de vehículo pendiente: podés revisar la OT y preparar materiales, pero no podés iniciar/completar hasta cargar la inspección.
@@ -595,7 +597,7 @@ export default function WorkOrderExecutionPage() {
           </div>
 
           {/* Asignada a: (solo para admin/operator) */}
-          {(user?.role === 'admin' || user?.role === 'operator') && (
+          {(role === 'admin' || role === 'operator') && (
             <div className="p-4 rounded-lg border border-emerald-800/50 bg-emerald-950/20">
               <p className="text-sm text-zinc-400 flex items-center gap-2">
                 {isTeamAssignment ? (

@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Lock, Mail, AlertCircle } from 'lucide-react';
+import { ShieldCheck, Lock, Mail, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { EmeraldLogo } from '../components/ui/EmeraldLogo';
 
 export default function LoginPage() {
   const { login, loading, error } = useAuth();
-  const [username, setUsername] = useState('admin@emerald.com');
-  const [password, setPassword] = useState('Admin@123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (event) => {
@@ -45,16 +46,17 @@ export default function LoginPage() {
               <label htmlFor="username" className="block text-sm font-medium text-zinc-300 mb-2">
                 Usuario o Email
               </label>
-              <div className="relative">
-                <Mail size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+              <div className="relative group">
+                <Mail size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 group-focus-within:text-emerald-400 transition-colors" />
                 <input
                   id="username"
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
+                  className="w-full pl-11 pr-4 py-3 bg-zinc-900/60 border border-zinc-700/80 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/40 focus:border-emerald-500/80 focus:shadow-[0_0_14px_rgba(16,185,129,0.2)] transition-all duration-200"
                   placeholder="usuario o email@example.com"
                   autoComplete="username"
+                  autoFocus
                   required
                 />
               </div>
@@ -65,18 +67,27 @@ export default function LoginPage() {
               <label htmlFor="password" className="block text-sm font-medium text-zinc-300 mb-2">
                 Contraseña
               </label>
-              <div className="relative">
-                <Lock size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+              <div className="relative group">
+                <Lock size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 group-focus-within:text-emerald-400 transition-colors" />
                 <input
                   id="password"
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors"
+                  className="w-full pl-11 pr-12 py-3 bg-zinc-900/60 border border-zinc-700/80 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/40 focus:border-emerald-500/80 focus:shadow-[0_0_14px_rgba(16,185,129,0.2)] transition-all duration-200"
                   placeholder="••••••••"
                   autoComplete="current-password"
                   required
                 />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-emerald-400 focus:outline-none transition-colors"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
 
@@ -117,13 +128,6 @@ export default function LoginPage() {
               )}
             </button>
           </form>
-
-          <div className="mt-8 pt-6 border-t border-zinc-800">
-            <p className="text-xs text-zinc-500 text-center">
-              Demo: <code className="text-emerald-400 font-mono">admin@emerald.com</code> -{' '}
-              <code className="text-emerald-400 font-mono">Admin@123</code>
-            </p>
-          </div>
         </div>
       </div>
 

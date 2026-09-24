@@ -1,6 +1,8 @@
 import React from 'react';
 import { EmeraldLogo } from './EmeraldLogo';
 
+/* global __APP_VERSION__ */
+
 export default function LoadingScreen() {
   return (
     <div className="fixed inset-0 bg-zinc-950 flex flex-col items-center justify-center">
@@ -26,7 +28,7 @@ export default function LoadingScreen() {
 
       {/* Versión del sistema */}
       <div className="absolute bottom-8 text-xs text-zinc-600 font-mono">
-        v2.0.0-alpha | Core Build 2025.01
+        v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'}
       </div>
     </div>
   );
