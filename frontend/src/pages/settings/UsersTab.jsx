@@ -858,8 +858,8 @@ export default function UsersTab() {
 
       {/* ═══ Inline Modal: Reset Contraseña (sin Dialog portal para evitar bugs de re-render) ═══ */}
       {resetDialogOpen && (
-        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center" onClick={() => setResetDialogOpen(false)}>
-          <div className="relative w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex justify-center p-4 overflow-y-auto" onClick={() => setResetDialogOpen(false)}>
+          <div className="relative w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-lg my-auto max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-start justify-between">
               <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                 <Key className="h-5 w-5 text-amber-500" />
