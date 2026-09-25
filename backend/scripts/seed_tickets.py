@@ -17,7 +17,7 @@ from src.models import Ticket, TicketCategory, TicketPriority, TicketStatus
 from src.models.tickets import TicketEvent, TicketEventType  # type: ignore
 
 DEFAULT_CATEGORIES = [
-    ("Falla Técnica", "Default priority: high"),
+    ("Soporte Técnico", "Default priority: high"),
     ("Administrativo", "Default priority: low"),
     ("Instalación", "Default priority: medium"),
 ]
