@@ -2,13 +2,16 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
+  ArrowUp,
+  ArrowDown,
   ClipboardList,
   RefreshCw,
   Search,
   ExternalLink,
   Wrench,
   Package,
-  Home,
+  Cable,
+  RadioTower,
   Zap,
   Users,
   User,
@@ -19,6 +22,7 @@ import {
 
 import { useAuth } from '@/context/AuthContext';
 import { normalizeRole } from '@/utils/permissions';
+import usePersistedViewState from '@/hooks/usePersistedViewState';
 import api from '@/api/client';
 import workOrdersService from '@/services/workOrders.service';
 import coordinationService from '@/services/coordination.service';
@@ -69,9 +73,56 @@ const STATUS_CONFIG = {
 // Config: Tipos de OT
 const TYPE_CONFIG = {
   repair: { label: 'Soporte', icon: Wrench, color: 'text-emerald-400' },
-  install: { label: 'Instalación', icon: Home, color: 'text-blue-400' },
+  install_ftth: { label: 'Instalación FTTH', icon: Cable, color: 'text-blue-400' },
+  install_aire: { label: 'Instalación Aire', icon: RadioTower, color: 'text-sky-400' },
   pickup: { label: 'Retiro', icon: Package, color: 'text-amber-400' },
   infrastructure: { label: 'Infraestructura', icon: Zap, color: 'text-purple-400' },
+};
+
+// ============================================================
+// Helpers de agrupación de agenda (día + turno + sin planificar)
+// ============================================================
+function getDayKey(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function getShift(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.getHours() < 14 ? 'Mañana' : 'Tarde';
+}
+
+function formatDayLabel(dayKey) {
+  const [y, m, d] = dayKey.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffDays = Math.round((date.getTime() - today.getTime()) / 86400000);
+  const prefix =
+    diffDays === 0 ? 'Hoy · ' : diffDays === 1 ? 'Mañana · ' : diffDays === -1 ? 'Ayer · ' : '';
+  const label = date.toLocaleDateString('es-AR', {
+    weekday: 'short',
+    day: '2-digit',
+    month: 'short',
+  });
+  return `${prefix}${label}`;
+}
+
+// Vista por defecto de la grilla de OTs (persistida por usuario).
+const WORK_ORDERS_GRID_DEFAULTS = {
+  search: '',
+  status: '',
+  type: '',
+  team: '',
+  sortKey: 'date',
+  sortDir: 'asc',
 };
 
 export default function WorkOrdersPage() {
@@ -85,8 +136,8 @@ export default function WorkOrdersPage() {
     [role]
   );
 
-  // Roles que pueden filtrar por técnico (solo admin y operator)
-  const canFilterByTechnician = useMemo(
+  // Roles que pueden filtrar por cuadrilla (solo admin y operator)
+  const canFilterByTeam = useMemo(
     () => ['admin', 'operator'].includes(role),
     [role]
   );
@@ -103,7 +154,7 @@ export default function WorkOrdersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState(null);
-  const [technicians, setTechnicians] = useState([]); // Lista de técnicos disponibles
+  const [teams, setTeams] = useState([]); // Lista de cuadrillas disponibles
   const [pendingClosureOrders, setPendingClosureOrders] = useState([]);
   const [selectedPendingClosure, setSelectedPendingClosure] = useState(null);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
@@ -115,11 +166,27 @@ export default function WorkOrdersPage() {
   // OT Types (DB-driven)
   const [otTypes, setOtTypes] = useState([]);
 
-  // Filters
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [assigneeFilter, setAssigneeFilter] = useState('');
+  // Vista persistida por usuario (filtros + orden).
+  const [view, setView] = usePersistedViewState('work_orders.grid', WORK_ORDERS_GRID_DEFAULTS);
+  const searchQuery = view.search;
+  const statusFilter = view.status;
+  const typeFilter = view.type;
+  const teamFilter = view.team;
+  const sortKey = view.sortKey;
+  const sortDir = view.sortDir;
+
+  // Setters que escriben en la vista persistida (soportan updater funcional).
+  const applyViewUpdate = (key) => (updater) =>
+    setView((prev) => ({
+      ...prev,
+      [key]: typeof updater === 'function' ? updater(prev[key]) : updater,
+    }));
+  const setSearchQuery = applyViewUpdate('search');
+  const setStatusFilter = applyViewUpdate('status');
+  const setTypeFilter = applyViewUpdate('type');
+  const setTeamFilter = applyViewUpdate('team');
+  const setSortKey = applyViewUpdate('sortKey');
+  const setSortDir = applyViewUpdate('sortDir');
 
   // Load data - BIFURCACIÓN POR ROL (NASA-GRADE)
   const loadWorkOrders = async () => {
@@ -202,42 +269,51 @@ export default function WorkOrdersPage() {
           setTeamVehicle(null);
         }
       } else {
-        // ========== ADMIN/COORDINADOR: Vista global con filtros ==========
-        const data = await workOrdersService.listWorkOrders({
-          status: statusFilter || undefined,
-          ot_type: typeFilter || undefined,
-          search: searchQuery || undefined,
-          limit: 100,
-        });
+        // ========== ADMIN/COORDINADOR: Vista global ==========
+        const data = await workOrdersService.listWorkOrders({ limit: 100 });
         items = data.items || [];
 
-        // Extraer técnicos únicos de las OTs (solo para admin)
-        const uniqueTechnicians = Array.from(
-          new Set(
-            items
-              .filter(wo => wo.technician_name)
-              .map(wo => wo.technician_name)
-          )
+        // Extraer cuadrillas únicas (para el combo de filtro)
+        const uniqueTeams = Array.from(
+          new Set(items.filter((wo) => wo.team_name).map((wo) => wo.team_name))
         ).sort();
-        setTechnicians(uniqueTechnicians);
-
-        // Filtro por asignación (solo admins)
-        // Considera tanto technician_name (legacy) como team_name (nuevo sistema)
-        if (assigneeFilter === 'unassigned') {
-          items = items.filter((wo) => !wo.technician_name && !wo.team_name);
-        } else if (assigneeFilter === 'assigned') {
-          items = items.filter((wo) => !!wo.technician_name || !!wo.team_name);
-        } else if (assigneeFilter && assigneeFilter !== '') {
-          // Filtro por técnico específico
-          items = items.filter((wo) => wo.technician_name === assigneeFilter);
-        }
+        setTeams(uniqueTeams);
 
         setPendingClosureOrders([]);
         setNeedsInspection(false);
         setAssignedVehicleId(null);
       }
 
-      setWorkOrders(items);
+      // ========== Filtros cliente-side (consistentes para técnico y admin) ==========
+      let filtered = items;
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.trim().toLowerCase();
+        filtered = filtered.filter(
+          (wo) =>
+            String(wo.id).includes(q) ||
+            (wo.client_name || '').toLowerCase().includes(q) ||
+            (wo.address || '').toLowerCase().includes(q)
+        );
+      }
+
+      if (statusFilter) {
+        filtered = filtered.filter((wo) => wo.status === statusFilter);
+      }
+
+      if (typeFilter) {
+        filtered = filtered.filter((wo) => wo.ot_type === typeFilter);
+      }
+
+      if (teamFilter === 'unassigned') {
+        filtered = filtered.filter((wo) => !wo.team_name && !wo.technician_name);
+      } else if (teamFilter === 'assigned') {
+        filtered = filtered.filter((wo) => !!wo.team_name || !!wo.technician_name);
+      } else if (teamFilter) {
+        filtered = filtered.filter((wo) => wo.team_name === teamFilter);
+      }
+
+      setWorkOrders(filtered);
     } catch (err) {
       setError(err?.response?.data?.detail || err.message || 'Error al cargar OTs');
       console.error('Error loading work orders:', err);
@@ -256,7 +332,7 @@ export default function WorkOrdersPage() {
     setIsLoading(true);
     loadWorkOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isTechnician, statusFilter, typeFilter, searchQuery, assigneeFilter]);
+  }, [isTechnician, statusFilter, typeFilter, searchQuery, teamFilter]);
 
   // Formatear fecha
   const formatScheduledDate = (dateStr) => {
@@ -271,6 +347,79 @@ export default function WorkOrdersPage() {
       minute: '2-digit',
     });
   };
+
+  // Ordenamiento por encabezado: primer click ordena asc, segundo click alterna a desc.
+  const handleSort = (key) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  // Agrupación visual de la agenda: sin planificar + por día + por turno (mañana/tarde)
+  const groupedWorkOrders = useMemo(() => {
+    const sorted = [...workOrders].sort((a, b) => {
+      const ad = a.scheduled_start || a.scheduled_at;
+      const bd = b.scheduled_start || b.scheduled_at;
+      if (!ad && !bd) return 0;
+      if (!ad) return 1;
+      if (!bd) return -1;
+      return new Date(ad).getTime() - new Date(bd).getTime();
+    });
+
+    const groups = [];
+    const indexByKey = new Map();
+
+    for (const wo of sorted) {
+      const rawDate = wo.scheduled_start || wo.scheduled_at;
+      const dayKey = getDayKey(rawDate);
+
+      if (!dayKey) {
+        let g = groups.find((x) => x.type === 'unscheduled');
+        if (!g) {
+          g = { type: 'unscheduled', dayKey: null, label: 'Sin planificar', shift: null, items: [] };
+          groups.push(g);
+        }
+        g.items.push(wo);
+        continue;
+      }
+
+      const shift = getShift(rawDate) || 'Mañana';
+      const key = `${dayKey}::${shift}`;
+      let g = indexByKey.get(key);
+      if (!g) {
+        g = { type: 'scheduled', dayKey, label: formatDayLabel(dayKey), shift, items: [] };
+        indexByKey.set(key, g);
+        groups.push(g);
+      }
+      g.items.push(wo);
+    }
+
+    // Ordenar items dentro de cada grupo según el criterio elegido y su dirección
+    const dir = sortDir === 'desc' ? -1 : 1;
+    const compare = (a, b) => {
+      if (sortKey === 'client') {
+        return dir * String(a.client_name || '').localeCompare(String(b.client_name || ''));
+      }
+      if (sortKey === 'address') {
+        return dir * String(a.address || '').localeCompare(String(b.address || ''));
+      }
+      if (sortKey === 'id') {
+        return dir * (a.id - b.id);
+      }
+      // 'date'
+      const ad = new Date(a.scheduled_start || a.scheduled_at || 0).getTime();
+      const bd = new Date(b.scheduled_start || b.scheduled_at || 0).getTime();
+      return dir * (ad - bd);
+    };
+    for (const g of groups) {
+      g.items.sort(compare);
+    }
+
+    return groups;
+  }, [workOrders, sortKey, sortDir]);
 
   const hasPendingClosureBlock = isTechnician && pendingClosureOrders.length > 0;
   const hasInspectionBlock = isTechnician && needsInspection;
@@ -503,6 +652,7 @@ export default function WorkOrdersPage() {
             <option value="pending_planning">Planificación</option>
             <option value="assigned">Asignada</option>
             <option value="in_progress">En curso</option>
+            <option value="pending_closure">Pendiente Cierre</option>
             <option value="completed">Completada</option>
             <option value="failed">Fallida</option>
           </select>
@@ -519,24 +669,25 @@ export default function WorkOrdersPage() {
             ))}
           </select>
 
-          {/* Filtro por asignado (solo admin y operator) */}
-          {canFilterByTechnician && (
+          {/* Filtro por cuadrilla (solo admin y operator) */}
+          {canFilterByTeam && (
             <select
-              value={assigneeFilter}
-              onChange={(e) => setAssigneeFilter(e.target.value)}
+              value={teamFilter}
+              onChange={(e) => setTeamFilter(e.target.value)}
               className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 focus:ring-2 focus:ring-emerald-500/40 h-9"
             >
-              <option value="">Todos los técnicos</option>
+              <option value="">Todas las cuadrillas</option>
               <option value="unassigned">Sin asignar</option>
-              <option value="assigned">Asignado</option>
-              {technicians.length > 0 && <option disabled>─────────────</option>}
-              {technicians.map((tech) => (
-                <option key={tech} value={tech}>
-                  {tech}
+              <option value="assigned">Asignada</option>
+              {teams.length > 0 && <option disabled>─────────────</option>}
+              {teams.map((team) => (
+                <option key={team} value={team}>
+                  {team}
                 </option>
               ))}
             </select>
           )}
+
         </div>
 
         <div className="flex items-center justify-between text-xs text-zinc-500 pt-2 border-t border-zinc-800">
@@ -575,12 +726,32 @@ export default function WorkOrdersPage() {
           <Table>
             <TableHeader>
               <TableRow className="border-b border-zinc-800/80 hover:bg-transparent">
-                <TableHead className="w-[70px] text-zinc-400 font-semibold">ID</TableHead>
+                <TableHead className="w-[70px] text-zinc-400 font-semibold">
+                  <button type="button" onClick={() => handleSort('id')} className="flex items-center gap-1 hover:text-emerald-300 transition-colors">
+                    ID
+                    {sortKey === 'id' && (sortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                  </button>
+                </TableHead>
                 <TableHead className="w-[60px] text-zinc-400 font-semibold">Tipo</TableHead>
                 <TableHead className="w-[120px] text-zinc-400 font-semibold">Estado</TableHead>
-                <TableHead className="text-zinc-400 font-semibold">Cliente</TableHead>
-                <TableHead className="text-zinc-400 font-semibold">Dirección</TableHead>
-                <TableHead className="w-[140px] text-zinc-400 font-semibold">Programada</TableHead>
+                <TableHead className="text-zinc-400 font-semibold">
+                  <button type="button" onClick={() => handleSort('client')} className="flex items-center gap-1 hover:text-emerald-300 transition-colors">
+                    Cliente
+                    {sortKey === 'client' && (sortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                  </button>
+                </TableHead>
+                <TableHead className="text-zinc-400 font-semibold">
+                  <button type="button" onClick={() => handleSort('address')} className="flex items-center gap-1 hover:text-emerald-300 transition-colors">
+                    Dirección
+                    {sortKey === 'address' && (sortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                  </button>
+                </TableHead>
+                <TableHead className="w-[140px] text-zinc-400 font-semibold">
+                  <button type="button" onClick={() => handleSort('date')} className="flex items-center gap-1 hover:text-emerald-300 transition-colors">
+                    Programada
+                    {sortKey === 'date' && (sortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                  </button>
+                </TableHead>
                 {canSeeAdminColumns && (
                   <TableHead className="w-[130px] text-zinc-400 font-semibold">Creada</TableHead>
                 )}
@@ -591,8 +762,45 @@ export default function WorkOrdersPage() {
             </TableHeader>
 
             <TableBody>
-              {workOrders.map((wo) => {
-                const typeConfig = TYPE_CONFIG[wo.ot_type] || TYPE_CONFIG.repair;
+              {groupedWorkOrders.map((group) => (
+                <React.Fragment
+                  key={group.type === 'unscheduled' ? 'unscheduled' : `${group.dayKey}-${group.shift}`}
+                >
+                  <TableRow
+                    className={`border-b ${
+                      group.type === 'unscheduled'
+                        ? 'bg-amber-950/30 border-amber-900/40'
+                        : 'bg-emerald-950/30 border-emerald-900/40'
+                    } hover:bg-transparent`}
+                  >
+                    <TableCell colSpan={canSeeAdminColumns ? 8 : 6} className="py-2">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`text-xs font-bold uppercase tracking-wider ${
+                            group.type === 'unscheduled' ? 'text-amber-300' : 'text-emerald-300'
+                          }`}
+                        >
+                          {group.label}
+                        </span>
+                        {group.shift && (
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] ${
+                              group.shift === 'Mañana'
+                                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                                : 'border-teal-500/40 bg-teal-500/10 text-teal-300'
+                            }`}
+                          >
+                            {group.shift}
+                          </Badge>
+                        )}
+                        <span className="text-xs text-zinc-400">({group.items.length})</span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+
+                  {group.items.map((wo) => {
+                    const typeConfig = TYPE_CONFIG[wo.ot_type] || TYPE_CONFIG.repair;
                 const TypeIcon = typeConfig.icon;
                 const statusConfig = STATUS_CONFIG[wo.status] || STATUS_CONFIG.pending_planning;
 
@@ -676,7 +884,9 @@ export default function WorkOrdersPage() {
                     )}
                   </TableRow>
                 );
-              })}
+                  })}
+                </React.Fragment>
+              ))}
             </TableBody>
           </Table>
         )}

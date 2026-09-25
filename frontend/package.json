@@ -9,6 +9,7 @@
     "build": "vite build",
     "build:debug": "VITE_ENABLE_SOURCEMAPS=true vite build",
     "lint": "eslint .",
+    "test:rbac": "node --test src/utils/permissions.test.js",
     "preview": "vite preview",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",

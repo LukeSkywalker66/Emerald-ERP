@@ -18,7 +18,7 @@ def seed_ticket_reasons():
     """
     Pobla los motivos de ticket según la estructura especificada:
     
-    - Falla Técnica: 'Sin Servicio', 'Intermitencia/Microcortes', 'Lentitud', 'Problema WiFi'
+    - Soporte Técnico: 'Sin Servicio', 'Intermitencia/Microcortes', 'Lentitud', 'Problema WiFi'
     - Administrativo: 'Cambio de Plan/Servicio', 'Cambio de Titularidad', 'Facturación'
     - Traslado: 'Traslado Interno', 'Traslado a otro domicilio'
     - Baja: 'Precio/Competencia', 'Disconformidad Técnica', 'Mudanza', 'Fallecimiento'
@@ -29,7 +29,7 @@ def seed_ticket_reasons():
     try:
         # Mapeo de categorías y sus motivos
         category_reasons = {
-            "Falla Técnica": [
+            "Soporte Técnico": [
                 "Sin Servicio",
                 "Intermitencia/Microcortes",
                 "Lentitud",

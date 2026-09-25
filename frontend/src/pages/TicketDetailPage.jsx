@@ -76,6 +76,7 @@ const ticketTypeConfig = {
   installation: { label: 'Instalación', chip: 'bg-blue-500/10 border-blue-500/50 text-blue-200' },
   withdrawal: { label: 'Retiro', chip: 'bg-zinc-600/30 border-zinc-500/30 text-zinc-100' },
   relocation: { label: 'Traslado', chip: 'bg-purple-500/15 border-purple-500/40 text-purple-200' },
+  fiber_migration: { label: 'Pase a Fibra', chip: 'bg-cyan-500/10 border-cyan-500/40 text-cyan-200' },
   administrative: { label: 'Administrativo', chip: 'bg-amber-500/15 border-amber-500/40 text-amber-200' },
 };
 

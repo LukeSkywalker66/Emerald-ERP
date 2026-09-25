@@ -4,7 +4,7 @@ Modelos de autenticación y autorización (SQLAlchemy 2.0)
 from typing import Optional
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, String, Integer, DateTime
+from sqlalchemy import Boolean, ForeignKey, String, Integer, DateTime, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -125,6 +125,13 @@ class User(Base, TimestampMixin):
         back_populates="technician",
         lazy="select",
     )
+
+    preferences: Mapped[list["UserPreference"]] = relationship(
+        "UserPreference",
+        back_populates="user",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
     
     def __repr__(self) -> str:
         return f"<User(id={self.id}, username='{self.username}', email='{self.email}')>"
@@ -146,3 +153,53 @@ class User(Base, TimestampMixin):
             return False
         
         return permission in self.role.permissions or "*" in self.role.permissions
+
+
+class UserPreference(Base, TimestampMixin):
+    """
+    Preferencia de vista de un usuario para un módulo/grilla.
+
+    Guarda filtros, orden y paginación en un `payload` JSONB libre, versionado
+    con `schema_version` para poder migrar la forma del payload sin romper
+    lecturas viejas. La combinación (user_id, module_key) es única.
+    """
+    __tablename__ = "user_preferences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="FK al usuario dueño de la preferencia",
+    )
+
+    module_key: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        comment="Clave del módulo/grilla (ej: tickets.grid, work_orders.grid)",
+    )
+
+    payload: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        comment="Configuración de vista en JSON libre (filtros, orden, paginación)",
+    )
+
+    schema_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+        comment="Versión del esquema del payload para migraciones",
+    )
+
+    user: Mapped["User"] = relationship("User", back_populates="preferences", lazy="joined")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "module_key", name="uq_user_preferences_user_module"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<UserPreference(user_id={self.user_id}, module_key='{self.module_key}')>"

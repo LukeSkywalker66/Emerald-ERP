@@ -75,11 +75,11 @@ export function Dialog({ open = false, onOpenChange, children, portal = true }) 
       {isOpen &&
         (portal
           ? ReactDOM.createPortal(
-              <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm pointer-events-none">
-                <div className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-auto">
+              <div className="fixed inset-0 z-[60] overflow-y-auto bg-black/80 backdrop-blur-sm">
+                <div className="flex min-h-full items-center justify-center p-3 sm:p-6">
                   <div
                     onClick={handleOutsideClick}
-                    className="absolute inset-0"
+                    className="fixed inset-0"
                   ></div>
                   {children}
                 </div>
@@ -87,11 +87,11 @@ export function Dialog({ open = false, onOpenChange, children, portal = true }) 
               document.body
             )
           : (
-              <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm pointer-events-none">
-                <div className="fixed inset-0 z-[100] flex items-center justify-center pointer-events-auto">
+              <div className="fixed inset-0 z-[100] overflow-y-auto bg-black/80 backdrop-blur-sm">
+                <div className="flex min-h-full items-center justify-center p-3 sm:p-6">
                   <div
                     onClick={handleOutsideClick}
-                    className="absolute inset-0"
+                    className="fixed inset-0"
                   ></div>
                   {children}
                 </div>
@@ -128,7 +128,7 @@ export function DialogContent({
   return (
     <div
       onClick={(e) => e.stopPropagation()}
-      className={`relative z-[60] w-full max-w-lg rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-lg ${className}`}
+      className={`relative z-[60] w-full max-w-lg max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-3rem)] overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-lg ${className}`}
     >
       {showCloseButton && (
         <button
