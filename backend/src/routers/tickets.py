@@ -444,11 +444,17 @@ def list_tickets(
         else:
             query = query.order_by(User.full_name.desc().nulls_last())
     elif order_by == "client_name":
-        # Ordenar por nombre de cliente (mantener compatibilidad)
+        # Ordenar por nombre de cliente: join a connections/clientes vía
+        # connection_id (misma fuente que la respuesta). `Ticket.client_name`
+        # NO es una columna real del modelo → antes rompía con AttributeError/500.
+        query = (
+            query.outerjoin(Connection, Ticket.connection_id == Connection.connection_id)
+            .outerjoin(Cliente, Connection.customer_id == Cliente.id)
+        )
         if order_dir.lower() == "asc":
-            query = query.order_by(Ticket.client_name.asc().nulls_last())
+            query = query.order_by(Cliente.name.asc().nulls_last())
         else:
-            query = query.order_by(Ticket.client_name.desc().nulls_last())
+            query = query.order_by(Cliente.name.desc().nulls_last())
     elif order_by in allowed_order_fields:
         # Ordenamiento estándar para campos simples
         order_column = allowed_order_fields[order_by]
@@ -598,6 +604,13 @@ def create_ticket(
                 detail="Traslados requieren destination_connection_id o dirección de destino en availability_note"
             )
     
+    elif payload.ticket_type == TicketType.fiber_migration:
+        if not payload.connection_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Pase a fibra requiere connection_id de la conexión existente a migrar"
+            )
+    
     elif payload.ticket_type == TicketType.administrative:
         # Para tickets administrativos, aceptar tanto administrative_subtype (legacy) como ticket_reason_id (nuevo sistema)
         if not payload.administrative_subtype and not payload.ticket_reason_id:
@@ -729,7 +742,7 @@ def create_ticket(
         db.add(audit_event)
     
     # Auto-crear OT según tipo
-    if payload.ticket_type in [TicketType.installation, TicketType.withdrawal, TicketType.relocation]:
+    if payload.ticket_type in [TicketType.installation, TicketType.withdrawal, TicketType.relocation, TicketType.fiber_migration]:
         # WorkOrderType ya no tiene el valor genérico 'install': la migración
         # 2026_06_07_002 lo dividió en 'install_ftth' e 'install_aire'. Resolver
         # el tipo de OT según la tecnología declarada; por defecto FTTH.
@@ -740,14 +753,21 @@ def create_ticket(
                 TicketType.installation: WorkOrderType.install_ftth,
                 TicketType.withdrawal: WorkOrderType.pickup,
                 TicketType.relocation: WorkOrderType.install_ftth,
+                TicketType.fiber_migration: WorkOrderType.install_ftth,
             }
             resolved_ot_type = ot_type_map[payload.ticket_type]
         
         # Nota más descriptiva para la OT (reutiliza la descripción del ticket)
-        wo_note = payload.description or (
-            f"Traslado desde conexión {payload.origin_connection_id} hacia "
-            f"{payload.destination_connection_id or 'destino manual'}"
-        )
+        if payload.ticket_type == TicketType.fiber_migration:
+            wo_note = payload.description or (
+                f"Pase a fibra de la conexión {payload.connection_id}. "
+                f"Retirar antena/equipo de aire instalado."
+            )
+        else:
+            wo_note = payload.description or (
+                f"Traslado desde conexión {payload.origin_connection_id} hacia "
+                f"{payload.destination_connection_id or 'destino manual'}"
+            )
         if payload.availability_note:
             wo_note = f"{wo_note} | Disponibilidad: {payload.availability_note}"
 

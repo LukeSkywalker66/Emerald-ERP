@@ -106,6 +106,24 @@ class UserResponse(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+# --- User Preferences (memoria de vistas por usuario) ---
+
+class UserPreferenceUpsert(BaseModel):
+    """Payload para guardar la vista de un módulo/grilla."""
+    payload: dict = Field(..., description="Configuración de vista (JSON libre)")
+    schema_version: int = Field(1, ge=1, description="Versión del esquema del payload")
+
+
+class UserPreferenceResponse(BaseModel):
+    """Respuesta de una preferencia de usuario."""
+    module_key: str
+    payload: dict
+    schema_version: int
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # --- Token Schemas ---
 
 class Token(BaseModel):

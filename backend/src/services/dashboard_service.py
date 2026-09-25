@@ -31,7 +31,9 @@ class DashboardService:
         # ── Tickets ─────────────────────────────────────────────────
         total_activos = db.execute(
             select(func.count(Ticket.id)).where(
-                Ticket.status.notin_([TicketStatus.closed, TicketStatus.cancelled])
+                Ticket.status.notin_(
+                    [TicketStatus.closed, TicketStatus.cancelled, TicketStatus.resolved]
+                )
             )
         ).scalar() or 0
 
@@ -106,6 +108,25 @@ class DashboardService:
             )
         ).scalar() or 0
 
+        # ── Desglose completo por estado (para que el dashboard muestre la foto real) ──
+        ticket_status_rows = db.execute(
+            select(Ticket.status, func.count(Ticket.id)).group_by(Ticket.status)
+        ).all()
+        ticket_status_counts = {status: count for status, count in ticket_status_rows}
+        tickets_por_estado = {
+            status.value: ticket_status_counts.get(status, 0)
+            for status in TicketStatus
+        }
+
+        wo_status_rows = db.execute(
+            select(WorkOrder.status, func.count(WorkOrder.id)).group_by(WorkOrder.status)
+        ).all()
+        wo_status_counts = {status: count for status, count in wo_status_rows}
+        work_orders_por_estado = {
+            status.value: wo_status_counts.get(status, 0)
+            for status in WorkOrderStatus
+        }
+
         # ── Sync Status (última ejecución por fuente) ─────────────
         sync_sources: list[Dict[str, Any]] = []
         try:
@@ -142,6 +163,7 @@ class DashboardService:
                 "en_progreso": en_progreso,
                 "pendientes": pendientes,
                 "creados_hoy": creados_hoy,
+                "por_estado": tickets_por_estado,
             },
             "clientes": {
                 "total_conexiones": total_conexiones,
@@ -158,6 +180,7 @@ class DashboardService:
                 "pendientes": wo_pendientes,
                 "en_curso": wo_en_curso,
                 "completadas_hoy": wo_completadas_hoy,
+                "por_estado": work_orders_por_estado,
             },
             "sync": {
                 "por_fuente": sync_sources,

@@ -32,6 +32,54 @@ function timeAgo(dateStr) {
   });
 }
 
+// ── Etiquetas y colores por estado (conectados al enum del backend) ─────
+
+const TICKET_STATUS_LABELS = {
+  open: 'Abiertos',
+  in_progress: 'En progreso',
+  pending: 'Pendientes',
+  pending_infra: 'Pend. infraestructura',
+  waiting_internal: 'Esperando interno',
+  attention_required: 'Requiere atención',
+  resolved: 'Resueltos',
+  closed: 'Cerrados',
+  cancelled: 'Cancelados',
+};
+
+const TICKET_STATUS_COLORS = {
+  open: 'bg-emerald-500',
+  in_progress: 'bg-blue-500',
+  pending: 'bg-amber-500',
+  pending_infra: 'bg-purple-500',
+  waiting_internal: 'bg-cyan-500',
+  attention_required: 'bg-ruby-500',
+  resolved: 'bg-teal-500',
+  closed: 'bg-zinc-500',
+  cancelled: 'bg-zinc-600',
+};
+
+const WO_STATUS_LABELS = {
+  pending_planning: 'Planificación',
+  coordinated: 'Coordinadas',
+  scheduled: 'Programadas',
+  assigned: 'Asignadas',
+  in_progress: 'En curso',
+  pending_closure: 'Pendiente cierre',
+  completed: 'Completadas',
+  failed: 'Fallidas',
+};
+
+const WO_STATUS_COLORS = {
+  pending_planning: 'bg-amber-500',
+  coordinated: 'bg-teal-500',
+  scheduled: 'bg-cyan-500',
+  assigned: 'bg-violet-500',
+  in_progress: 'bg-blue-500',
+  pending_closure: 'bg-ruby-500',
+  completed: 'bg-emerald-500',
+  failed: 'bg-rose-600',
+};
+
 // ── Skeleton Loading ────────────────────────────────────────────────────
 
 function KPISkeleton() {
@@ -260,6 +308,41 @@ export default function DashboardPage() {
             icon={Wifi}
             tone={onus.total > 0 ? 'success' : 'warning'}
           />
+        </div>
+      )}
+
+      {/* ── Desglose por estado (Tickets + Work Orders) ─────────── */}
+      {!loading && data && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-5 shadow-xl shadow-black/20">
+            <h2 className="text-sm font-semibold text-zinc-300 mb-4">Tickets por estado</h2>
+            <div className="space-y-2">
+              {Object.entries(TICKET_STATUS_LABELS).map(([key, label]) => (
+                <div key={key} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${TICKET_STATUS_COLORS[key] || 'bg-zinc-500'}`} />
+                    <span className="text-sm text-zinc-400">{label}</span>
+                  </div>
+                  <span className="text-sm font-semibold text-white">{tickets.por_estado?.[key] ?? 0}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-5 shadow-xl shadow-black/20">
+            <h2 className="text-sm font-semibold text-zinc-300 mb-4">Órdenes de Trabajo por estado</h2>
+            <div className="space-y-2">
+              {Object.entries(WO_STATUS_LABELS).map(([key, label]) => (
+                <div key={key} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${WO_STATUS_COLORS[key] || 'bg-zinc-500'}`} />
+                    <span className="text-sm text-zinc-400">{label}</span>
+                  </div>
+                  <span className="text-sm font-semibold text-white">{work_orders.por_estado?.[key] ?? 0}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 

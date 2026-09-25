@@ -25,6 +25,7 @@ import TagsFilterPopover from '@/components/tickets/TagsFilterPopover';
 import CreateTicketDialog from '@/components/tickets/CreateTicketDialog';
 import ticketsService, { getTags } from '@/services/tickets.service';
 import Can from '@/components/auth/Can';
+import usePersistedViewState from '@/hooks/usePersistedViewState';
 
 const statusConfig = {
   open: { label: 'Abierto', variant: 'emerald' },
@@ -45,7 +46,19 @@ const ticketTypeConfig = {
   installation: { label: 'Instalación', chip: 'bg-blue-500/10 border-blue-500/50 text-blue-200' },
   withdrawal: { label: 'Retiro', chip: 'bg-zinc-600/30 border-zinc-500/30 text-zinc-100' },
   relocation: { label: 'Traslado', chip: 'bg-purple-500/15 border-purple-500/40 text-purple-200' },
+  fiber_migration: { label: 'Pase a Fibra', chip: 'bg-cyan-500/10 border-cyan-500/40 text-cyan-200' },
   administrative: { label: 'Administrativo', chip: 'bg-amber-500/15 border-amber-500/40 text-amber-200' },
+};
+
+// Vista por defecto de la grilla de tickets (persistida por usuario).
+const TICKETS_GRID_DEFAULTS = {
+  search: '',
+  status: '',
+  priority: '',
+  tags: [],
+  sortField: 'updated_at',
+  sortDirection: 'desc',
+  pageSize: 20,
 };
 
 function StatusBadge({ status }) {
@@ -93,22 +106,36 @@ export default function TicketsPage() {
   const navigate = useNavigate();
   const [tickets, setTickets] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
-  const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [priorityFilter, setPriorityFilter] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedConnection, setSelectedConnection] = useState(null);
-  const [sortField, setSortField] = useState('updated_at');
-  const [sortDirection, setSortDirection] = useState('desc');
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
-  const [tagsFilter, setTagsFilter] = useState([]);
   const [availableTags, setAvailableTags] = useState([]);
+
+  // Vista persistida por usuario (filtros + orden + paginación).
+  const [view, setView] = usePersistedViewState('tickets.grid', TICKETS_GRID_DEFAULTS);
+  const searchQuery = view.search;
+  const statusFilter = view.status;
+  const priorityFilter = view.priority;
+  const tagsFilter = view.tags;
+  const sortField = view.sortField;
+  const sortDirection = view.sortDirection;
+  const pageSize = view.pageSize;
+
+  const setSearchQuery = (v) => setView((prev) => ({ ...prev, search: v }));
+  const setStatusFilter = (v) => setView((prev) => ({ ...prev, status: v }));
+  const setPriorityFilter = (v) => setView((prev) => ({ ...prev, priority: v }));
+  const setTagsFilter = (v) => setView((prev) => ({ ...prev, tags: v }));
+  const setSortField = (v) => setView((prev) => ({ ...prev, sortField: v }));
+  const setSortDirection = (v) => setView((prev) => ({ ...prev, sortDirection: v }));
+  const setPageSize = (v) => {
+    setView((prev) => ({ ...prev, pageSize: v }));
+    setCurrentPage(1);
+  };
 
   const loadTickets = async () => {
     try {

@@ -65,6 +65,11 @@ export default function BarcodeLabelPrinter() {
     <div className="min-h-screen bg-zinc-950 text-zinc-100 p-6">
       <style>{`
         @media print {
+          html, body {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
           body * {
             visibility: hidden !important;
           }
@@ -88,14 +93,22 @@ export default function BarcodeLabelPrinter() {
 
           .print-grid {
             display: grid !important;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 8mm;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 4mm;
           }
 
           .print-card {
             break-inside: avoid;
             border: 1px solid #d4d4d8;
             padding: 4mm;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
+          .print-card svg {
+            display: block;
+            max-width: 100%;
+            height: auto;
           }
         }
       `}</style>

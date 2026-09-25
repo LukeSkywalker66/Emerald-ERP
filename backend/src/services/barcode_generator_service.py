@@ -129,13 +129,27 @@ class BarcodeGeneratorService:
         return created
 
     def render_svg(self, barcode_string: str) -> str:
-        """Renderiza un barcode CODE128 en SVG crudo (XML)."""
+        """Renderiza un barcode CODE128 en SVG crudo (XML).
+
+        Optimizado para lectura por pistola: barras más gruesas
+        (module_width) y mayor altura (module_height). El default de
+        python-barcode (module_width=0.2mm) genera barras demasiado finas
+        que, al escalar la etiqueta en impresión, la pistola no decodifica.
+        """
         import barcode
         from barcode.writer import SVGWriter
 
         code128 = barcode.get_barcode_class("code128")
         writer = SVGWriter()
-        svg = code128(barcode_string, writer=writer).render(writer_options={"write_text": False})
+        svg = code128(barcode_string, writer=writer).render(
+            writer_options={
+                "write_text": False,
+                "module_width": 0.35,   # mm — barras más gruesas (default 0.2)
+                "module_height": 16.0,  # mm — mayor altura para facilitar el scan
+                "background": "white",
+                "foreground": "black",
+            }
+        )
 
         if isinstance(svg, bytes):
             return svg.decode("utf-8")

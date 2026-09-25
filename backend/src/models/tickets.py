@@ -136,6 +136,7 @@ class TicketType(StrEnum):
     withdrawal = "withdrawal"            # Baja de servicio (retiro de equipos)
     relocation = "relocation"            # Traslado/Mudanza (origen → destino)
     administrative = "administrative"    # Gestión administrativa
+    fiber_migration = "fiber_migration"  # Pase a fibra (misma conexión, retiro de aire)
 
 
 class AdministrativeSubtype(StrEnum):

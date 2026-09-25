@@ -22,6 +22,7 @@ import {
 
 import { useAuth } from '@/context/AuthContext';
 import { normalizeRole } from '@/utils/permissions';
+import usePersistedViewState from '@/hooks/usePersistedViewState';
 import api from '@/api/client';
 import workOrdersService from '@/services/workOrders.service';
 import coordinationService from '@/services/coordination.service';
@@ -114,6 +115,16 @@ function formatDayLabel(dayKey) {
   return `${prefix}${label}`;
 }
 
+// Vista por defecto de la grilla de OTs (persistida por usuario).
+const WORK_ORDERS_GRID_DEFAULTS = {
+  search: '',
+  status: '',
+  type: '',
+  team: '',
+  sortKey: 'date',
+  sortDir: 'asc',
+};
+
 export default function WorkOrdersPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -155,13 +166,27 @@ export default function WorkOrdersPage() {
   // OT Types (DB-driven)
   const [otTypes, setOtTypes] = useState([]);
 
-  // Filters
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [teamFilter, setTeamFilter] = useState('');
-  const [sortKey, setSortKey] = useState('date'); // 'date' | 'client' | 'address' | 'id'
-  const [sortDir, setSortDir] = useState('asc'); // 'asc' | 'desc'
+  // Vista persistida por usuario (filtros + orden).
+  const [view, setView] = usePersistedViewState('work_orders.grid', WORK_ORDERS_GRID_DEFAULTS);
+  const searchQuery = view.search;
+  const statusFilter = view.status;
+  const typeFilter = view.type;
+  const teamFilter = view.team;
+  const sortKey = view.sortKey;
+  const sortDir = view.sortDir;
+
+  // Setters que escriben en la vista persistida (soportan updater funcional).
+  const applyViewUpdate = (key) => (updater) =>
+    setView((prev) => ({
+      ...prev,
+      [key]: typeof updater === 'function' ? updater(prev[key]) : updater,
+    }));
+  const setSearchQuery = applyViewUpdate('search');
+  const setStatusFilter = applyViewUpdate('status');
+  const setTypeFilter = applyViewUpdate('type');
+  const setTeamFilter = applyViewUpdate('team');
+  const setSortKey = applyViewUpdate('sortKey');
+  const setSortDir = applyViewUpdate('sortDir');
 
   // Load data - BIFURCACIÓN POR ROL (NASA-GRADE)
   const loadWorkOrders = async () => {

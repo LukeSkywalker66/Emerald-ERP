@@ -2,7 +2,7 @@
 Models package exports
 Unifica todos los modelos: Auth, Tickets, Beholder, API Keys, WorkOrders, Engineering
 """
-from .user import Role, User
+from .user import Role, User, UserPreference
 from .audit import AuditLog, LoginAttempt, AuditAction
 from .installation import InstallationType
 from .work_order_types import WorkOrderTypeConfig
@@ -86,6 +86,7 @@ __all__ = [
 	# Auth models
 	"Role",
 	"User",
+	"UserPreference",
 	"AuditLog",
 	"LoginAttempt",
 	# Fleet models
