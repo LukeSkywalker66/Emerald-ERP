@@ -19,16 +19,19 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
+import re
 import shutil
+import subprocess
 import tarfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+from sqlalchemy import text
+
 from src.celery_app import celery_app
-from src.database import SessionLocal
+from src.database import SessionLocal, engine
 from src.models.settings import BackupConfig, BackupRun, BackupStatus, BackupTrigger
 
 logger = logging.getLogger("Emerald.Backup")
@@ -59,6 +62,32 @@ def _parse_db_url(database_url: str) -> dict:
         "password": parsed.password or "",
         "dbname": parsed.path.lstrip("/"),
     }
+
+
+def _get_server_pg_major() -> int:
+    """Retorna el major version del servidor PostgreSQL (ej: 15 para 15.x)."""
+    with engine.connect() as conn:
+        return int(conn.execute(
+            text("SELECT current_setting('server_version_num')::int / 10000")
+        ).scalar())
+
+
+def _get_pg_dump_major() -> int:
+    """Retorna el major version del binario pg_dump disponible en el contenedor."""
+    result = subprocess.run(
+        ["pg_dump", "--version"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"No se pudo obtener la versión de pg_dump: {result.stderr}")
+
+    # pg_dump --version → "pg_dump (PostgreSQL) 15.10 (Debian ...)"
+    match = re.search(r"PostgreSQL\)\s+(\d+)\.", result.stdout)
+    if not match:
+        raise RuntimeError(f"Formato de versión de pg_dump inesperado: {result.stdout.strip()}")
+    return int(match.group(1))
 
 
 def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger, run: Optional[BackupRun] = None) -> BackupRun:
@@ -122,6 +151,18 @@ def _run_backup(cfg: BackupConfig, triggered_by: BackupTrigger, run: Optional[Ba
         work_dir.mkdir(parents=True, exist_ok=True)
 
         log(f"🚀 Iniciando backup — paquete destino: {package_path}")
+
+        # --- Guard de versiones: pg_dump debe matchear la versión del servidor ---
+        server_pg_major = _get_server_pg_major()
+        dump_pg_major = _get_pg_dump_major()
+        log(f"ℹ️  PostgreSQL server major={server_pg_major}, pg_dump major={dump_pg_major}")
+        if server_pg_major != dump_pg_major:
+            raise RuntimeError(
+                "Incompatibilidad de versiones PostgreSQL: "
+                f"servidor={server_pg_major}, pg_dump={dump_pg_major}. "
+                "El cliente pg_dump debe coincidir con la versión del servidor "
+                "para generar dumps restaurables con pg_restore del mismo major."
+            )
 
         # --- pg_dump via subprocess (postgresql-client en el contenedor) ---
         pg_env = {**os.environ, "PGPASSWORD": db_params["password"]}
