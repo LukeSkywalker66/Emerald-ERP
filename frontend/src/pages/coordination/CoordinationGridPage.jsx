@@ -40,6 +40,8 @@ export default function CoordinationGridPage() {
   const [selectedWorkOrder, setSelectedWorkOrder] = useState(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [pendingRefreshKey, setPendingRefreshKey] = useState(0);
+  const [locationModalOpen, setLocationModalOpen] = useState(false);
+  const [locationRefreshKey, setLocationRefreshKey] = useState(0);
 
   // Filtros multicriterio - con sessionStorage para persistencia
   const [filters, setFilters] = useState(() => {
@@ -168,6 +170,7 @@ export default function CoordinationGridPage() {
   function handleEventClick(event) {
     setSelectedWorkOrder(event);
     setIsDetailOpen(true);
+    setLocationModalOpen(false);
   }
 
   // Handlers para filtros
@@ -436,6 +439,7 @@ export default function CoordinationGridPage() {
         onClose={() => {
           setIsDetailOpen(false);
           setSelectedWorkOrder(null);
+          setLocationModalOpen(false);
         }}
         onDurationChange={(newDuration) => {
           console.log(`✅ Duración actualizada a ${newDuration} min`);
@@ -443,6 +447,15 @@ export default function CoordinationGridPage() {
           handleManualRefresh();
         }}
         onWorkOrderUpdated={() => handleManualRefresh()}
+        onOpenLocationModal={() => setLocationModalOpen(true)}
+        onCloseLocationModal={() => setLocationModalOpen(false)}
+        onLocationSaved={() => {
+          setLocationRefreshKey((k) => k + 1);
+          setLocationModalOpen(false);
+          handleManualRefresh();
+        }}
+        refreshKey={locationRefreshKey}
+        locationModalOpen={locationModalOpen}
         workOrderTypes={workOrderTypes}
         workOrderTypeMap={workOrderTypeMap}
       />
