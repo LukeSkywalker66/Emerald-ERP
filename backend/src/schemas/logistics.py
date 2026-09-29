@@ -181,7 +181,9 @@ class TrackedUnitLabelResponse(BaseModel):
     """Respuesta para impresión de etiquetas de unidades trazables."""
     serial_item_id: int
     serial_number: str
-    barcode_svg: str
+    barcode_png: str
+    barcode_width_px: int
+    barcode_height_px: int
 
 
 # ============================================

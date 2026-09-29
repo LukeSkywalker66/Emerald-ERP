@@ -71,11 +71,15 @@ def _validate_db_config():
             logger.error(f"❌ {error}")
         raise ValueError(f"Configuración incompleta: {', '.join(errors)}")
 
+#<<<<<<< Updated upstream
 # Construimos la URL para SQLAlchemy.
 # Se fuerza el dialecto psycopg2 explícitamente: SQLAlchemy 2.1+ cambió el
 # dialecto por defecto de `postgresql://` a psycopg (v3), que no está
 # instalado. Con `+psycopg2` usamos siempre el driver `psycopg2-binary`
 # declarado en requirements.txt, sin importar la versión de SQLAlchemy.
+#=======
+# Construimos la URL para SQLAlchemy
+#>>>>>>> Stashed changes
 SQLALCHEMY_DATABASE_URL = f"postgresql+psycopg2://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 
 # --- API KEY (CRÍTICA) ---

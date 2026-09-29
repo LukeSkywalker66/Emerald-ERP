@@ -5,9 +5,10 @@ depósito central y móviles de cuadrillas.
 """
 from typing import List, Optional
 from datetime import datetime, date
+import base64
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import select, and_, func
 
@@ -35,6 +36,7 @@ from src.schemas.logistics import (
     MaterialReceiptCreate, MaterialReceiptResponse,
     MaterialReceiptItemCreate, MaterialReceiptItemResponse,
 )
+from src.barcode_reader.normalization import normalize_scanned_code
 from src.services.barcode_generator_service import BarcodeGeneratorService
 from src.services.material_delivery_service import (
     generate_delivery_proposal,
@@ -403,7 +405,7 @@ def scan_barcode(
     if not delivery:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
-    cleaned = payload.product_code.strip().upper()
+    cleaned = normalize_scanned_code(payload.product_code)
 
     # Construir engine
     engine = BarcodeScannerEngine()
@@ -623,7 +625,7 @@ def scan_serial(
     if not delivery:
         raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
-    cleaned = payload.serial_number.strip().upper()
+    cleaned = normalize_scanned_code(payload.serial_number)
 
     # Validar formato del serial usando el engine
     engine = BarcodeScannerEngine()
@@ -910,7 +912,7 @@ def scan_receipt_item(
     if not receipt:
         raise HTTPException(status_code=404, detail="Recepción no encontrada")
 
-    cleaned = payload.product_code.strip().upper()
+    cleaned = normalize_scanned_code(payload.product_code)
 
     engine = BarcodeScannerEngine()
     engine.register_validators(
@@ -1041,7 +1043,7 @@ def get_tracked_unit_labels(
     serial_item_ids: List[int] = Query(..., description="IDs de serial_items para etiquetar"),
     db: Session = Depends(get_db),
 ):
-    """Devuelve SVG CODE128 para imprimir etiquetas de unidades trazables."""
+    """Devuelve PNG CODE128 de alta resolución para imprimir etiquetas."""
     if not serial_item_ids:
         raise HTTPException(status_code=400, detail="Debes enviar al menos un serial_item_id")
 
@@ -1063,15 +1065,58 @@ def get_tracked_unit_labels(
                 status_code=400,
                 detail=f"SerialItem {serial_item_id} no es código generado por Emerald"
             )
+        png, width_px, height_px = generator.render_png(serial.serial_number)
+        barcode_png = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+
         response.append(
             TrackedUnitLabelResponse(
                 serial_item_id=serial.id,
                 serial_number=serial.serial_number,
-                barcode_svg=generator.render_svg(serial.serial_number),
+                barcode_png=barcode_png,
+                barcode_width_px=width_px,
+                barcode_height_px=height_px,
             )
         )
 
     return response
+
+
+@router.get("/tracked-units/labels.pdf")
+def get_tracked_unit_labels_pdf(
+    serial_item_ids: List[int] = Query(..., description="IDs de serial_items para etiquetar"),
+    columns: int = Query(2, ge=1, le=3, description="Etiquetas por fila"),
+    db: Session = Depends(get_db),
+):
+    """Devuelve un PDF A4 con etiquetas CODE128 vectoriales (2 por fila)."""
+    if not serial_item_ids:
+        raise HTTPException(status_code=400, detail="Debes enviar al menos un serial_item_id")
+
+    serials = db.execute(
+        select(SerialItem).where(SerialItem.id.in_(serial_item_ids))
+    ).scalars().all()
+
+    by_id = {s.id: s for s in serials}
+    missing = [sid for sid in serial_item_ids if sid not in by_id]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"SerialItem no encontrado: {missing}")
+
+    for sid in serial_item_ids:
+        if not by_id[sid].is_generated_barcode:
+            raise HTTPException(
+                status_code=400,
+                detail=f"SerialItem {sid} no es código generado por Emerald",
+            )
+
+    from src.services.label_pdf_service import build_labels_pdf
+
+    serial_numbers = [by_id[sid].serial_number for sid in serial_item_ids]
+    pdf = build_labels_pdf(serial_numbers, columns=columns)
+
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="etiquetas_unidades_trazables.pdf"'},
+    )
 
 
 # ============================================

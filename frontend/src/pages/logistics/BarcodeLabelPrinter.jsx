@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Loader, Printer } from 'lucide-react';
-import { getTrackedUnitLabels } from '@/services/logistics.service';
+import { getTrackedUnitLabels, getTrackedUnitLabelsPdf } from '@/services/logistics.service';
 
 function parseSerialItemIds(searchParams) {
   const repeated = searchParams.getAll('serial_item_ids');
@@ -31,8 +31,10 @@ export default function BarcodeLabelPrinter() {
   );
 
   const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState(null);
   const [labels, setLabels] = useState([]);
+  const [columns, setColumns] = useState(2);
 
   useEffect(() => {
     const load = async () => {
@@ -61,60 +63,29 @@ export default function BarcodeLabelPrinter() {
     load();
   }, [serialItemIds]);
 
+  const handleDownloadPdf = async () => {
+    if (serialItemIds.length === 0) return;
+
+    try {
+      setDownloading(true);
+      setError(null);
+      const blob = await getTrackedUnitLabelsPdf(serialItemIds, columns);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener');
+      // Liberar el object URL luego de un rato prudencial.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'No se pudo generar el PDF.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 p-6">
-      <style>{`
-        @media print {
-          html, body {
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-
-          body * {
-            visibility: hidden !important;
-          }
-
-          .barcode-print-root,
-          .barcode-print-root * {
-            visibility: visible !important;
-          }
-
-          .barcode-print-root {
-            position: absolute;
-            inset: 0;
-            background: white;
-            color: black;
-            padding: 12mm;
-          }
-
-          .no-print {
-            display: none !important;
-          }
-
-          .print-grid {
-            display: grid !important;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 4mm;
-          }
-
-          .print-card {
-            break-inside: avoid;
-            border: 1px solid #d4d4d8;
-            padding: 4mm;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-
-          .print-card svg {
-            display: block;
-            max-width: 100%;
-            height: auto;
-          }
-        }
-      `}</style>
-
       <div className="max-w-7xl mx-auto">
-        <div className="no-print flex items-center justify-between mb-6 gap-3">
+        <div className="flex flex-wrap items-center justify-between mb-6 gap-3">
           <button
             type="button"
             onClick={() => navigate('/app/inventory/adjustments')}
@@ -124,14 +95,29 @@ export default function BarcodeLabelPrinter() {
             Volver a Ajustes
           </button>
 
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded bg-emerald-500 text-zinc-950 font-semibold hover:bg-emerald-400 transition-colors"
-          >
-            <Printer className="w-4 h-4" />
-            Imprimir (Ctrl+P)
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="inline-flex items-center gap-2 text-sm text-zinc-300">
+              Etiquetas por fila:
+              <select
+                value={columns}
+                onChange={(e) => setColumns(Number(e.target.value))}
+                className="bg-zinc-800 border border-zinc-700 rounded px-2 py-2 text-sm text-zinc-100"
+              >
+                <option value={2}>2 (recomendado)</option>
+                <option value={3}>3</option>
+              </select>
+            </label>
+
+            <button
+              type="button"
+              onClick={handleDownloadPdf}
+              disabled={downloading || serialItemIds.length === 0}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded bg-emerald-500 text-zinc-950 font-semibold hover:bg-emerald-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Printer className="w-4 h-4" />
+              {downloading ? 'Generando PDF…' : `Descargar PDF e imprimir (${columns} por fila)`}
+            </button>
+          </div>
         </div>
 
         {loading && (
@@ -148,23 +134,25 @@ export default function BarcodeLabelPrinter() {
         )}
 
         {!loading && !error && (
-          <section className="barcode-print-root">
-            <header className="no-print mb-4">
+          <section>
+            <header className="mb-4">
               <h1 className="text-2xl font-bold text-emerald-300">Etiquetas de Unidades Trazables</h1>
               <p className="text-zinc-400 text-sm">
-                Total: {labels.length} etiqueta(s). Al imprimir, se ocultará toda la UI y saldrán solo los códigos.
+                Total: {labels.length} etiqueta(s). El botón genera un PDF con 2 etiquetas por fila,
+                listo para imprimir a tamaño real (100%) en la impresora.
               </p>
             </header>
 
-            <div className="print-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {labels.map((item) => (
                 <article
                   key={item.serial_item_id}
-                  className="print-card border border-zinc-700 rounded bg-white text-black p-3 flex flex-col items-center justify-center"
+                  className="border border-zinc-700 rounded bg-white text-black p-4 flex flex-col items-center justify-center"
                 >
-                  <div
-                    className="w-full flex items-center justify-center overflow-hidden"
-                    dangerouslySetInnerHTML={{ __html: item.barcode_svg }}
+                  <img
+                    src={item.barcode_png}
+                    alt={`Código ${item.serial_number}`}
+                    style={{ width: '100%', height: 'auto' }}
                   />
                   <p className="mt-2 text-xs font-mono tracking-wide text-center break-all">
                     {item.serial_number}
