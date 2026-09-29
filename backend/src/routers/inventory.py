@@ -33,6 +33,7 @@ from src.schemas.inventory import (
 )
 from src.schemas.fleet import VehicleSummary
 from src.utils.audit import log_create, log_update, log_delete, get_entity_dict
+from src.barcode_reader.normalization import normalize_scanned_code
 from src.services.barcode_generator_service import BarcodeGeneratorService
 
 router = APIRouter(tags=["inventory"])
@@ -1558,7 +1559,7 @@ def scan_code(
     )
 
     user_id = _get_user_id_from_request()
-    cleaned = payload.code.strip().upper()
+    cleaned = normalize_scanned_code(payload.code)
 
     # Construir engine con validadores.
     # Si no hay producto seleccionado, incluimos ProductCodeValidator para identificar SKU.
@@ -1645,7 +1646,7 @@ def scan_serial(
     - Mantiene contador en la sesión de escaneo
     """
     user_id = _get_user_id_from_request()
-    cleaned = payload.serial_number.strip().upper()
+    cleaned = normalize_scanned_code(payload.serial_number)
 
     # Validar producto
     product = db.get(Product, payload.product_id)

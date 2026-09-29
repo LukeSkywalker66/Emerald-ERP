@@ -291,9 +291,9 @@ export const confirmReceipt = async (receiptId) => {
 };
 
 /**
- * Obtener etiquetas SVG para unidades trazables generadas.
+ * Obtener etiquetas PNG para unidades trazables generadas.
  * @param {number[]} serialItemIds
- * @returns {Promise<Array<{serial_item_id:number, serial_number:string, barcode_svg:string}>>}
+ * @returns {Promise<Array<{serial_item_id:number, serial_number:string, barcode_png:string, barcode_width_px:number, barcode_height_px:number}>>}
  */
 export const getTrackedUnitLabels = async (serialItemIds = []) => {
   try {
@@ -311,6 +311,30 @@ export const getTrackedUnitLabels = async (serialItemIds = []) => {
     return data || [];
   } catch (error) {
     console.error('❌ Error fetching tracked unit labels:', error);
+    throw error;
+  }
+};
+
+/**
+ * Descargar PDF de etiquetas (geometría vectorial exacta, 2 por fila).
+ * @param {number[]} serialItemIds
+ * @param {number} [columns=2]
+ * @returns {Promise<Blob>} Blob PDF
+ */
+export const getTrackedUnitLabelsPdf = async (serialItemIds = [], columns = 2) => {
+  try {
+    const params = new URLSearchParams();
+    serialItemIds
+      .filter((id) => Number.isFinite(Number(id)))
+      .forEach((id) => params.append('serial_item_ids', String(id)));
+    params.set('columns', String(columns));
+
+    const { data } = await api.get(`${BASE_URL}/tracked-units/labels.pdf?${params.toString()}`, {
+      responseType: 'blob',
+    });
+    return data;
+  } catch (error) {
+    console.error('❌ Error downloading tracked unit labels PDF:', error);
     throw error;
   }
 };
@@ -340,4 +364,5 @@ export default {
   scanReceiptItem,
   confirmReceipt,
   getTrackedUnitLabels,
+  getTrackedUnitLabelsPdf,
 };
