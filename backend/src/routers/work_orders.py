@@ -1,5 +1,6 @@
 """Router para WorkOrders - Endpoints de listado y ejecución para técnicos."""
 import logging
+from decimal import Decimal
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
@@ -462,6 +463,7 @@ def get_work_order_detail(
                 "node_ip": conn_snap.get("node_ip"),
                 "plan_name": conn_snap.get("plan_name"),
                 "plan_speed": conn_snap.get("plan_speed"),
+                "address_parts": conn_snap.get("address_parts"),
             })
         # 2) Fallback: consultar DB si no hay snapshot y hay connection_id.
         #    Instalaciones/traslados usan destination/origin_connection_id.
@@ -479,6 +481,7 @@ def get_work_order_detail(
                         n.ip_address as node_ip,
                         p.name as plan_name,
                         p.speed as plan_speed,
+                        c.address_parts,
                         COALESCE(
                             ct.number,
                             cl.raw_data->>'phone',
@@ -516,7 +519,8 @@ def get_work_order_detail(
                         "node_ip": conn_row[6],
                         "plan_name": conn_row[7],
                         "plan_speed": conn_row[8],
-                        "contact_phone": conn_row[9],
+                        "address_parts": conn_row[9],
+                        "contact_phone": conn_row[10],
                     }
                 )
 
@@ -766,10 +770,18 @@ def update_work_order(
                 Connection.connection_id == effective_conn_id
             ).first()
             if conn:
+                # Se persiste como Decimal (sin pérdida de precisión por float) y
+                # de forma null-safe: si el valor es inválido, no se pisa nada.
                 if wo.latitude is not None:
-                    conn.latitude = wo.latitude
+                    try:
+                        conn.latitude = Decimal(str(wo.latitude))
+                    except Exception:
+                        pass
                 if wo.longitude is not None:
-                    conn.longitude = wo.longitude
+                    try:
+                        conn.longitude = Decimal(str(wo.longitude))
+                    except Exception:
+                        pass
     
     # Flag modified para campos JSONB (photo_urls, custom_data)
     if 'photo_urls' in update_data:
@@ -1074,6 +1086,7 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
     ticket_title = wo.ticket.subject if wo.ticket else "Sin ticket"
     client_name = None
     address = getattr(wo.ticket, "availability_note", None)
+    address_parts = None
 
     # Fuente de verdad del cliente: datos de conexión/contacto del ticket.
     # Nunca usar el creador del ticket como nombre de cliente.
@@ -1117,7 +1130,7 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
         or wo.ticket.origin_connection_id
     ) if wo.ticket else None
 
-    if wo.ticket and effective_connection_id and (not client_name or not address):
+    if wo.ticket and effective_connection_id:
         try:
             conn_row = db.execute(
                 text(
@@ -1139,7 +1152,8 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
                             cl.raw_data->>'telefono'
                         ) as phone,
                         cy.name as city_name,
-                        nb.name as neighborhood_name
+                        nb.name as neighborhood_name,
+                        c.address_parts
                     FROM connections c
                     LEFT JOIN clientes cl ON c.customer_id = cl.id
                     LEFT JOIN LATERAL (
@@ -1175,6 +1189,10 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
                     ticket_dict['contact_info']['city'] = conn_row[10]
                 if ticket_dict and conn_row[11]:  # neighborhood_name
                     ticket_dict['contact_info']['neighborhood'] = conn_row[11]
+                if conn_row[12]:  # address_parts (JSONB)
+                    address_parts = conn_row[12]
+                    if ticket_dict:
+                        ticket_dict['contact_info']['address_parts'] = conn_row[12]
         except Exception as e:
             # Si falla la consulta, usar datos fallback del ticket
             print(f"⚠️  Error enriqueciendo conexión {effective_connection_id}: {e}")
@@ -1190,6 +1208,7 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
         "priority": wo.priority.value if wo.priority else "medium",
         "client_name": client_name or "Sin cliente",
         "address": address or "-",
+        "address_parts": address_parts,
         "technician_name": wo.technician.full_name if wo.technician else None,
         # CAMPOS DE COORDINACIÓN (AÑADIDOS PARA GRID DE COORDINACIÓN)
         "team_id": wo.team_id,

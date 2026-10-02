@@ -30,6 +30,7 @@ const InventoryDashboard = lazy(() => import('./pages/inventory/InventoryDashboa
 const WarehouseList = lazy(() => import('./pages/inventory/WarehouseList'));
 const WarehouseDetail = lazy(() => import('./pages/inventory/WarehouseDetail'));
 const ProductCatalog = lazy(() => import('./pages/inventory/ProductCatalog'));
+const ProductExplorer = lazy(() => import('./pages/inventory/ProductExplorer'));
 const StockTransferWizard = lazy(() => import('./pages/inventory/StockTransferWizard'));
 const StockAdjustments = lazy(() => import('./pages/inventory/StockAdjustments'));
 const MovementsHistory = lazy(() => import('./pages/inventory/MovementsHistory'));
@@ -92,6 +93,7 @@ const AppRoutes = () => (
         <Route path="inventory/warehouses" element={<RoleGuard resource="inventory_warehouses" fallbackPath="/app/work-orders"><WarehouseList /></RoleGuard>} />
         <Route path="inventory/warehouses/:id" element={<RoleGuard resource="inventory_warehouses" fallbackPath="/app/inventory/warehouses"><WarehouseDetail /></RoleGuard>} />
         <Route path="inventory/products" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><ProductCatalog /></RoleGuard>} />
+        <Route path="inventory/explorer" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><ProductExplorer /></RoleGuard>} />
         <Route path="inventory/transfer" element={<RoleGuard resource="inventory" action="transfer" fallbackPath="/app/inventory/warehouses"><StockTransferWizard /></RoleGuard>} />
         <Route path="inventory/adjustments" element={<RoleGuard resource="inventory" action="adjust" fallbackPath="/app/inventory/warehouses"><StockAdjustments /></RoleGuard>} />
         <Route path="inventory/movements" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><MovementsHistory /></RoleGuard>} />

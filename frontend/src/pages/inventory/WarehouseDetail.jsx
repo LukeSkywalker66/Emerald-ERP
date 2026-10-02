@@ -163,6 +163,8 @@ export default function WarehouseDetail() {
             <div>
               <h1 className={`text-3xl font-bold ${getTypeColor(warehouse.warehouse_type)}`}>
                 {warehouse.warehouse_name}
+                {warehouse.vehicle?.license_plate ? `, ${warehouse.vehicle.license_plate}` : ''}
+                {warehouse.team_name ? ` (${warehouse.team_name})` : ''}
               </h1>
               <p className="text-zinc-400 mt-2">ID: {warehouse.warehouse_id}</p>
             </div>

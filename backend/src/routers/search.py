@@ -8,9 +8,27 @@ from sqlalchemy.orm import Session
 
 from src.database import get_db
 from src.services import ispcube as ispcube_service
+from src.services.geo_normalizer import extract_lat_lng, extract_address_parts
 from src.models import User  # Para obtener usuarios
 
 router = APIRouter()
+
+
+def _enrich_external_connection(conn: dict, customer: dict) -> dict:
+    """Enriquece una conexión cruda de ISPCube con ubicación normalizada."""
+    lat, lng = extract_lat_lng(conn, customer)
+    return {
+        **conn,
+        "external_id": conn.get("id"),
+        "pppoe_username": conn.get("user"),
+        "address": conn.get("address") or conn.get("direccion"),
+        "plan_id": conn.get("plan_id"),
+        "node_id": conn.get("node_id"),
+        "status": conn.get("status") or conn.get("state") or "unknown",
+        "latitude": float(lat) if lat is not None else None,
+        "longitude": float(lng) if lng is not None else None,
+        "address_parts": extract_address_parts(conn, customer),
+    }
 
 
 class ConnectionSearchResult(BaseModel):
@@ -102,18 +120,7 @@ def external_customer_lookup(
             **customer,
             "external_id": customer.get("id"),
         },
-        "connections": [
-            {
-                **conn,
-                "external_id": conn.get("id"),
-                "pppoe_username": conn.get("user"),
-                "address": conn.get("address") or conn.get("direccion"),
-                "plan_id": conn.get("plan_id"),
-                "node_id": conn.get("node_id"),
-                "status": conn.get("status") or conn.get("state") or "unknown",
-            }
-            for conn in connections
-        ],
+        "connections": [_enrich_external_connection(conn, customer) for conn in connections],
     }
 
 
@@ -155,15 +162,7 @@ def external_customer_lookup_new_connections(
 
     # Filtrar solo conexiones nuevas (no existe ticket que referencie ese connection_id)
     new_connections = [
-        {
-            **conn,
-            "external_id": conn.get("id"),
-            "pppoe_username": conn.get("user"),
-            "address": conn.get("address") or conn.get("direccion"),
-            "plan_id": conn.get("plan_id"),
-            "node_id": conn.get("node_id"),
-            "status": conn.get("status") or conn.get("state") or "unknown",
-        }
+        _enrich_external_connection(conn, customer)
         for conn in all_connections
         if str(conn.get("id") or conn.get("external_id")) not in used_connection_ids
     ]

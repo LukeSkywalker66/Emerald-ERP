@@ -893,6 +893,9 @@ def get_ticket_detail(ticket_id: int, db: Session = Depends(get_db)):
                     n.ip_address as node_ip,
                     p.name as plan_name,
                     p.speed as plan_speed,
+                    c.latitude,
+                    c.longitude,
+                    c.address_parts,
                     COALESCE(
                         ct.number,
                         cl.raw_data->>'phone',
@@ -929,7 +932,10 @@ def get_ticket_detail(ticket_id: int, db: Session = Depends(get_db)):
                 node_ip=conn_data[6],
                 plan_name=conn_data[7],
                 plan_speed=conn_data[8],
-                phone=conn_data[9],
+                phone=conn_data[12],
+                latitude=float(conn_data[9]) if conn_data[9] is not None else None,
+                longitude=float(conn_data[10]) if conn_data[10] is not None else None,
+                address_parts=conn_data[11],
             )
 
     return TicketDetailResponse(
@@ -992,7 +998,10 @@ def get_close_validations(
     if not ticket:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
 
-    from src.services.installation_rollback import has_executed_work_orders
+    from src.services.installation_rollback import (
+        has_executed_work_orders,
+        has_visited_failed_work_order,
+    )
 
     unfinished_wo = any(
         wo.status.value not in {"completed", "failed"}
@@ -1007,6 +1016,7 @@ def get_close_validations(
             and ticket.connection_details is not None
             and "_sync_connection_id" in (ticket.connection_details or {})
             and not has_executed_work_orders(ticket)
+            and not has_visited_failed_work_order(ticket)
         ),
     }
 
@@ -1051,10 +1061,11 @@ def update_ticket(
             if ticket.ticket_type == TicketType.installation:
                 from src.services.installation_rollback import (
                     has_executed_work_orders,
+                    has_visited_failed_work_order,
                     rollback_installation_sync,
                 )
 
-                if not has_executed_work_orders(ticket):
+                if not has_executed_work_orders(ticket) and not has_visited_failed_work_order(ticket):
                     # Ejecutar rollback (elimina connection, cliente huérfano, cancela OTs)
                     rollback_result = rollback_installation_sync(db, ticket)
 

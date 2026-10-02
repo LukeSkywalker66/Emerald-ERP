@@ -308,6 +308,9 @@ class ConnectionDetailsResponse(BaseModel):
     node_ip: Optional[str] = None
     plan_name: Optional[str] = None
     plan_speed: Optional[int] = None  # En Mbps
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    address_parts: Optional[dict] = None  # Campos de dirección sondeados de ISPCube
 
     model_config = ConfigDict(from_attributes=True)
 

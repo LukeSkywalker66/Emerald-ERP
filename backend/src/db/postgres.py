@@ -77,6 +77,9 @@ class Database:
         direccion,
         city_id=None,
         neighborhood_id=None,
+        latitude=None,
+        longitude=None,
+        address_parts=None,
     ):
         new_conn = models.Connection(
             connection_id=str(connection_id), # Aseguramos String
@@ -87,6 +90,9 @@ class Database:
             direccion=direccion, # Nombre corregido
             city_id=city_id,
             neighborhood_id=neighborhood_id,
+            latitude=latitude,
+            longitude=longitude,
+            address_parts=address_parts,
         )
         self.db.merge(new_conn)
     
@@ -423,6 +429,8 @@ class Database:
                 "nodo_nombre": row["nodo_nombre"] if row["nodo_nombre"] else f"Router {row['nodo_ip']}",
                 "nodo_ip": row["nodo_ip"],
                 "puerto": row["puerto"],
+                "mac": row.get("mac"),
+                "last_logged_out": row.get("last_logged_out"),
                 
                 # Datos de OLT planos en la raíz (OutputBox los busca ahí)
                 "OLT": row.get("olt"),

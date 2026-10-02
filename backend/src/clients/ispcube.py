@@ -111,7 +111,18 @@ def obtener_todas_conexiones():
                 "id": c.get("id"),
                 "node_id": c.get("node_id"),
                 "plan_id": c.get("plan_id"),
-                "direccion": c.get("address")
+                "direccion": c.get("address"),
+                # Campos de ubicación/dirección que ISPCube entrega en la lista.
+                "address": c.get("address"),
+                "lat": c.get("lat"),
+                "lng": c.get("lng"),
+                "latitude": c.get("latitude"),
+                "longitude": c.get("longitude"),
+                "city_id": c.get("city_id"),
+                "city": c.get("city"),
+                "localidad": c.get("localidad"),
+                "barrio": c.get("barrio"),
+                "neighborhood": c.get("neighborhood"),
             })
     return resultado
 
