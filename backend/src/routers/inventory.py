@@ -78,6 +78,15 @@ def _exclude_vehicle(d: dict) -> dict:
     return {k: v for k, v in d.items() if k != 'vehicle'}
 
 
+def _warehouse_team_name(warehouse) -> Optional[str]:
+    """Cuadrilla del vehículo móvil asociado (si existe). Dinámica y nullable."""
+    vehicle = getattr(warehouse, "vehicle", None)
+    if vehicle is None:
+        return None
+    team = getattr(vehicle, "team", None)
+    return team.name if team else None
+
+
 # ============================================
 # STOCK ALERTS ENDPOINT (OPTIMIZADO — Una sola query)
 # ============================================
@@ -182,6 +191,7 @@ def list_warehouses(
             **_exclude_vehicle(warehouse.__dict__),
             user_name=_safe_user_name(warehouse.user),
             vehicle=VehicleSummary.model_validate(warehouse.vehicle) if warehouse.vehicle else None,
+            team_name=_warehouse_team_name(warehouse),
         )
         for warehouse in warehouses
     ]
@@ -230,6 +240,7 @@ def create_warehouse(
         **_exclude_vehicle(warehouse.__dict__),
         user_name=_safe_user_name(warehouse.user),
         vehicle=VehicleSummary.model_validate(warehouse.vehicle) if warehouse.vehicle else None,
+        team_name=_warehouse_team_name(warehouse),
     )
 
 
@@ -325,6 +336,7 @@ def update_warehouse(
         **_exclude_vehicle(warehouse.__dict__),
         user_name=_safe_user_name(warehouse.user),
         vehicle=VehicleSummary.model_validate(warehouse.vehicle) if warehouse.vehicle else None,
+        team_name=_warehouse_team_name(warehouse),
     )
 
 
@@ -551,6 +563,8 @@ def get_warehouse_stock(
         warehouse_name=warehouse.name,
         warehouse_type=warehouse.type,
         user_id=warehouse.user_id,
+        vehicle=VehicleSummary.model_validate(warehouse.vehicle) if warehouse.vehicle else None,
+        team_name=_warehouse_team_name(warehouse),
         items=items
     )
 

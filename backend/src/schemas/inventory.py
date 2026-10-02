@@ -48,6 +48,10 @@ class WarehouseResponse(WarehouseBase):
         None,
         description="Vehículo asociado (solo MOBILE). Populado via JOIN a tabla vehicles, no es columna propia."
     )
+    team_name: Optional[str] = Field(
+        None,
+        description="Cuadrilla asociada al vehículo móvil (si tiene). Dinámico: puede variar o ser nulo.",
+    )
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -319,6 +323,14 @@ class WarehouseStockResponse(BaseModel):
     warehouse_name: str
     warehouse_type: WarehouseType
     user_id: Optional[int] = None
+    vehicle: Optional[VehicleSummary] = Field(
+        None,
+        description="Vehículo asociado (solo MOBILE).",
+    )
+    team_name: Optional[str] = Field(
+        None,
+        description="Cuadrilla asociada al vehículo móvil (si tiene).",
+    )
     items: List[StockItemDetail]
     
     model_config = ConfigDict(from_attributes=True)
