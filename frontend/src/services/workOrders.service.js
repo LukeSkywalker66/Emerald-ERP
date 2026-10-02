@@ -143,6 +143,22 @@ export const reopenWorkOrder = async (workOrderId) => {
 };
 
 /**
+ * Cancelar el inicio accidental de una OT en curso.
+ * Revierte el estado a scheduled/assigned/pending_planning y descarta el tiempo registrado.
+ * @param {number} workOrderId - ID de la OT
+ * @returns {Promise<Object>} OT actualizada
+ */
+export const cancelWorkOrderStart = async (workOrderId) => {
+  try {
+    const { data } = await api.post(`${BASE_URL}/${workOrderId}/cancel-start`);
+    return data;
+  } catch (error) {
+    console.error(`❌ Error cancelling work order start ${workOrderId}:`, error);
+    throw error;
+  }
+};
+
+/**
  * Obtener OTs vencidas que bloquean agenda del técnico
  * @returns {Promise<Array>} OTs en pending_closure
  */
@@ -179,6 +195,7 @@ export default {
   removeWorkOrderItem,
   runQuickDiagnostic,
   reopenWorkOrder,
+  cancelWorkOrderStart,
   getMyPendingClosure,
   getPendingClosureStats,
 };
