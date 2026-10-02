@@ -1,6 +1,6 @@
 # ADR-0001: Reapertura de tickets cerrados y rollback de instalaciones
 
-- **Estado:** Propuesto
+- **Estado:** Aceptado
 - **Fecha:** 2026-09-30
 - **Módulos:** Tickets (v2), Instalación (alta de servicio)
 - **Decisor:** Equipo Emerald

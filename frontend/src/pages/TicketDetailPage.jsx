@@ -646,6 +646,7 @@ export default function TicketDetailPage() {
   const [showEscalateDialog, setShowEscalateDialog] = useState(false);
   const [showReturnDialog, setShowReturnDialog] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
+  const [showReopenDialog, setShowReopenDialog] = useState(false);
   const [escalateNote, setEscalateNote] = useState('');
   const [returnNote, setReturnNote] = useState('');
   const [closeNote, setCloseNote] = useState('');
@@ -894,6 +895,11 @@ export default function TicketDetailPage() {
     }
   };
 
+  const handleReopenConfirm = async () => {
+    setShowReopenDialog(false);
+    await performStatusChange('open', null);
+  };
+
   const confirmRollbackStatusChange = async () => {
     const status = pendingRollbackStatus;
     const note = pendingNote;
@@ -1115,6 +1121,16 @@ export default function TicketDetailPage() {
                 <StatusBadge status={ticket.status} />
                 <PriorityBadge priority={ticket.priority} />
                 {ticket.ticket_type && <TicketTypeBadge ticketType={ticket.ticket_type} />}
+                {(ticket.status === 'closed' || ticket.status === 'cancelled') && canEditTicket && (
+                  <Button
+                    size="sm"
+                    onClick={() => setShowReopenDialog(true)}
+                    disabled={isSaving}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  >
+                    Reabrir ticket
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -1743,6 +1759,25 @@ export default function TicketDetailPage() {
               className="bg-emerald-600 hover:bg-emerald-500"
             >
               {isSubmittingWO ? 'Creando...' : 'Crear Orden de Trabajo'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showReopenDialog} onOpenChange={setShowReopenDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reabrir ticket</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-zinc-300">
+            Se cambiará el estado a <span className="text-emerald-400">Abierto</span>. Las OTs
+            existentes no se reabren ni se regeneran; si hace falta una nueva OT, usá la acción
+            "Crear OT" después de reabrir.
+          </p>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowReopenDialog(false)}>Cancelar</Button>
+            <Button onClick={handleReopenConfirm} disabled={isSaving}>
+              {isSaving ? 'Reabriendo...' : 'Sí, reabrir'}
             </Button>
           </DialogFooter>
         </DialogContent>
