@@ -476,6 +476,32 @@ export default function CoordinationSheet({
               <SheetDescription className="text-xs text-zinc-400 mt-1">
                 {activeWorkOrder.address || 'Sin dirección'}
               </SheetDescription>
+
+              {(activeWorkOrder.address_parts || activeWorkOrder.ticket?.contact_info?.address_parts) && (
+                <div className="mt-2 space-y-0.5 pl-1 text-xs text-zinc-500">
+                  {(() => {
+                    const ap = activeWorkOrder.address_parts || activeWorkOrder.ticket?.contact_info?.address_parts;
+                    return (
+                      <>
+                        {Array.isArray(ap.cross_streets) && ap.cross_streets.length > 0 && (
+                          <p>Entre calles: {ap.cross_streets.join(' y ')}</p>
+                        )}
+                        {ap.neighborhood && <p>Barrio/Localidad: {ap.neighborhood}</p>}
+                        {ap.city && (
+                          <p>
+                            Ciudad: {[ap.city.name, ap.city.province].filter(Boolean).join(', ')}
+                            {ap.city.postal_code ? ` (CP ${ap.city.postal_code})` : ''}
+                          </p>
+                        )}
+                        {ap.tax_residence && <p>Domicilio fiscal: {ap.tax_residence}</p>}
+                        {Array.isArray(ap.extra) && ap.extra.length > 0 && (
+                          <p>Referencias: {ap.extra.join(' | ')}</p>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           </div>
         </SheetHeader>

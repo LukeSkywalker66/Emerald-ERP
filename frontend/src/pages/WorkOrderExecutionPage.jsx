@@ -522,6 +522,33 @@ export default function WorkOrderExecutionPage() {
                       {workOrder.ticket_info.address}
                     </p>
                   </div>
+
+                  {workOrder.ticket_info.address_parts && (
+                    <div className="space-y-1 pl-6 text-xs text-zinc-400">
+                      {Array.isArray(workOrder.ticket_info.address_parts.cross_streets) &&
+                        workOrder.ticket_info.address_parts.cross_streets.length > 0 && (
+                          <p>Entre calles: {workOrder.ticket_info.address_parts.cross_streets.join(' y ')}</p>
+                        )}
+                      {workOrder.ticket_info.address_parts.neighborhood && (
+                        <p>Barrio/Localidad: {workOrder.ticket_info.address_parts.neighborhood}</p>
+                      )}
+                      {workOrder.ticket_info.address_parts.city && (
+                        <p>
+                          Ciudad: {[workOrder.ticket_info.address_parts.city.name, workOrder.ticket_info.address_parts.city.province].filter(Boolean).join(', ')}
+                          {workOrder.ticket_info.address_parts.city.postal_code
+                            ? ` (CP ${workOrder.ticket_info.address_parts.city.postal_code})`
+                            : ''}
+                        </p>
+                      )}
+                      {workOrder.ticket_info.address_parts.tax_residence && (
+                        <p>Domicilio fiscal: {workOrder.ticket_info.address_parts.tax_residence}</p>
+                      )}
+                      {Array.isArray(workOrder.ticket_info.address_parts.extra) &&
+                        workOrder.ticket_info.address_parts.extra.length > 0 && (
+                          <p>Referencias: {workOrder.ticket_info.address_parts.extra.join(' | ')}</p>
+                        )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -743,6 +770,58 @@ export default function WorkOrderExecutionPage() {
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-zinc-400">Señal RX</span>
                       <span className="text-xs text-zinc-200">{beholderData.onu_signal_smrt.onu_signal_value} dBm</span>
+                    </div>
+                  )}
+
+                  {/* ONU SN — identifica marca/modelo de la ONT */}
+                  {beholderData.onu_sn && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-400">ONU SN</span>
+                      <span className="text-xs text-zinc-200 font-mono">{beholderData.onu_sn}</span>
+                    </div>
+                  )}
+
+                  {beholderData.OLT && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-400">OLT</span>
+                      <span className="text-xs text-zinc-200">{beholderData.OLT}</span>
+                    </div>
+                  )}
+
+                  {beholderData.Modo && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-400">Modo</span>
+                      <span className="text-xs text-zinc-200">{beholderData.Modo}</span>
+                    </div>
+                  )}
+
+                  {beholderData.puerto && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-400">Puerto</span>
+                      <span className="text-xs text-zinc-200">{beholderData.puerto}</span>
+                    </div>
+                  )}
+
+                  {beholderData.mac && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-400">MAC</span>
+                      <span className="text-xs text-zinc-200 font-mono">{beholderData.mac}</span>
+                    </div>
+                  )}
+
+                  {Array.isArray(beholderData.onu_vlan) && beholderData.onu_vlan.length > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-400">VLAN</span>
+                      <span className="text-xs text-zinc-200">{beholderData.onu_vlan.join(', ')}</span>
+                    </div>
+                  )}
+
+                  {(beholderData.mikrotik?.secret?.['last-logged-out'] || beholderData.last_logged_out) && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-400">Último logout</span>
+                      <span className="text-xs text-zinc-200">
+                        {beholderData.mikrotik?.secret?.['last-logged-out'] || beholderData.last_logged_out}
+                      </span>
                     </div>
                   )}
                 </div>

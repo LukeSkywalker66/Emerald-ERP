@@ -1494,6 +1494,33 @@ export default function TicketDetailPage() {
                   </div>
                 </div>
 
+                {ticket.connection_details.address_parts && (
+                  <div className="space-y-1 pl-6 text-xs text-zinc-400">
+                    {Array.isArray(ticket.connection_details.address_parts.cross_streets) &&
+                      ticket.connection_details.address_parts.cross_streets.length > 0 && (
+                        <p>Entre calles: {ticket.connection_details.address_parts.cross_streets.join(' y ')}</p>
+                      )}
+                    {ticket.connection_details.address_parts.neighborhood && (
+                      <p>Barrio/Localidad: {ticket.connection_details.address_parts.neighborhood}</p>
+                    )}
+                    {ticket.connection_details.address_parts.city && (
+                      <p>
+                        Ciudad: {[ticket.connection_details.address_parts.city.name, ticket.connection_details.address_parts.city.province].filter(Boolean).join(', ')}
+                        {ticket.connection_details.address_parts.city.postal_code
+                          ? ` (CP ${ticket.connection_details.address_parts.city.postal_code})`
+                          : ''}
+                      </p>
+                    )}
+                    {ticket.connection_details.address_parts.tax_residence && (
+                      <p>Domicilio fiscal: {ticket.connection_details.address_parts.tax_residence}</p>
+                    )}
+                    {Array.isArray(ticket.connection_details.address_parts.extra) &&
+                      ticket.connection_details.address_parts.extra.length > 0 && (
+                        <p>Referencias: {ticket.connection_details.address_parts.extra.join(' | ')}</p>
+                      )}
+                  </div>
+                )}
+
                 {(ticket.connection_details.node_name || ticket.connection_details.node_ip) && (
                   <div className="flex items-center gap-2 text-sm text-zinc-200">
                     <Network size={14} className="text-emerald-300" />

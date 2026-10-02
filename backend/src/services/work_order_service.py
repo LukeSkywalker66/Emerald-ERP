@@ -18,6 +18,7 @@ from src.models.tickets import (
     WorkOrderType,
 )
 from src.services.work_order_snapshot_service import build_connection_snapshot
+from src.services.geo_normalizer import json_safe
 
 
 def _normalize_priority(priority: Any, ticket: Ticket) -> TicketPriority:
@@ -98,13 +99,15 @@ def create_work_order_for_ticket(
         if resolved_longitude is None:
             resolved_longitude = connection_snapshot.get("longitude")
 
+    # El snapshot puede contener Decimal (coordenadas). Se serializa a un valor
+    # JSONB-safe para no romper el flush del JSONB de la OT.
     custom_data = {
         **ticket_custom_data,
         "priority": resolved_priority.value,
         "client_id": getattr(ticket, "client_id", None),
         "connection_id": effective_connection_id,
         "address": getattr(ticket, "address", None) or getattr(ticket, "availability_note", None),
-        "connection": connection_snapshot,
+        "connection": json_safe(connection_snapshot),
     }
     if extra_custom_data:
         custom_data.update(extra_custom_data)

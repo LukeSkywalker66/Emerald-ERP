@@ -8,6 +8,7 @@ from src.services.location_resolver import (
     get_or_create_city,
     get_or_create_neighborhood,
 )
+from src.services.geo_normalizer import extract_lat_lng, extract_address_parts
 import time
 
 
@@ -164,11 +165,19 @@ def sync_connections(db):
                         neighborhood_id = neighborhood.id if neighborhood else None
                         if neighborhood_id:
                             neighborhood_cache[neighborhood_key] = neighborhood_id
+
+                # Ubicación unificada: normalizador único, null-safe, sin redondeo.
+                lat, lng = extract_lat_lng(c, client_payload)
+                address_parts = extract_address_parts(c, client_payload)
+
                 db.insert_connection(
-                    str(c["id"]), str(c["user"]), str(c["customer_id"]), 
+                    str(c["id"]), str(c["user"]), str(c["customer_id"]),
                     str(c["node_id"]), str(c["plan_id"]), c.get("direccion"),
                     city_id=city_id,
                     neighborhood_id=neighborhood_id,
+                    latitude=lat,
+                    longitude=lng,
+                    address_parts=address_parts or None,
                 )
             config.logger.info(f"[SYNC] {len(conexiones)} conexiones sincronizadas.")
             db.log_sync_status("ispcube", "ok", f"{len(conexiones)} conexiones sincronizadas")

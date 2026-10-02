@@ -783,12 +783,13 @@ class WorkOrder(Base, TimestampMixin):
     )
 
     # ===== GEOLOCALIZACIÓN =====
+    # Numeric(15, 12): coordenada exacta (hasta 12 decimales), sin redondeo.
     latitude: Mapped[Optional[float]] = mapped_column(
-        Numeric(10, 8), nullable=True,
+        Numeric(15, 12), nullable=True,
         comment="Latitud para geolocalización de la dirección"
     )
     longitude: Mapped[Optional[float]] = mapped_column(
-        Numeric(10, 8), nullable=True,
+        Numeric(15, 12), nullable=True,
         comment="Longitud para geolocalización de la dirección"
     )
 

@@ -893,6 +893,9 @@ def get_ticket_detail(ticket_id: int, db: Session = Depends(get_db)):
                     n.ip_address as node_ip,
                     p.name as plan_name,
                     p.speed as plan_speed,
+                    c.latitude,
+                    c.longitude,
+                    c.address_parts,
                     COALESCE(
                         ct.number,
                         cl.raw_data->>'phone',
@@ -930,6 +933,9 @@ def get_ticket_detail(ticket_id: int, db: Session = Depends(get_db)):
                 plan_name=conn_data[7],
                 plan_speed=conn_data[8],
                 phone=conn_data[9],
+                latitude=float(conn_data[10]) if conn_data[10] is not None else None,
+                longitude=float(conn_data[11]) if conn_data[11] is not None else None,
+                address_parts=conn_data[12],
             )
 
     return TicketDetailResponse(
