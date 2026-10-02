@@ -7,7 +7,7 @@ from datetime import datetime
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import select, and_, or_, func
+from sqlalchemy import select, and_, or_, func, text
 
 from src.database import get_db
 from src.models.inventory import (
@@ -27,6 +27,7 @@ from src.schemas.inventory import (
     StockTransferRequest, StockTransferResponse,
     StockAdjustmentRequest, StockAdjustmentResponse,
     StockAlertItem,
+    ProductAnalyticsItem,
     ScanCodeRequest, ScanCodeResponse,
     ScanSerialRequest, ScanSerialResponse,
     ScanSessionResponse, ScanSessionConfirmResponse,
@@ -604,6 +605,174 @@ def list_products(
     return [_product_to_response(p) for p in products]
 
 
+# ============================================
+# PRODUCT ANALYTICS ENDPOINT (Product Explorer)
+# ============================================
+
+_ANALYTICS_FLOW_CONDITIONS = {
+    "in_stock": "(bulk_in_stock > 0 OR serial_new > 0 OR serial_in_vehicle > 0)",
+    "consumed": "total_consumed > 0",
+    "purchased": "total_purchased > 0",
+    "transferred": "total_transferred > 0",
+    "installed": "serial_installed > 0",
+    "defective": "serial_defective > 0",
+    "damaged": "serial_damaged > 0",
+    "decommissioned": "serial_decommissioned > 0",
+}
+
+_ANALYTICS_ORDER_COLUMNS = {
+    "name": "name",
+    "sku": "sku",
+    "type": "type",
+    "category": "category",
+    "group_name": "group_name",
+    "bulk_in_stock": "bulk_in_stock",
+    "serial_total": "serial_total",
+    "serial_installed": "serial_installed",
+    "serial_defective": "serial_defective",
+    "total_purchased": "total_purchased",
+    "total_consumed": "total_consumed",
+    "total_transferred": "total_transferred",
+}
+
+
+@router.get("/products/analytics", response_model=List[ProductAnalyticsItem])
+def list_products_analytics(
+    search: Optional[str] = Query(None, description="Buscar por nombre o SKU"),
+    type: Optional[ProductType] = Query(None, description="BULK o SERIALIZED"),
+    group_id: Optional[int] = Query(None, description="Filtrar por grupo de producto"),
+    category: Optional[str] = Query(None, description="Filtrar por categoría"),
+    warehouse_id: Optional[int] = Query(None, description="Stock en un almacén puntual"),
+    flow: Optional[str] = Query(
+        None,
+        description="Estado de flujo: in_stock|consumed|purchased|transferred|installed|defective|damaged|decommissioned",
+    ),
+    below_min_stock: Optional[bool] = Query(None, description="Solo productos bajo alerta de mínimo"),
+    order_by: str = Query("name", description="Columna de orden"),
+    order_dir: str = Query("asc", description="asc | desc"),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    """
+    Analítica de productos para el Product Explorer.
+
+    Devuelve por producto métricas agregadas de stock y flujo en UNA sola query
+    (sin N+1): stock bulk, seriales por estado, y acumulados de compra/consumo/
+    transferencia/recupero/ajuste. Admite filtros y orden.
+    """
+    params: dict = {"limit": limit, "offset": offset}
+
+    product_where: list[str] = []
+    if search:
+        product_where.append("(p.name ILIKE :search OR p.sku ILIKE :search)")
+        params["search"] = f"%{search}%"
+    if type:
+        product_where.append("p.type = :ptype")
+        params["ptype"] = type.value
+    if group_id:
+        product_where.append("p.group_id = :group_id")
+        params["group_id"] = group_id
+    if category:
+        product_where.append("p.category = :category")
+        params["category"] = category
+
+    bulk_where = ""
+    serial_where = ""
+    if warehouse_id:
+        bulk_where = "WHERE warehouse_id = :wid"
+        serial_where = "WHERE warehouse_id = :wid"
+        params["wid"] = warehouse_id
+
+    where_sql = f"WHERE {' AND '.join(product_where)}" if product_where else ""
+
+    agg_sql = f"""
+        SELECT
+            p.id,
+            p.name,
+            p.sku,
+            p.type,
+            p.category,
+            p.group_id,
+            g.name AS group_name,
+            p.unit_measure,
+            p.is_composite,
+            p.min_stock_alert,
+            COALESCE(b.bulk_qty, 0) AS bulk_in_stock,
+            COALESCE(s.serial_new, 0) AS serial_new,
+            COALESCE(s.serial_in_vehicle, 0) AS serial_in_vehicle,
+            COALESCE(s.serial_installed, 0) AS serial_installed,
+            COALESCE(s.serial_defective, 0) AS serial_defective,
+            COALESCE(s.serial_damaged, 0) AS serial_damaged,
+            COALESCE(s.serial_decommissioned, 0) AS serial_decommissioned,
+            COALESCE(s.serial_total, 0) AS serial_total,
+            COALESCE(m.total_purchased, 0) AS total_purchased,
+            COALESCE(m.total_consumed, 0) AS total_consumed,
+            COALESCE(m.total_transferred, 0) AS total_transferred,
+            COALESCE(m.total_recovered, 0) AS total_recovered,
+            COALESCE(m.total_adjusted, 0) AS total_adjusted,
+            (COALESCE(b.bulk_qty, 0) + COALESCE(s.serial_new, 0) + COALESCE(s.serial_in_vehicle, 0)) < p.min_stock_alert AS below_min_stock
+        FROM products p
+        LEFT JOIN product_groups g ON g.id = p.group_id
+        LEFT JOIN (
+            SELECT product_id, SUM(quantity) AS bulk_qty
+            FROM stock_bulk
+            {bulk_where}
+            GROUP BY product_id
+        ) b ON b.product_id = p.id
+        LEFT JOIN (
+            SELECT product_id,
+                COUNT(*) FILTER (WHERE status = 'NEW') AS serial_new,
+                COUNT(*) FILTER (WHERE status = 'IN_VEHICLE') AS serial_in_vehicle,
+                COUNT(*) FILTER (WHERE status = 'INSTALLED') AS serial_installed,
+                COUNT(*) FILTER (WHERE status = 'DEFECTIVE') AS serial_defective,
+                COUNT(*) FILTER (WHERE status = 'DAMAGED') AS serial_damaged,
+                COUNT(*) FILTER (WHERE status = 'DECOMMISSIONED') AS serial_decommissioned,
+                COUNT(*) AS serial_total
+            FROM serial_items
+            {serial_where}
+            GROUP BY product_id
+        ) s ON s.product_id = p.id
+        LEFT JOIN (
+            SELECT product_id,
+                COALESCE(SUM(quantity) FILTER (WHERE movement_type = 'PURCHASE'), 0)
+                    + COALESCE(COUNT(serial_item_id) FILTER (WHERE movement_type = 'PURCHASE'), 0) AS total_purchased,
+                COALESCE(SUM(quantity) FILTER (WHERE movement_type = 'CONSUMPTION'), 0)
+                    + COALESCE(COUNT(serial_item_id) FILTER (WHERE movement_type = 'CONSUMPTION'), 0) AS total_consumed,
+                COALESCE(SUM(quantity) FILTER (WHERE movement_type = 'TRANSFER'), 0)
+                    + COALESCE(COUNT(serial_item_id) FILTER (WHERE movement_type = 'TRANSFER'), 0) AS total_transferred,
+                COALESCE(SUM(quantity) FILTER (WHERE movement_type = 'RECOVERY'), 0)
+                    + COALESCE(COUNT(serial_item_id) FILTER (WHERE movement_type = 'RECOVERY'), 0) AS total_recovered,
+                COALESCE(SUM(quantity) FILTER (WHERE movement_type = 'ADJUSTMENT'), 0)
+                    + COALESCE(COUNT(serial_item_id) FILTER (WHERE movement_type = 'ADJUSTMENT'), 0) AS total_adjusted
+            FROM stock_movements
+            GROUP BY product_id
+        ) m ON m.product_id = p.id
+        {where_sql}
+    """
+
+    outer_where: list[str] = []
+    if flow and flow in _ANALYTICS_FLOW_CONDITIONS:
+        outer_where.append(_ANALYTICS_FLOW_CONDITIONS[flow])
+    if below_min_stock is True:
+        outer_where.append("below_min_stock = true")
+
+    order_col = _ANALYTICS_ORDER_COLUMNS.get(order_by, "name")
+    order_dir_sql = "DESC" if (order_dir or "asc").lower() == "desc" else "ASC"
+
+    sql = f"""
+        SELECT * FROM (
+            {agg_sql}
+        ) agg
+        {"WHERE " + " AND ".join(outer_where) if outer_where else ""}
+        ORDER BY {order_col} {order_dir_sql}
+        LIMIT :limit OFFSET :offset
+    """
+
+    rows = db.execute(text(sql), params).fetchall()
+    return [ProductAnalyticsItem(**dict(row._mapping)) for row in rows]
+
+
 @router.post("/products", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)
 def create_product(
     payload: ProductCreate,
@@ -1151,6 +1320,8 @@ def list_stock_movements(
     product_id: Optional[int] = Query(None, description="Filtrar por producto"),
     warehouse_id: Optional[int] = Query(None, description="Filtrar por warehouse (origen o destino)"),
     movement_type: Optional[List[MovementType]] = Query(None, description="Filtrar por tipo(s) de movimiento (separar por coma)"),
+    start_date: Optional[datetime] = Query(None, description="Fecha mínima del movimiento (inclusive)"),
+    end_date: Optional[datetime] = Query(None, description="Fecha máxima del movimiento (inclusive)"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db)
@@ -1183,6 +1354,12 @@ def list_stock_movements(
     
     if movement_type:
         stmt = stmt.where(StockMovement.movement_type.in_(movement_type))
+    
+    if start_date:
+        stmt = stmt.where(StockMovement.date >= start_date)
+    
+    if end_date:
+        stmt = stmt.where(StockMovement.date <= end_date)
     
     stmt = stmt.order_by(StockMovement.date.desc()).offset(offset).limit(limit)
     movements = db.execute(stmt).scalars().all()

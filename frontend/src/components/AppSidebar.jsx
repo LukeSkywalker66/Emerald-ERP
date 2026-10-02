@@ -141,6 +141,13 @@ const MENU_ITEMS = [
         resource: 'inventory_admin',
       },
       {
+        title: 'Explorador',
+        icon: BarChart3,
+        href: '/app/inventory/explorer',
+        description: 'Analítica de productos y flujo',
+        resource: 'inventory_admin',
+      },
+      {
         title: 'Almacenes',
         icon: Building2,
         href: '/app/inventory/warehouses',

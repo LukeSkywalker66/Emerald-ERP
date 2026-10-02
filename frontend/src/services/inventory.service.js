@@ -170,6 +170,25 @@ export const getProducts = async (filters = {}) => {
 };
 
 /**
+ * Analítica de productos para el Product Explorer.
+ * Devuelve métricas agregadas de stock y flujo (en stock, comprado, consumido,
+ * transferido, instalados, defectuosos) con filtros server-side.
+ *
+ * @param {Object} filters - { search, type, group_id, category, warehouse_id,
+ *                             flow, below_min_stock, order_by, order_dir, limit, offset }
+ * @returns {Promise<Array>} Array de productos con métricas agregadas
+ */
+export const getProductsAnalytics = async (filters = {}) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/products/analytics`, { params: filters });
+    return data || [];
+  } catch (error) {
+    console.error('❌ Error fetching products analytics:', error);
+    throw error;
+  }
+};
+
+/**
  * Obtener categorías de productos desde la tabla product_categories
  * @param {boolean} activeOnly - Solo categorías activas
  * @returns {Promise<Array>} Lista de categorías [{ id, name, is_active }]
