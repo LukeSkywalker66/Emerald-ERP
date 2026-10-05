@@ -1077,6 +1077,120 @@ def reopen_work_order(
     return get_work_order_detail(work_order_id, db, user_id)
 
 
+@router.post("/{work_order_id}/cancel-start", response_model=WorkOrderDetailResponse)
+def cancel_work_order_start(
+    work_order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Cancelar un inicio accidental de OT por parte del técnico.
+
+    Revierte el estado `in_progress` al estado previo correspondiente
+    (`scheduled` / `assigned` / `pending_planning`) y limpia `started_at`.
+
+    **Reglas de Negocio:**
+    - Solo aplica a OTs en curso (`in_progress`) con `started_at` definido.
+    - OTs completadas/fallidas son inmutables.
+    - El tiempo registrado desde el inicio se descarta (se pierde).
+    - Los materiales ya cargados NO se modifican.
+
+    **Errores:**
+    - 404: OT no existe
+    - 423: OT ya finalizada (inmutable)
+    - 400: La OT no está en curso (no hay un inicio que cancelar)
+    """
+    wo = (
+        db.query(WorkOrder)
+        .options(
+            joinedload(WorkOrder.technician),
+            joinedload(WorkOrder.team),
+            joinedload(WorkOrder.ticket),
+        )
+        .filter(WorkOrder.id == work_order_id)
+        .first()
+    )
+
+    if not wo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Orden de Trabajo no encontrada",
+        )
+
+    # OTs finalizadas son inmutables
+    if wo.status in [WorkOrderStatus.completed, WorkOrderStatus.failed]:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail="La OT ya está finalizada y no se puede cancelar.",
+        )
+
+    # Solo se puede cancelar un inicio real
+    if wo.status != WorkOrderStatus.in_progress or not wo.started_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La OT no está en curso; no hay un inicio que cancelar.",
+        )
+
+    old_status = wo.status
+    old_started_at = wo.started_at
+
+    # Revertir al estado previo lógico según el tipo de asignación
+    if wo.team_id is not None:
+        target_status = WorkOrderStatus.scheduled
+    elif wo.technician_id is not None:
+        target_status = WorkOrderStatus.assigned
+    else:
+        target_status = WorkOrderStatus.pending_planning
+
+    wo.status = target_status
+    wo.started_at = None
+
+    # Evento de timeline con trazabilidad de la corrección
+    db.add(TicketTimeline(
+        ticket_id=wo.ticket_id,
+        author_id=current_user.id,
+        event_type=TicketTimelineEventType.ot_event,
+        content=(
+            f"OT #{wo.id}: inicio cancelado por el técnico. "
+            f"El tiempo registrado fue descartado."
+        ),
+        meta_data={
+            "work_order_id": wo.id,
+            "action": "cancel_start",
+            "old_status": old_status.value,
+            "new_status": target_status.value,
+            "discarded_started_at": old_started_at.isoformat() if old_started_at else None,
+            "cancelled_by": current_user.full_name or current_user.email,
+        },
+    ))
+
+    # 🔒 AUDIT LOG
+    try:
+        log_update(
+            db=db,
+            user_id=current_user.id,
+            entity_name="work_orders",
+            entity_id=wo.id,
+            old_values={
+                "status": old_status.value,
+                "started_at": old_started_at.isoformat() if old_started_at else None,
+            },
+            new_values={
+                "status": target_status.value,
+                "started_at": None,
+            },
+        )
+    except Exception as audit_error:
+        logging.getLogger("uvicorn.error").error(
+            f"❌ [AUDIT] Error al registrar cancelación de inicio de OT {wo.id}: {audit_error}"
+        )
+
+    db.commit()
+    db.refresh(wo)
+
+    return get_work_order_detail(work_order_id, db, current_user)
+
+
 def _wo_to_list_response(wo: WorkOrder, db: Session):
     """Construye la respuesta resumida para listado, enriquecida con datos de conexión.
     
