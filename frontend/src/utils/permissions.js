@@ -285,6 +285,24 @@ export const hasPermission = (role, resource, action = 'view') => {
 };
 
 /**
+ * Verifica permiso usando capabilities canónicas del backend (slugs `recurso.accion`).
+ *
+ * @param {string[]|null|undefined} capabilities - lista de slugs (o ['*'])
+ * @param {string} resource
+ * @param {string} [action='view']
+ * @returns {boolean|undefined} true/false; undefined si no hay capabilities (usar fallback a matriz)
+ */
+export const can = (capabilities, resource, action = 'view') => {
+  if (!Array.isArray(capabilities) || capabilities.length === 0) {
+    return undefined;
+  }
+  if (capabilities.includes('*')) {
+    return true;
+  }
+  return capabilities.includes(`${resource}.${action}`);
+};
+
+/**
  * Retorna todos los recursos que un rol TIENE PERMITIDO acceder
  * Útil para construir el menú dinámicamente
  * @param {string} role - Rol del usuario

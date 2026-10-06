@@ -1,7 +1,7 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { hasPermission } from '@/utils/permissions';
+import { hasPermission, can } from '@/utils/permissions';
 import LoadingScreen from '@/components/ui/LoadingScreen';
 
 /**
@@ -30,7 +30,21 @@ export default function RoleGuard({
     return children;
   }
 
-  if (!hasPermission(user.role, resource, action)) {
+  // Esperar hidratación de capabilities desde `/auth/me`. Mientras no estén
+  // cargadas NO caer al fallback de matriz legacy: ésta no conoce roles nuevos
+  // (p. ej. tecnico_encargado), los negaría y provocaría un loop de <Navigate>
+  // (error del navegador "Throttling navigation..."). Una vez hidratadas,
+  // `user.permissions` es un array (puede ser vacío si el backend falló).
+  if (!Array.isArray(user.permissions)) {
+    return <LoadingScreen />;
+  }
+
+  const viaCapabilities = can(user.permissions, resource, action);
+  const permitted = viaCapabilities !== undefined
+    ? viaCapabilities
+    : hasPermission(user.role, resource, action);
+
+  if (!permitted) {
     return <Navigate to={fallbackPath} replace state={{ deniedFrom: location.pathname }} />;
   }
 

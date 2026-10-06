@@ -133,13 +133,13 @@ def list_work_orders(
     # Query base sin opciones pesadas (se aplican solo en el query de datos)
     base_query = db.query(WorkOrder)
 
-    # Normalizamos el rol para evitar accesos repetidos a relaciones
-    role_name = current_user.role.name if current_user.role else None
-
-    # Filtro automático por rol (nombre en español: "tecnico")
-    if role_name == "tecnico":
+    # Filtro automático por capability (backend authority):
+    # - `work_orders.view_all` (o `*`) → ve todas.
+    # - si no → técnico de campo: solo las propias.
+    from src.core.security import build_capabilities
+    caps = build_capabilities(current_user)
+    if "work_orders.view_all" not in caps and "*" not in caps:
         base_query = base_query.filter(WorkOrder.technician_id == current_user.id)
-    # Admin/Coordinator u otros roles ven todas
 
     # Filtros opcionales
     if status:

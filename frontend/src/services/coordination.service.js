@@ -24,6 +24,22 @@ export const getTeams = async (params = {}) => {
 };
 
 /**
+ * Obtener usuarios elegibles como miembros de cuadrilla.
+ * La elegibilidad la resuelve el backend por el atributo de perfil del rol
+ * (`roles.is_field_technician`), no por nombre de rol hardcodeado.
+ * @returns {Promise<Array>}
+ */
+export const getAvailableTeamMembers = async () => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/teams/available-members`);
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error('❌ Error fetching available team members:', error);
+    throw error;
+  }
+};
+
+/**
  * Obtener detalle de una cuadrilla
  * @param {number} teamId
  * @returns {Promise<Object>}
@@ -152,6 +168,7 @@ export const getUserTeams = async (userId) => {
 
 export default {
   getTeams,
+  getAvailableTeamMembers,
   getTeamDetail,
   createTeam,
   updateTeam,

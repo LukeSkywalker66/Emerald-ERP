@@ -7,6 +7,7 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(() => localStorage.getItem('emerald_token'));
   const [refreshToken, setRefreshToken] = useState(() => localStorage.getItem('emerald_refresh'));
   const [user, setUser] = useState(null);
+  const [capabilities, setCapabilities] = useState([]);
   const [authReady, setAuthReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -105,6 +106,41 @@ export const AuthProvider = ({ children }) => {
     return () => clearTimeout(timer);
   }, [token, user]);
 
+  // Cargar capabilities RBAC canónicas desde el backend (fuente de verdad).
+  // Si falla, se conserva el esquema actual (matriz por rol) como fallback.
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+
+    api.get('/v1/auth/me')
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        const caps = Array.isArray(data.capabilities) ? data.capabilities : [];
+        setCapabilities(caps);
+        setUser((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            permissions: caps,
+            role: data.role?.name ?? prev.role ?? null,
+            role_id: data.role_id ?? prev.role_id ?? null,
+          };
+        });
+      })
+      .catch((err) => {
+        console.warn('[Auth] No se pudieron cargar capabilities:', err?.response?.status);
+        // Marcar la hidratación como completada (vacía) para que los consumidores
+        // (RoleGuard, Can, AppSidebar) no queden esperando y caigan al fallback
+        // de matriz legacy en vez de bloquearse.
+        setCapabilities([]);
+        setUser((prev) => (prev ? { ...prev, permissions: [] } : prev));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
   const login = async ({ email, password }) => {
     setLoading(true);
     setError(null);
@@ -172,6 +208,7 @@ export const AuthProvider = ({ children }) => {
       token,
       refreshToken,
       user,
+      capabilities,
       authReady,
       loading,
       error,
@@ -179,7 +216,7 @@ export const AuthProvider = ({ children }) => {
       login,
       logout,
     }),
-    [token, refreshToken, user, authReady, loading, error]
+    [token, refreshToken, user, capabilities, authReady, loading, error]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

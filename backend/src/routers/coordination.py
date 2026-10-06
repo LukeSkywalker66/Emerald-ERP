@@ -12,7 +12,7 @@ from src.services.team_service import TeamService
 from src.services.audit_service import get_client_ip
 from src.core.security import get_current_user
 from src.models.coordination import Team, TeamMember, TeamRole
-from src.models.user import User
+from src.models.user import User, Role
 from src.schemas.coordination import (
     TeamCreate,
     TeamUpdate,
@@ -49,6 +49,39 @@ def list_teams(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al listar cuadrillas: {str(e)}",
         )
+
+
+@router.get("/teams/available-members")
+def available_team_members(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Usuarios activos elegibles como miembros de cuadrilla.
+
+    La elegibilidad es un atributo de PERFIL del rol (`roles.is_field_technician`),
+    no un nombre de rol hardcodeado ni una capability (que el wildcard `["*"]`
+    de admin/superuser otorgaría por defecto). Así, solo técnicos de campo
+    (p. ej. `tecnico` y `tecnico_encargado`) aparecen en el combo.
+    """
+    users = (
+        db.query(User)
+        .join(Role, User.role_id == Role.id)
+        .filter(User.is_active == True)
+        .filter(Role.is_field_technician == True)
+        .all()
+    )
+    return [
+        {
+            "id": u.id,
+            "full_name": u.full_name or u.username,
+            "username": u.username,
+            "email": u.email,
+            "role_id": u.role_id,
+            "role_name": u.role.name if u.role else None,
+        }
+        for u in users
+    ]
 
 
 @router.get("/teams/{team_id}", response_model=TeamDetailResponse)
