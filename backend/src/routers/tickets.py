@@ -746,7 +746,7 @@ def create_ticket(
         # WorkOrderType ya no tiene el valor genérico 'install': la migración
         # 2026_06_07_002 lo dividió en 'install_ftth' e 'install_aire'. Resolver
         # el tipo de OT según la tecnología declarada; por defecto FTTH.
-        if payload.ticket_type == TicketType.installation and payload.installation_tech == "wireless":
+        if payload.ticket_type == TicketType.installation and payload.installation_tech in ("wireless", "mesh"):
             resolved_ot_type = WorkOrderType.install_aire
         else:
             ot_type_map = {

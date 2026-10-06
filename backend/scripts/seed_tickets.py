@@ -17,21 +17,27 @@ from src.models import Ticket, TicketCategory, TicketPriority, TicketStatus
 from src.models.tickets import TicketEvent, TicketEventType  # type: ignore
 
 DEFAULT_CATEGORIES = [
-    ("Soporte Técnico", "Default priority: high"),
-    ("Administrativo", "Default priority: low"),
-    ("Instalación", "Default priority: medium"),
+    ("Servicio Técnico", "Diagnóstico, reparación y tareas técnicas varias", "technical"),
+    ("Administrativo", "Cambios de plan y facturación", "administrative"),
+    ("Instalación", "Alta de nuevo servicio al cliente", "installation"),
+    ("Traslado", "Relocalización del cliente", "relocation"),
+    ("Baja", "Cancelación de servicio", "withdrawal"),
+    ("Pase a Fibra", "Migración de conexión existente de aire a fibra, con retiro de antena/equipo", "fiber_migration"),
 ]
 
 
 def seed_categories(db):
     created = []
-    for name, desc in DEFAULT_CATEGORIES:
+    for name, desc, flow_key in DEFAULT_CATEGORIES:
         cat = db.query(TicketCategory).filter(TicketCategory.name == name).first()
         if not cat:
-            cat = TicketCategory(name=name, description=desc)
+            cat = TicketCategory(name=name, description=desc, flow_key=flow_key)
             db.add(cat)
             db.commit()
             db.refresh(cat)
+        elif not cat.flow_key:
+            cat.flow_key = flow_key
+            db.add(cat)
         created.append(cat)
     return created
 

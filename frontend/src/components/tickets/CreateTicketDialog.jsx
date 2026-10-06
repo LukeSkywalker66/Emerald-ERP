@@ -86,7 +86,10 @@ const FLOW_STYLES = {
   },
 };
 
-const resolveFlow = (name = '') => {
+const resolveFlow = (name = '', flowKey = null) => {
+  // Preferir el flow_key data-driven (source of truth); el parseo por nombre
+  // queda solo como fallback para categorías viejas sin flow_key.
+  if (flowKey) return flowKey;
   const normalized = name.toLowerCase();
   if (normalized.includes('instal')) return 'installation';
   if (normalized.includes('baja') || normalized.includes('reti')) return 'withdrawal';
@@ -129,7 +132,7 @@ export default function CreateTicketDialog({ isOpen, onClose, onSuccess }) {
   const categoryCards = useMemo(() => {
     if (!Array.isArray(categories)) return [];
     return categories.map((cat) => {
-      const flow = resolveFlow(cat.name);
+      const flow = resolveFlow(cat.name, cat.flow_key);
       const style = FLOW_STYLES[flow] || FLOW_STYLES.technical;
       return { ...cat, flow, style };
     });

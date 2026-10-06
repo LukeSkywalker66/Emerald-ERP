@@ -241,6 +241,11 @@ class TicketCategory(Base, TimestampMixin):
         nullable=False,
         comment="Prioridad sugerida por defecto para esta categoría",
     )
+    flow_key: Mapped[Optional[str]] = mapped_column(
+        String(40),
+        nullable=True,
+        comment="Slug del flujo de creación (technical, installation, withdrawal, relocation, fiber_migration, administrative)",
+    )
 
     tickets: Mapped[list['Ticket']] = relationship("Ticket", back_populates="category", lazy="select")
     reasons: Mapped[list['TicketReason']] = relationship("TicketReason", back_populates="category", lazy="select")

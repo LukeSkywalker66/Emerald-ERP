@@ -29,6 +29,7 @@ class TicketCategoryResponse(BaseModel):
     name: str
     description: Optional[str] = None
     priority_default: TicketPriority
+    flow_key: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
