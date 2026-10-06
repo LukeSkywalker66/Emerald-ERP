@@ -16,6 +16,8 @@ from src.models.inventory import (
     WarehouseType, ProductType, MovementType, SerialItemStatus
 )
 from src.models.user import User
+from src.models.coordination import Team, TeamMember
+from src.models.fleet import Vehicle
 from src.schemas.inventory import (
     WarehouseCreate, WarehouseUpdate, WarehouseResponse,
     ProductCreate, ProductUpdate, ProductResponse,
@@ -85,6 +87,40 @@ def _warehouse_team_name(warehouse) -> Optional[str]:
         return None
     team = getattr(vehicle, "team", None)
     return team.name if team else None
+
+
+def _technician_warehouse_ids(db: Session, user_id: int) -> list[int]:
+    """IDs de warehouse MOBILE asignados a un técnico.
+
+    La relación canónica de asignación es:
+        User → TeamMember → Team → Vehicle → Warehouse (MOBILE).
+
+    El campo `Warehouse.user_id` quedó deprecated (hoy todos están NULL), por lo
+    que filtrar solo por él rompía la vista del técnico (no le mostraba su móvil).
+    Se mantiene como fallback por compatibilidad.
+    """
+    ids: set[int] = set()
+
+    # 1) team → vehicle → warehouse
+    rows = (
+        db.query(Vehicle.warehouse_id)
+        .join(Team, Team.vehicle_id == Vehicle.id)
+        .join(TeamMember, TeamMember.team_id == Team.id)
+        .filter(TeamMember.user_id == user_id)
+        .filter(Vehicle.warehouse_id.is_not(None))
+        .all()
+    )
+    ids.update(int(r[0]) for r in rows if r[0] is not None)
+
+    # 2) fallback directo (deprecated)
+    direct = (
+        db.query(Warehouse.id)
+        .filter(Warehouse.user_id == user_id, Warehouse.type == WarehouseType.MOBILE)
+        .all()
+    )
+    ids.update(int(r[0]) for r in direct if r[0] is not None)
+
+    return list(ids)
 
 
 # ============================================
@@ -181,7 +217,12 @@ def list_warehouses(
         stmt = stmt.where(Warehouse.type == warehouse_type)
     
     if user_id:
-        stmt = stmt.where(Warehouse.user_id == user_id)
+        # Resolver por team → vehicle → warehouse (la relación real de asignación),
+        # no por el campo deprecado Warehouse.user_id (hoy NULL en toda la tabla).
+        warehouse_ids = _technician_warehouse_ids(db, user_id)
+        if not warehouse_ids:
+            return []
+        stmt = stmt.where(Warehouse.id.in_(warehouse_ids))
     
     stmt = stmt.order_by(Warehouse.type, Warehouse.name)
     warehouses = db.execute(stmt).scalars().all()
