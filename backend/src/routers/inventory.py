@@ -673,6 +673,7 @@ _ANALYTICS_FLOW_CONDITIONS = {
     "defective": "serial_defective > 0",
     "damaged": "serial_damaged > 0",
     "decommissioned": "serial_decommissioned > 0",
+    "sold": "(serial_sold > 0 OR total_sold > 0)",
 }
 
 _ANALYTICS_ORDER_COLUMNS = {
@@ -685,9 +686,11 @@ _ANALYTICS_ORDER_COLUMNS = {
     "serial_total": "serial_total",
     "serial_installed": "serial_installed",
     "serial_defective": "serial_defective",
+    "serial_sold": "serial_sold",
     "total_purchased": "total_purchased",
     "total_consumed": "total_consumed",
     "total_transferred": "total_transferred",
+    "total_sold": "total_sold",
 }
 
 
@@ -700,7 +703,7 @@ def list_products_analytics(
     warehouse_id: Optional[int] = Query(None, description="Stock en un almacén puntual"),
     flow: Optional[str] = Query(
         None,
-        description="Estado de flujo: in_stock|consumed|purchased|transferred|installed|defective|damaged|decommissioned",
+        description="Estado de flujo: in_stock|consumed|purchased|transferred|installed|defective|damaged|decommissioned|sold",
     ),
     below_min_stock: Optional[bool] = Query(None, description="Solo productos bajo alerta de mínimo"),
     order_by: str = Query("name", description="Columna de orden"),
@@ -760,6 +763,7 @@ def list_products_analytics(
             COALESCE(s.serial_defective, 0) AS serial_defective,
             COALESCE(s.serial_damaged, 0) AS serial_damaged,
             COALESCE(s.serial_decommissioned, 0) AS serial_decommissioned,
+            COALESCE(s.serial_sold, 0) AS serial_sold,
             COALESCE(s.serial_total, 0) AS serial_total,
             COALESCE(m.total_purchased, 0) AS total_purchased,
             COALESCE(m.total_consumed, 0) AS total_consumed,
@@ -783,6 +787,7 @@ def list_products_analytics(
                 COUNT(*) FILTER (WHERE status = 'DEFECTIVE') AS serial_defective,
                 COUNT(*) FILTER (WHERE status = 'DAMAGED') AS serial_damaged,
                 COUNT(*) FILTER (WHERE status = 'DECOMMISSIONED') AS serial_decommissioned,
+                COUNT(*) FILTER (WHERE status = 'SOLD') AS serial_sold,
                 COUNT(*) AS serial_total
             FROM serial_items
             {serial_where}
@@ -799,7 +804,9 @@ def list_products_analytics(
                 COALESCE(SUM(quantity) FILTER (WHERE movement_type = 'RECOVERY'), 0)
                     + COALESCE(COUNT(serial_item_id) FILTER (WHERE movement_type = 'RECOVERY'), 0) AS total_recovered,
                 COALESCE(SUM(quantity) FILTER (WHERE movement_type = 'ADJUSTMENT'), 0)
-                    + COALESCE(COUNT(serial_item_id) FILTER (WHERE movement_type = 'ADJUSTMENT'), 0) AS total_adjusted
+                    + COALESCE(COUNT(serial_item_id) FILTER (WHERE movement_type = 'ADJUSTMENT'), 0) AS total_adjusted,
+                COALESCE(SUM(quantity) FILTER (WHERE movement_type = 'SALE'), 0)
+                    + COALESCE(COUNT(serial_item_id) FILTER (WHERE movement_type = 'SALE'), 0) AS total_sold
             FROM stock_movements
             GROUP BY product_id
         ) m ON m.product_id = p.id

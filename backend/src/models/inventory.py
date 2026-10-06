@@ -42,6 +42,7 @@ class SerialItemStatus(str, PyEnum):
     DEFECTIVE = "DEFECTIVE"  # Devuelto por técnico como defectuoso
     DAMAGED = "DAMAGED"      # Evaluado en central como no reparable
     DECOMMISSIONED = "DECOMMISSIONED"  # Baja definitiva (solo central)
+    SOLD = "SOLD"            # Vendido al público (ya no está disponible)
 
 
 class MovementType(str, PyEnum):
@@ -51,6 +52,8 @@ class MovementType(str, PyEnum):
     CONSUMPTION = "CONSUMPTION"  # Uso en OT
     RECOVERY = "RECOVERY"        # Recupero de campo
     ADJUSTMENT = "ADJUSTMENT"    # Ajuste de inventario
+    SALE = "SALE"                # Salida por venta al público
+    SALE_RETURN = "SALE_RETURN"  # Reingreso por devolución de venta
 
 
 class UnitMeasure(str, PyEnum):

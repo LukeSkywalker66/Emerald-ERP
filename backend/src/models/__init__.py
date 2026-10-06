@@ -50,6 +50,12 @@ from .inventory import (
 	StockMovement,
 	MovementType,
 )
+from .sales import (
+	# Ventas al Público (acción de stock)
+	Sale,
+	SaleItem,
+	SaleStatus,
+)
 from .beholder import (
 	# Infraestructura
 	Subscriber,
@@ -126,6 +132,10 @@ __all__ = [
 	"SerialItemStatus",
 	"StockMovement",
 	"MovementType",
+	# Sales models
+	"Sale",
+	"SaleItem",
+	"SaleStatus",
 	# Engineering models
 	"EngineeringTask",
 	"EngineeringTaskType",

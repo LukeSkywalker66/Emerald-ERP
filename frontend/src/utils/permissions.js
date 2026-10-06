@@ -129,6 +129,17 @@ const PERMISSIONS_MATRIX = {
     },
   },
 
+  // Ventas al Público (acción de stock)
+  'sales': {
+    actions: ['view', 'create'],
+    roleWhitelist: {
+      'admin': true,
+      'operator': true,
+      // 'coordinator': false,
+      // 'tecnico': false,
+    },
+  },
+
   // Logística - Flota asignada (lectura para técnico)
   'fleet_assigned': {
     actions: ['view'],
