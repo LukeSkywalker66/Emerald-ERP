@@ -519,6 +519,10 @@ def get_warehouse_stock(
         .options(joinedload(SerialItem.product))
         .where(SerialItem.warehouse_id == warehouse_id)
         .where(SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.IN_VEHICLE]))
+        # Excluir unidades trazables agotadas (remaining_quantity = 0) que por
+        # un bug de float quedaron en estado NEW/IN_VEHICLE: no deben mostrarse
+        # como "0 disponibles".
+        .where(or_(SerialItem.remaining_quantity.is_(None), SerialItem.remaining_quantity > 0))
     )
     serial_items = db.execute(serial_stmt).scalars().all()
     

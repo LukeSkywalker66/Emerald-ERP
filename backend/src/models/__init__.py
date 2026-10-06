@@ -87,7 +87,8 @@ from .scheduled_task import (
 	ScheduledTask,
 )
 from .locations import City, Neighborhood
-
+from .error_log import ErrorLog
+ 
 __all__ = [
 	# Auth models
 	"Role",
@@ -166,4 +167,6 @@ __all__ = [
 	"MonitorStatus",
 	# Scheduled Tasks
 	"ScheduledTask",
+	# Error logging
+	"ErrorLog",
 ]

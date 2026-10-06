@@ -456,11 +456,14 @@ def _process_composite_tracked_serial_item(
             f"Consumo inválido para {item.serial_number}: disponible {current_remaining}, requerido {consume_qty}"
         )
 
-    quantity_after = current_remaining - consume_qty
+    # Redondear a 6 decimales para no dejar residuales de float (ej. 1e-16) que
+    # harían que una unidad agotada siga apareciendo como "0 disponibles" en stock.
+    quantity_after = round(current_remaining - consume_qty, 6)
     serial_item.remaining_quantity = quantity_after
 
     # Si se agota la unidad trazable, se marca como instalada/consumida y se mueve a virtual.
-    if quantity_after <= 0:
+    if quantity_after <= _FLOAT_EPSILON:
+        serial_item.remaining_quantity = 0.0
         virtual_wh_id = _get_virtual_warehouse_id(db)
         serial_item.status = SerialItemStatus.INSTALLED
         serial_item.warehouse_id = virtual_wh_id

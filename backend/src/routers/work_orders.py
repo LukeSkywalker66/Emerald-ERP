@@ -1998,8 +1998,11 @@ def complete_work_order(
     if not wo:
         raise HTTPException(status_code=404, detail="WorkOrder no encontrada")
 
-    # Solo el técnico asignado o admin puede completar
-    if current_user.role not in ("admin", "super_user"):
+    # Solo el técnico asignado o admin puede completar.
+    # current_user.role es un objeto Role; comparar por su nombre y por is_superuser.
+    role_name = current_user.role.name if current_user.role else None
+    is_admin = role_name in ("admin", "super_user") or current_user.is_superuser
+    if not is_admin:
         if wo.technician_id and wo.technician_id != current_user.id:
             raise HTTPException(
                 status_code=403,
