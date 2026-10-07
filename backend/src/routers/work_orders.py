@@ -165,7 +165,11 @@ def list_work_orders(
             # Si el formato no es válido, ignoramos el filtro
             pass
 
-    if mobile_unit_id and role_name != "technician":
+    # Filtro por técnico/móvil: aplica a cualquier usuario con visión de todas
+    # las OTs. Para un técnico de campo (sin `work_orders.view_all`), el filtro
+    # automático de arriba ya restringe a sus propias OTs, así que este filtro
+    # solo acota más (no hay escalada de privilegios).
+    if mobile_unit_id:
         base_query = base_query.filter(WorkOrder.technician_id == mobile_unit_id)
 
     if search:
