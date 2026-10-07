@@ -1,6 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader, Plus, ShoppingCart, Trash2 } from 'lucide-react';
+import api from '@/api/client';
+import BarcodeScanner from '@/components/barcode-reader/BarcodeScanner';
 import * as inventoryService from '@/services/inventory.service';
 import { confirmSale, createSale } from '@/services/sales.service';
 
@@ -27,6 +29,11 @@ export default function SaleWizard() {
   const [lineProductId, setLineProductId] = useState('');
   const [lineQuantity, setLineQuantity] = useState('1');
   const [lineSerial, setLineSerial] = useState('');
+
+  // Escaneo (mismo sistema que entregas: resolve-scan valida contra la BD)
+  const [scanning, setScanning] = useState(false);
+  const [scanFeedback, setScanFeedback] = useState(null);
+  const scanningRef = useRef(false);
 
   useEffect(() => {
     const load = async () => {
@@ -81,6 +88,42 @@ export default function SaleWizard() {
     setLineQuantity('1');
     setLineSerial('');
     setError(null);
+  };
+
+  // Escaneo: valida contra la BD (mismo sistema que entregas a cuadrillas).
+  const handleScan = async (code) => {
+    if (!code || !code.trim()) return;
+    if (scanningRef.current) return;
+    scanningRef.current = true;
+    setScanning(true);
+    setScanFeedback(null);
+    try {
+      const { data } = await api.get(`/v2/inventory/resolve-scan?query=${encodeURIComponent(code.trim())}`);
+      if (data?.type === 'serial' && data?.product) {
+        setLineProductId(String(data.product.id));
+        setLineSerial(data.serial?.serial_number || code.trim().toUpperCase());
+        setLineQuantity('1');
+        setScanFeedback({ type: 'success', message: `Serial encontrado: ${data.product.name}` });
+        setError(null);
+      } else if (data?.type === 'product' && data?.product) {
+        setLineProductId(String(data.product.id));
+        if (data.product.is_serialized) {
+          setLineSerial('');
+          setScanFeedback({ type: 'info', message: `Producto serializado: ${data.product.name}. Escaneá o ingresá el serial.` });
+        } else {
+          setScanFeedback({ type: 'success', message: `Producto encontrado: ${data.product.name}. Indicá la cantidad.` });
+        }
+        setError(null);
+      }
+    } catch (err) {
+      const msg = err?.response?.data?.detail || 'No se pudo validar el código escaneado';
+      setScanFeedback({ type: 'error', message: msg });
+      setLineProductId('');
+      setLineSerial('');
+    } finally {
+      scanningRef.current = false;
+      setScanning(false);
+    }
   };
 
   const removeItem = (index) => {
@@ -187,7 +230,15 @@ export default function SaleWizard() {
             <div className="p-4 rounded border border-zinc-800 bg-zinc-900/40">
               <h2 className="text-sm font-semibold text-zinc-300 mb-3">Líneas de la venta</h2>
 
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-3">
+              <BarcodeScanner
+                onScan={handleScan}
+                scanning={scanning}
+                feedback={scanFeedback}
+                placeholder="Escanear SKU o serial del producto..."
+                disabled={loading}
+              />
+
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-3 mt-3">
                 <select
                   value={lineProductId}
                   onChange={(e) => setLineProductId(e.target.value)}
