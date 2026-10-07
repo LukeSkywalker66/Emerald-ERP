@@ -1543,6 +1543,7 @@ export default function TicketDetailPage() {
                     <span>
                       Nodo: {ticket.connection_details.node_name || 'N/D'}
                       {ticket.connection_details.node_ip ? ` (${ticket.connection_details.node_ip})` : ''}
+                      {ticket.connection_details.vlans ? ` · VLAN: ${ticket.connection_details.vlans}` : ''}
                     </span>
                   </div>
                 )}

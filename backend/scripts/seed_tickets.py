@@ -20,6 +20,7 @@ DEFAULT_CATEGORIES = [
     ("Servicio Técnico", "Diagnóstico, reparación y tareas técnicas varias", "technical"),
     ("Administrativo", "Cambios de plan y facturación", "administrative"),
     ("Instalación", "Alta de nuevo servicio al cliente", "installation"),
+    ("Instalación Mesh", "Instalación de sistema mesh inalámbrico (routers específicos) sobre conexión existente", "mesh"),
     ("Traslado", "Relocalización del cliente", "relocation"),
     ("Baja", "Cancelación de servicio", "withdrawal"),
     ("Pase a Fibra", "Migración de conexión existente de aire a fibra, con retiro de antena/equipo", "fiber_migration"),

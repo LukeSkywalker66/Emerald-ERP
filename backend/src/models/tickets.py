@@ -137,6 +137,7 @@ class TicketType(StrEnum):
     relocation = "relocation"            # Traslado/Mudanza (origen → destino)
     administrative = "administrative"    # Gestión administrativa
     fiber_migration = "fiber_migration"  # Pase a fibra (misma conexión, retiro de aire)
+    mesh = "mesh"                        # Instalación de sistema mesh (red inalámbrica sobre conexión existente)
 
 
 class AdministrativeSubtype(StrEnum):

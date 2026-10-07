@@ -461,6 +461,7 @@ def get_work_order_detail(
                 "client_dni": conn_snap.get("client_dni"),
                 "node_name": conn_snap.get("node_name"),
                 "node_ip": conn_snap.get("node_ip"),
+                "vlans": conn_snap.get("vlans"),
                 "plan_name": conn_snap.get("plan_name"),
                 "plan_speed": conn_snap.get("plan_speed"),
                 "address_parts": conn_snap.get("address_parts"),
@@ -479,6 +480,7 @@ def get_work_order_detail(
                         cl.doc_number as client_dni,
                         n.name as node_name,
                         n.ip_address as node_ip,
+                        n.vlans as vlans,
                         p.name as plan_name,
                         p.speed as plan_speed,
                         c.address_parts,
@@ -517,10 +519,11 @@ def get_work_order_detail(
                         "client_dni": conn_row[4],
                         "node_name": conn_row[5],
                         "node_ip": conn_row[6],
-                        "plan_name": conn_row[7],
-                        "plan_speed": conn_row[8],
-                        "address_parts": conn_row[9],
-                        "contact_phone": conn_row[10],
+                        "vlans": conn_row[7],
+                        "plan_name": conn_row[8],
+                        "plan_speed": conn_row[9],
+                        "address_parts": conn_row[10],
+                        "contact_phone": conn_row[11],
                     }
                 )
 

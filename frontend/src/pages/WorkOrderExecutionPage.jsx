@@ -650,6 +650,9 @@ export default function WorkOrderExecutionPage() {
                     {workOrder.ticket_info.node_name}
                     {workOrder?.ticket_info?.node_ip ? ` (${workOrder.ticket_info.node_ip})` : ''}
                   </p>
+                  {workOrder?.ticket_info?.vlans && (
+                    <p className="text-zinc-400 text-xs mt-1">VLAN: {workOrder.ticket_info.vlans}</p>
+                  )}
                 </div>
               )}
             </div>
@@ -722,10 +725,13 @@ export default function WorkOrderExecutionPage() {
                     <p className="text-zinc-500 mb-1">Nodo</p>
                     <p className="text-zinc-200">
                       {workOrder.ticket_info.node_name}
-                      {workOrder.ticket_info.node_ip && 
+                      {workOrder.ticket_info.node_ip &&
                         ` • ${workOrder.ticket_info.node_ip}`
                       }
                     </p>
+                    {workOrder.ticket_info.vlans && (
+                      <p className="text-zinc-400 mt-1">VLAN: {workOrder.ticket_info.vlans}</p>
+                    )}
                   </div>
                 )}
               </div>

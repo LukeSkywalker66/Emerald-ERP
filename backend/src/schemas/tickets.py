@@ -307,6 +307,7 @@ class ConnectionDetailsResponse(BaseModel):
     client_dni: Optional[str] = None
     node_name: Optional[str] = None
     node_ip: Optional[str] = None
+    vlans: Optional[str] = None
     plan_name: Optional[str] = None
     plan_speed: Optional[int] = None  # En Mbps
     latitude: Optional[float] = None

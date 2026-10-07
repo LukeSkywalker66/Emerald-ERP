@@ -65,6 +65,63 @@ router = APIRouter()
 logger = logging.getLogger("uvicorn.error")
 
 # ============================
+# Helpers: vendor de ONT (para instalaciones mesh)
+# ============================
+
+# Los primeros 4 caracteres del SN de ONT (ITU-T G.984.4) identifican al vendor.
+_ONT_VENDOR_PREFIXES = {
+    "HWTC": "Huawei",
+    "ZTEG": "ZTE",
+    "TP01": "TP-Link",
+    "TPLC": "TP-Link",
+    "FHTT": "FiberHome",
+    "ALCL": "Nokia (Alcatel-Lucent)",
+    "NOKI": "Nokia",
+    "SCOM": "Sercomm",
+    "VSOL": "VSOL",
+}
+
+
+def _vendor_from_ont_sn(sn: Optional[str]) -> Optional[str]:
+    """Deriva la marca del vendor desde el prefijo del SN de ONT."""
+    if not sn:
+        return None
+    prefix = str(sn).strip().upper()[:4]
+    return _ONT_VENDOR_PREFIXES.get(prefix)
+
+
+def _lookup_ont_for_connection(db: Session, connection_id: Optional[int]):
+    """Devuelve (sn, vendor) de la ONT asociada a una conexión, si existe.
+
+    Best-effort: si no hay dato sincronizado de SmartOLT, devuelve (None, None)
+    y no agrega nada al texto de la OT (opcional, nunca falla).
+    """
+    from src.models.beholder import Subscriber
+
+    if not connection_id:
+        return None, None
+
+    sub = (
+        db.query(Subscriber)
+        .filter(Subscriber.connection_id == connection_id)
+        .filter(Subscriber.sn.isnot(None))
+        .first()
+    )
+    if not sub:
+        conn = db.query(Connection).filter(Connection.connection_id == connection_id).first()
+        pppoe = conn.pppoe_username if conn else None
+        if pppoe:
+            sub = (
+                db.query(Subscriber)
+                .filter(Subscriber.pppoe_username == pppoe)
+                .filter(Subscriber.sn.isnot(None))
+                .first()
+            )
+    sn = sub.sn if sub else None
+    return sn, _vendor_from_ont_sn(sn)
+
+
+# ============================
 # Categorías de Ticket
 # ============================
 
@@ -611,6 +668,13 @@ def create_ticket(
                 detail="Pase a fibra requiere connection_id de la conexión existente a migrar"
             )
     
+    elif payload.ticket_type == TicketType.mesh:
+        if not payload.connection_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Instalación Mesh requiere connection_id de la conexión existente"
+            )
+    
     elif payload.ticket_type == TicketType.administrative:
         # Para tickets administrativos, aceptar tanto administrative_subtype (legacy) como ticket_reason_id (nuevo sistema)
         if not payload.administrative_subtype and not payload.ticket_reason_id:
@@ -742,11 +806,11 @@ def create_ticket(
         db.add(audit_event)
     
     # Auto-crear OT según tipo
-    if payload.ticket_type in [TicketType.installation, TicketType.withdrawal, TicketType.relocation, TicketType.fiber_migration]:
+    if payload.ticket_type in [TicketType.installation, TicketType.withdrawal, TicketType.relocation, TicketType.fiber_migration, TicketType.mesh]:
         # WorkOrderType ya no tiene el valor genérico 'install': la migración
         # 2026_06_07_002 lo dividió en 'install_ftth' e 'install_aire'. Resolver
         # el tipo de OT según la tecnología declarada; por defecto FTTH.
-        if payload.ticket_type == TicketType.installation and payload.installation_tech in ("wireless", "mesh"):
+        if payload.ticket_type == TicketType.installation and payload.installation_tech == "wireless":
             resolved_ot_type = WorkOrderType.install_aire
         else:
             ot_type_map = {
@@ -754,6 +818,7 @@ def create_ticket(
                 TicketType.withdrawal: WorkOrderType.pickup,
                 TicketType.relocation: WorkOrderType.install_ftth,
                 TicketType.fiber_migration: WorkOrderType.install_ftth,
+                TicketType.mesh: WorkOrderType.install_aire,
             }
             resolved_ot_type = ot_type_map[payload.ticket_type]
         
@@ -763,6 +828,16 @@ def create_ticket(
                 f"Pase a fibra de la conexión {payload.connection_id}. "
                 f"Retirar antena/equipo de aire instalado."
             )
+        elif payload.ticket_type == TicketType.mesh:
+            wo_note = payload.description or (
+                f"Instalación de sistema mesh en la conexión {payload.connection_id}."
+            )
+            # Opcional: enriquecer la OT con la marca de la ONT de origen para
+            # que el técnico lleve equipos compatibles (Huawei/ZTE/TP-Link...).
+            ont_sn, ont_vendor = _lookup_ont_for_connection(db, payload.connection_id)
+            if ont_sn:
+                vendor_label = f"{ont_vendor} " if ont_vendor else ""
+                wo_note += f" | ONT origen: {vendor_label}(SN {ont_sn})"
         else:
             wo_note = payload.description or (
                 f"Traslado desde conexión {payload.origin_connection_id} hacia "
@@ -891,6 +966,7 @@ def get_ticket_detail(ticket_id: int, db: Session = Depends(get_db)):
                     cl.doc_number as client_dni,
                     n.name as node_name,
                     n.ip_address as node_ip,
+                    n.vlans as vlans,
                     p.name as plan_name,
                     p.speed as plan_speed,
                     c.latitude,
@@ -930,12 +1006,13 @@ def get_ticket_detail(ticket_id: int, db: Session = Depends(get_db)):
                 client_dni=conn_data[4],
                 node_name=conn_data[5],
                 node_ip=conn_data[6],
-                plan_name=conn_data[7],
-                plan_speed=conn_data[8],
-                phone=conn_data[12],
-                latitude=float(conn_data[9]) if conn_data[9] is not None else None,
-                longitude=float(conn_data[10]) if conn_data[10] is not None else None,
-                address_parts=conn_data[11],
+                vlans=conn_data[7],
+                plan_name=conn_data[8],
+                plan_speed=conn_data[9],
+                phone=conn_data[13],
+                latitude=float(conn_data[10]) if conn_data[10] is not None else None,
+                longitude=float(conn_data[11]) if conn_data[11] is not None else None,
+                address_parts=conn_data[12],
             )
 
     return TicketDetailResponse(
