@@ -32,10 +32,11 @@ class Subscriber(Base):
 class Node(Base):
     __tablename__ = "nodes"
     # Respetamos tus nombres originales
-    node_id = Column(Integer, primary_key=True) 
+    node_id = Column(Integer, primary_key=True)
     name = Column(String)
     ip_address = Column(String)  # Volvemos a ip_address
     puerto = Column(String)
+    vlans = Column(String, nullable=True)  # VLANs separadas por coma (ej: '700' o '100,300'). Null = sin VLAN.
 
 
 class Plan(Base):

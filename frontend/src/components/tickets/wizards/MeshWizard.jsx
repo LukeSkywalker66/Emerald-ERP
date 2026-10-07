@@ -1,24 +1,21 @@
 /**
- * FiberMigrationWizard - Pase a Fibra (migración de tecnología).
+ * MeshWizard - Instalación de sistema Mesh (red inalámbrica).
  *
- * A diferencia de la instalación, NO busca conexiones nuevas: el operador
- * selecciona la CONEXIÓN EXISTENTE del cliente que se va a migrar de aire a
- * fibra. Incluye el flag de retiro del equipo de aire (antena/radio).
+ * A diferencia de la Instalación estándar (que busca CONEXIONES NUEVAS en
+ * ISPCube), mesh se instala sobre una CONEXIÓN EXISTENTE del cliente: es un
+ * servicio adicional (routers mesh) que no genera una conexión nueva.
  */
-
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ChevronLeft, Search, MapPin, AlertCircle, Loader, Cable } from 'lucide-react';
+import { ChevronLeft, Search, MapPin, AlertCircle, Loader, Wifi } from 'lucide-react';
 import ticketsService from '@/services/tickets.service';
 
-export default function FiberMigrationWizard({ onBack, onSuccess, categoryId }) {
+export default function MeshWizard({ onBack, onSuccess, categoryId }) {
   const [step, setStep] = useState(1); // 1: búsqueda, 2: confirmación
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [selectedConnection, setSelectedConnection] = useState(null);
-  const [removeAirEquipment, setRemoveAirEquipment] = useState(true);
-  const [availabilityNote, setAvailabilityNote] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -51,28 +48,21 @@ export default function FiberMigrationWizard({ onBack, onSuccess, categoryId }) 
     setIsSubmitting(true);
     setError(null);
     try {
-      const equipmentNote = removeAirEquipment
-        ? 'Retirar antena/equipo de aire instalado.'
-        : null;
-
       await ticketsService.create({
-        ticket_type: 'fiber_migration',
-        subject: `Pase a Fibra - ${selectedConnection.client_name}`,
-        description: `Migración a fibra óptica de la conexión existente (${
+        ticket_type: 'mesh',
+        subject: `Instalación Mesh - ${selectedConnection.client_name}`,
+        description: `Instalación de sistema mesh inalámbrico en la conexión existente (${
           selectedConnection.pppoe_username || `#${selectedConnection.connection_id}`
-        }). ${equipmentNote || ''}`,
+        }).`,
         priority: 'medium',
         category_id: categoryId,
         connection_id: selectedConnection.connection_id,
-        installation_tech: 'fiber',
-        // La disponibilidad es la del cliente (opcional). El retiro de equipo ya
-        // quedó en la descripción; no debe pisar este campo.
-        availability_note: availabilityNote.trim() || null,
+        installation_tech: 'mesh',
       });
 
       onSuccess?.();
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Error al crear el pase a fibra');
+      setError(err.response?.data?.detail || err.message || 'Error al crear la instalación mesh');
     } finally {
       setIsSubmitting(false);
     }
@@ -82,9 +72,9 @@ export default function FiberMigrationWizard({ onBack, onSuccess, categoryId }) 
     return (
       <div className="space-y-6">
         <div>
-          <h3 className="text-lg font-semibold text-white mb-2">Buscar conexión a migrar</h3>
+          <h3 className="text-lg font-semibold text-white mb-2">Buscar conexión para mesh</h3>
           <p className="text-sm text-zinc-400">
-            Busca la conexión EXISTENTE del cliente que pasará de aire a fibra (por nombre, DNI, usuario o dirección).
+            Busca la conexión EXISTENTE del cliente donde se instalará el sistema mesh (por nombre, DNI, usuario o dirección).
           </p>
         </div>
 
@@ -143,8 +133,8 @@ export default function FiberMigrationWizard({ onBack, onSuccess, categoryId }) 
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold text-white mb-2">Confirmar pase a fibra</h3>
-        <p className="text-sm text-zinc-400">Verificá la conexión y confirmá la migración.</p>
+        <h3 className="text-lg font-semibold text-white mb-2">Confirmar instalación mesh</h3>
+        <p className="text-sm text-zinc-400">Verificá la conexión y confirmá la instalación del sistema mesh.</p>
       </div>
 
       {error && (
@@ -157,36 +147,13 @@ export default function FiberMigrationWizard({ onBack, onSuccess, categoryId }) 
       <div className="p-4 rounded-lg border border-zinc-700 bg-zinc-800/50 space-y-2">
         <p className="text-sm font-medium text-white">{selectedConnection?.client_name}</p>
         <p className="text-xs text-zinc-400 flex items-center gap-2">
-          <Cable size={14} className="text-emerald-400" />
+          <Wifi size={14} className="text-emerald-400" />
           {selectedConnection?.installation_address}
         </p>
         {selectedConnection?.pppoe_username && (
           <p className="text-xs text-zinc-500 font-mono">PPPoE: {selectedConnection.pppoe_username}</p>
         )}
         <p className="text-xs text-zinc-500">Conexión #{selectedConnection?.connection_id}</p>
-      </div>
-
-      <label className="flex items-center gap-3 p-3 rounded-lg border border-zinc-700 bg-zinc-800/50 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={removeAirEquipment}
-          onChange={(e) => setRemoveAirEquipment(e.target.checked)}
-          className="h-4 w-4 accent-emerald-500"
-        />
-        <span className="text-sm text-zinc-200">
-          Retirar antena/equipo de aire instalado
-        </span>
-      </label>
-
-      <div>
-        <label className="text-sm font-medium text-zinc-300 block mb-2">Horarios de Disponibilidad (opcional)</label>
-        <textarea
-          value={availabilityNote}
-          onChange={(e) => setAvailabilityNote(e.target.value)}
-          rows={2}
-          placeholder="Ej: Lunes a viernes de 9 a 13hs"
-          className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 resize-none"
-        />
       </div>
 
       <div className="flex items-center justify-between pt-2">
@@ -200,7 +167,7 @@ export default function FiberMigrationWizard({ onBack, onSuccess, categoryId }) 
           disabled={isSubmitting}
           className="bg-emerald-600 hover:bg-emerald-700"
         >
-          {isSubmitting ? 'Creando...' : 'Confirmar pase a fibra'}
+          {isSubmitting ? 'Creando...' : 'Confirmar instalación mesh'}
         </Button>
       </div>
     </div>

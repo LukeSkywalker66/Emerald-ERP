@@ -31,7 +31,19 @@ class Role(Base, TimestampMixin):
         JSONB,
         nullable=True,
         default=list,
-        comment="Lista de permisos en formato JSON"
+        comment="Lista de permisos en formato JSON (legacy v1)"
+    )
+    capabilities: Mapped[Optional[list]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Capacidades canónicas RBAC (slugs recurso.accion). Nulo = sin capacidades."
+    )
+    is_field_technician: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment="Perfil de técnico de campo: habilita al rol para integrar una cuadrilla."
     )
     
     # Relationships

@@ -12,7 +12,7 @@
 
 import React from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { hasPermission } from '@/utils/permissions';
+import { hasPermission, can } from '@/utils/permissions';
 
 /**
  * @param {Object} props
@@ -38,7 +38,10 @@ export default function Can({
   }
 
   const userRole = user.role;
-  const permitted = hasPermission(userRole, resource, action);
+  const viaCapabilities = can(user.permissions, resource, action);
+  const permitted = viaCapabilities !== undefined
+    ? viaCapabilities
+    : hasPermission(userRole, resource, action);
 
   if (!permitted) {
     // Debug en development

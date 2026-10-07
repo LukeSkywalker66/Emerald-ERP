@@ -49,6 +49,11 @@ const MaterialDeliveryWizard = lazy(() => import('./pages/logistics/MaterialDeli
 const MaterialReceiptWizard = lazy(() => import('./pages/logistics/MaterialReceiptWizard'));
 const BarcodeLabelPrinter = lazy(() => import('./pages/logistics/BarcodeLabelPrinter'));
 
+// Sales Module Pages
+const SalesPage = lazy(() => import('./pages/sales/SalesPage'));
+const SaleWizard = lazy(() => import('./pages/sales/SaleWizard'));
+const SaleDetail = lazy(() => import('./pages/sales/SaleDetail'));
+
 const PrivateRoute = ({ children }) => {
   const { isAuthenticated } = useAuth();
   return isAuthenticated ? children : <Navigate to="/login" replace />;
@@ -106,6 +111,11 @@ const AppRoutes = () => (
         <Route path="logistics/receipts/new" element={<RoleGuard resource="inventory_admin"><MaterialReceiptWizard /></RoleGuard>} />
         <Route path="logistics/receipts/:id" element={<RoleGuard resource="inventory_admin"><MaterialReceiptWizard /></RoleGuard>} />
         <Route path="logistics/print-labels" element={<RoleGuard resource="inventory" action="adjust" fallbackPath="/app/inventory/adjustments"><BarcodeLabelPrinter /></RoleGuard>} />
+
+        {/* Sales Module Routes */}
+        <Route path="sales" element={<RoleGuard resource="sales"><SalesPage /></RoleGuard>} />
+        <Route path="sales/new" element={<RoleGuard resource="sales" action="create"><SaleWizard /></RoleGuard>} />
+        <Route path="sales/:id" element={<RoleGuard resource="sales"><SaleDetail /></RoleGuard>} />
         
         {/*
           Settings route: permisivo por RBAC con self_service (todo usuario autenticado).

@@ -392,6 +392,50 @@ def require_admin(
     return current_user
 
 
+def build_capabilities(user) -> list:
+    """
+    Capacidades canónicas RBAC de un usuario (slugs `recurso.accion`).
+
+    - superuser -> ["*"] (acceso total)
+    - sino -> `role.capabilities` (lista) o [] (fail-safe: denegado)
+
+    No depende de nombres de rol ni del formato legacy `permissions`.
+    """
+    if getattr(user, "is_superuser", False):
+        return ["*"]
+    caps = getattr(getattr(user, "role", None), "capabilities", None)
+    if isinstance(caps, list):
+        return caps
+    return []
+
+
+def user_can(user, capability: str) -> bool:
+    """True si el usuario tiene la capability dada (o acceso total)."""
+    caps = build_capabilities(user)
+    return "*" in caps or capability in caps
+
+
+def require_permission(*capabilities: str):
+    """
+    Dependency factory: exige que el usuario autenticado tenga TODAS las
+    capabilities indicadas. Superuser / "*" siempre pasa.
+    """
+    def _dependency(
+        current_user: User = Depends(get_current_user_from_state),
+    ) -> User:
+        caps = build_capabilities(current_user)
+        if "*" in caps:
+            return current_user
+        missing = [c for c in capabilities if c not in caps]
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Acceso denegado: faltan permisos {', '.join(missing)}",
+            )
+        return current_user
+    return _dependency
+
+
 def decode_token(token: str) -> dict:
     """
     Decodifica JWT token SIN validar expiración (claims "exp").

@@ -156,6 +156,9 @@ export default function TechnicalWizard({ onBack, onSuccess, categoryId }) {
               <MapPin size={14} className="text-emerald-400" />
               <span>{formData.connection.installation_address}</span>
             </div>
+            {formData.connection.pppoe_username && (
+              <p className="text-xs text-zinc-500 font-mono mt-1">PPPoE: {formData.connection.pppoe_username}</p>
+            )}
             <button
               onClick={() => setFormData(p => ({ ...p, connection_id: null, connection: null, subject: '', ticket_reason_id: null }))}
               className="text-xs text-emerald-300 hover:text-emerald-200 mt-2"
@@ -195,6 +198,9 @@ export default function TechnicalWizard({ onBack, onSuccess, categoryId }) {
               >
                 <p className="text-white font-medium">{conn.client_name}</p>
                 <p className="text-xs text-zinc-400">{conn.installation_address}</p>
+                {conn.pppoe_username && (
+                  <p className="text-xs text-zinc-500 font-mono">PPPoE: {conn.pppoe_username}</p>
+                )}
               </button>
             ))}
           </div>

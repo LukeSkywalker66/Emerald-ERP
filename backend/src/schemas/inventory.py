@@ -458,6 +458,7 @@ class ProductAnalyticsItem(BaseModel):
     serial_defective: int = 0
     serial_damaged: int = 0
     serial_decommissioned: int = 0
+    serial_sold: int = 0
     serial_total: int = 0
 
     total_purchased: float = 0
@@ -465,6 +466,7 @@ class ProductAnalyticsItem(BaseModel):
     total_transferred: float = 0
     total_recovered: float = 0
     total_adjusted: float = 0
+    total_sold: float = 0
 
     below_min_stock: bool = False
 

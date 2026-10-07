@@ -72,27 +72,11 @@ const CuadrillasPage = () => {
   const loadUsers = async () => {
     try {
       setLoadingUsers(true);
-      const [usersData, rolesData] = await Promise.all([
-        usersService.getAllUsers(),
-        rolesService.getAllRoles(),
-      ]);
-
-      const usersList = Array.isArray(usersData) ? usersData : [];
-      const rolesList = Array.isArray(rolesData) ? rolesData : [];
-      const tecnicoRole = rolesList.find((role) =>
-        String(role.name || '').toLowerCase().includes('tecnic')
-      );
-
-      const filteredUsers = usersList.filter((user) => {
-        const roleName = String(user.role?.name || '').toLowerCase();
-        const matchesByName = roleName.includes('tecnic');
-        const matchesById = tecnicoRole
-          ? (user.role_id === tecnicoRole.id || user.role?.id === tecnicoRole.id)
-          : false;
-        return matchesByName || matchesById;
-      });
-
-      setUsers(filteredUsers);
+      // La elegibilidad de ser miembro de cuadrilla la resuelve el backend
+      // por el atributo de perfil del rol (`is_field_technician`), sin hardcodear
+      // nombres de rol en el frontend.
+      const data = await coordinationService.getAvailableTeamMembers();
+      setUsers(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error loading users:', err);
       // No mostrar error aquí, es secundario

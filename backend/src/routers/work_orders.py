@@ -133,13 +133,13 @@ def list_work_orders(
     # Query base sin opciones pesadas (se aplican solo en el query de datos)
     base_query = db.query(WorkOrder)
 
-    # Normalizamos el rol para evitar accesos repetidos a relaciones
-    role_name = current_user.role.name if current_user.role else None
-
-    # Filtro automático por rol (nombre en español: "tecnico")
-    if role_name == "tecnico":
+    # Filtro automático por capability (backend authority):
+    # - `work_orders.view_all` (o `*`) → ve todas.
+    # - si no → técnico de campo: solo las propias.
+    from src.core.security import build_capabilities
+    caps = build_capabilities(current_user)
+    if "work_orders.view_all" not in caps and "*" not in caps:
         base_query = base_query.filter(WorkOrder.technician_id == current_user.id)
-    # Admin/Coordinator u otros roles ven todas
 
     # Filtros opcionales
     if status:
@@ -461,6 +461,7 @@ def get_work_order_detail(
                 "client_dni": conn_snap.get("client_dni"),
                 "node_name": conn_snap.get("node_name"),
                 "node_ip": conn_snap.get("node_ip"),
+                "vlans": conn_snap.get("vlans"),
                 "plan_name": conn_snap.get("plan_name"),
                 "plan_speed": conn_snap.get("plan_speed"),
                 "address_parts": conn_snap.get("address_parts"),
@@ -479,6 +480,7 @@ def get_work_order_detail(
                         cl.doc_number as client_dni,
                         n.name as node_name,
                         n.ip_address as node_ip,
+                        n.vlans as vlans,
                         p.name as plan_name,
                         p.speed as plan_speed,
                         c.address_parts,
@@ -517,10 +519,11 @@ def get_work_order_detail(
                         "client_dni": conn_row[4],
                         "node_name": conn_row[5],
                         "node_ip": conn_row[6],
-                        "plan_name": conn_row[7],
-                        "plan_speed": conn_row[8],
-                        "address_parts": conn_row[9],
-                        "contact_phone": conn_row[10],
+                        "vlans": conn_row[7],
+                        "plan_name": conn_row[8],
+                        "plan_speed": conn_row[9],
+                        "address_parts": conn_row[10],
+                        "contact_phone": conn_row[11],
                     }
                 )
 
@@ -1998,8 +2001,11 @@ def complete_work_order(
     if not wo:
         raise HTTPException(status_code=404, detail="WorkOrder no encontrada")
 
-    # Solo el técnico asignado o admin puede completar
-    if current_user.role not in ("admin", "super_user"):
+    # Solo el técnico asignado o admin puede completar.
+    # current_user.role es un objeto Role; comparar por su nombre y por is_superuser.
+    role_name = current_user.role.name if current_user.role else None
+    is_admin = role_name in ("admin", "super_user") or current_user.is_superuser
+    if not is_admin:
         if wo.technician_id and wo.technician_id != current_user.id:
             raise HTTPException(
                 status_code=403,

@@ -140,6 +140,9 @@ export default function WithdrawalWizard({ onBack, onSuccess, categoryId }) {
                 <p className="text-sm font-medium text-white">{conn.client_name}</p>
               </div>
               <p className="text-xs text-zinc-500">{conn.address}</p>
+              {conn.pppoe_username && (
+                <p className="text-xs text-zinc-500 font-mono mt-1">PPPoE: {conn.pppoe_username}</p>
+              )}
               <p className="text-xs text-zinc-600 mt-1">ID: {conn.connection_id} • {conn.plan_name}</p>
             </button>
           ))}

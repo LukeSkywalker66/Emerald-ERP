@@ -30,6 +30,45 @@ function redirectToLogin() {
   }
 }
 
+/**
+ * Reporta un error de frontend al backend (best-effort, fire-and-forget).
+ * Nunca debe bloquear ni generar recursión: usa axios directo (no `api`).
+ */
+export function reportClientError({
+  level = 'ERROR',
+  module = null,
+  message = 'Unknown error',
+  stack = null,
+  status = null,
+  method = null,
+  url = null,
+  payload = null,
+} = {}) {
+  try {
+    const token = localStorage.getItem('emerald_token');
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    axios
+      .post(
+        `${baseURL}/v2/error-logs`,
+        {
+          level,
+          source: 'frontend',
+          module: module ? String(module).slice(0, 120) : null,
+          message: String(message || 'Unknown error').slice(0, 4000),
+          stack_trace: stack ? String(stack).slice(0, 20000) : null,
+          status_code: status ?? null,
+          request_method: method ? String(method).slice(0, 10) : null,
+          request_path: url ? String(url).slice(0, 255) : null,
+          context: payload ?? null,
+        },
+        { headers }
+      )
+      .catch(() => {});
+  } catch {
+    /* noop */
+  }
+}
+
 async function refreshToken() {
   const storedRefresh = localStorage.getItem('emerald_refresh');
   if (!storedRefresh) {
@@ -119,6 +158,26 @@ api.interceptors.response.use(
         
         return Promise.reject(refreshError);
       }
+    }
+    
+    // Reportar el error al backend (best-effort) para seguimiento remoto.
+    // Se excluye 401 (ruido de sesión, ya manejado arriba).
+    try {
+      if (!response || response.status !== 401) {
+        reportClientError({
+          module: config?.url ? String(config.url).split('?')[0] : 'unknown',
+          message: response?.data?.detail || response?.data?.message || message || 'Request failed',
+          stack: error?.stack || null,
+          status: response?.status ?? null,
+          method: config?.method,
+          url: config?.url,
+          payload: response
+            ? { statusText: response.statusText }
+            : { network: true },
+        });
+      }
+    } catch {
+      /* noop */
     }
     
     return Promise.reject(error);

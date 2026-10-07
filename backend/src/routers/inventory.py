@@ -16,6 +16,8 @@ from src.models.inventory import (
     WarehouseType, ProductType, MovementType, SerialItemStatus
 )
 from src.models.user import User
+from src.models.coordination import Team, TeamMember
+from src.models.fleet import Vehicle
 from src.schemas.inventory import (
     WarehouseCreate, WarehouseUpdate, WarehouseResponse,
     ProductCreate, ProductUpdate, ProductResponse,
@@ -85,6 +87,40 @@ def _warehouse_team_name(warehouse) -> Optional[str]:
         return None
     team = getattr(vehicle, "team", None)
     return team.name if team else None
+
+
+def _technician_warehouse_ids(db: Session, user_id: int) -> list[int]:
+    """IDs de warehouse MOBILE asignados a un técnico.
+
+    La relación canónica de asignación es:
+        User → TeamMember → Team → Vehicle → Warehouse (MOBILE).
+
+    El campo `Warehouse.user_id` quedó deprecated (hoy todos están NULL), por lo
+    que filtrar solo por él rompía la vista del técnico (no le mostraba su móvil).
+    Se mantiene como fallback por compatibilidad.
+    """
+    ids: set[int] = set()
+
+    # 1) team → vehicle → warehouse
+    rows = (
+        db.query(Vehicle.warehouse_id)
+        .join(Team, Team.vehicle_id == Vehicle.id)
+        .join(TeamMember, TeamMember.team_id == Team.id)
+        .filter(TeamMember.user_id == user_id)
+        .filter(Vehicle.warehouse_id.is_not(None))
+        .all()
+    )
+    ids.update(int(r[0]) for r in rows if r[0] is not None)
+
+    # 2) fallback directo (deprecated)
+    direct = (
+        db.query(Warehouse.id)
+        .filter(Warehouse.user_id == user_id, Warehouse.type == WarehouseType.MOBILE)
+        .all()
+    )
+    ids.update(int(r[0]) for r in direct if r[0] is not None)
+
+    return list(ids)
 
 
 # ============================================
@@ -181,7 +217,12 @@ def list_warehouses(
         stmt = stmt.where(Warehouse.type == warehouse_type)
     
     if user_id:
-        stmt = stmt.where(Warehouse.user_id == user_id)
+        # Resolver por team → vehicle → warehouse (la relación real de asignación),
+        # no por el campo deprecado Warehouse.user_id (hoy NULL en toda la tabla).
+        warehouse_ids = _technician_warehouse_ids(db, user_id)
+        if not warehouse_ids:
+            return []
+        stmt = stmt.where(Warehouse.id.in_(warehouse_ids))
     
     stmt = stmt.order_by(Warehouse.type, Warehouse.name)
     warehouses = db.execute(stmt).scalars().all()
@@ -478,6 +519,10 @@ def get_warehouse_stock(
         .options(joinedload(SerialItem.product))
         .where(SerialItem.warehouse_id == warehouse_id)
         .where(SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.IN_VEHICLE]))
+        # Excluir unidades trazables agotadas (remaining_quantity = 0) que por
+        # un bug de float quedaron en estado NEW/IN_VEHICLE: no deben mostrarse
+        # como "0 disponibles".
+        .where(or_(SerialItem.remaining_quantity.is_(None), SerialItem.remaining_quantity > 0))
     )
     serial_items = db.execute(serial_stmt).scalars().all()
     
@@ -632,6 +677,7 @@ _ANALYTICS_FLOW_CONDITIONS = {
     "defective": "serial_defective > 0",
     "damaged": "serial_damaged > 0",
     "decommissioned": "serial_decommissioned > 0",
+    "sold": "(serial_sold > 0 OR total_sold > 0)",
 }
 
 _ANALYTICS_ORDER_COLUMNS = {
@@ -644,9 +690,11 @@ _ANALYTICS_ORDER_COLUMNS = {
     "serial_total": "serial_total",
     "serial_installed": "serial_installed",
     "serial_defective": "serial_defective",
+    "serial_sold": "serial_sold",
     "total_purchased": "total_purchased",
     "total_consumed": "total_consumed",
     "total_transferred": "total_transferred",
+    "total_sold": "total_sold",
 }
 
 
@@ -659,7 +707,7 @@ def list_products_analytics(
     warehouse_id: Optional[int] = Query(None, description="Stock en un almacén puntual"),
     flow: Optional[str] = Query(
         None,
-        description="Estado de flujo: in_stock|consumed|purchased|transferred|installed|defective|damaged|decommissioned",
+        description="Estado de flujo: in_stock|consumed|purchased|transferred|installed|defective|damaged|decommissioned|sold",
     ),
     below_min_stock: Optional[bool] = Query(None, description="Solo productos bajo alerta de mínimo"),
     order_by: str = Query("name", description="Columna de orden"),
@@ -719,6 +767,7 @@ def list_products_analytics(
             COALESCE(s.serial_defective, 0) AS serial_defective,
             COALESCE(s.serial_damaged, 0) AS serial_damaged,
             COALESCE(s.serial_decommissioned, 0) AS serial_decommissioned,
+            COALESCE(s.serial_sold, 0) AS serial_sold,
             COALESCE(s.serial_total, 0) AS serial_total,
             COALESCE(m.total_purchased, 0) AS total_purchased,
             COALESCE(m.total_consumed, 0) AS total_consumed,
@@ -742,6 +791,7 @@ def list_products_analytics(
                 COUNT(*) FILTER (WHERE status = 'DEFECTIVE') AS serial_defective,
                 COUNT(*) FILTER (WHERE status = 'DAMAGED') AS serial_damaged,
                 COUNT(*) FILTER (WHERE status = 'DECOMMISSIONED') AS serial_decommissioned,
+                COUNT(*) FILTER (WHERE status = 'SOLD') AS serial_sold,
                 COUNT(*) AS serial_total
             FROM serial_items
             {serial_where}
@@ -758,7 +808,9 @@ def list_products_analytics(
                 COALESCE(SUM(quantity) FILTER (WHERE movement_type = 'RECOVERY'), 0)
                     + COALESCE(COUNT(serial_item_id) FILTER (WHERE movement_type = 'RECOVERY'), 0) AS total_recovered,
                 COALESCE(SUM(quantity) FILTER (WHERE movement_type = 'ADJUSTMENT'), 0)
-                    + COALESCE(COUNT(serial_item_id) FILTER (WHERE movement_type = 'ADJUSTMENT'), 0) AS total_adjusted
+                    + COALESCE(COUNT(serial_item_id) FILTER (WHERE movement_type = 'ADJUSTMENT'), 0) AS total_adjusted,
+                COALESCE(SUM(quantity) FILTER (WHERE movement_type = 'SALE'), 0)
+                    + COALESCE(COUNT(serial_item_id) FILTER (WHERE movement_type = 'SALE'), 0) AS total_sold
             FROM stock_movements
             GROUP BY product_id
         ) m ON m.product_id = p.id
