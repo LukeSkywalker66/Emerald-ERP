@@ -14,7 +14,7 @@ sys.path.insert(0, BASE_DIR)
 from src.database import SessionLocal  # type: ignore
 from src.models.user import User  # type: ignore
 from src.models import Ticket, TicketCategory, TicketPriority, TicketStatus
-from src.models.tickets import TicketEvent, TicketEventType  # type: ignore
+from src.models.tickets import TicketTimeline, TicketTimelineEventType  # type: ignore
 
 DEFAULT_CATEGORIES = [
     ("Servicio Técnico", "Diagnóstico, reparación y tareas técnicas varias", "technical"),
@@ -56,23 +56,22 @@ def seed_sample_ticket(db, categories):
 
     category = categories[0] if categories else None
     ticket = Ticket(
-        title="Cliente sin servicio - ONU en LOS",
+        subject="Cliente sin servicio - ONU en LOS",
         description="Reporte de corte total desde la medianoche.",
         status=TicketStatus.OPEN,
         priority=TicketPriority.HIGH,
         category_id=category.id if category else None,
         creator_id=admin.id,
-        customer_id=None,
     )
     db.add(ticket)
     db.commit()
     db.refresh(ticket)
 
-    event = TicketEvent(
+    event = TicketTimeline(
         ticket_id=ticket.id,
-        event_type=TicketEventType.CREATED,
-        payload={"title": ticket.title},
-        user_id=admin.id,
+        event_type=TicketTimelineEventType.note,
+        content="Ticket de prueba creado por seed.",
+        author_id=admin.id,
     )
     db.add(event)
     db.commit()
