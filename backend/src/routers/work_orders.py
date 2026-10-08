@@ -1,5 +1,6 @@
 """Router para WorkOrders - Endpoints de listado y ejecución para técnicos."""
 import logging
+from decimal import Decimal
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
@@ -132,13 +133,13 @@ def list_work_orders(
     # Query base sin opciones pesadas (se aplican solo en el query de datos)
     base_query = db.query(WorkOrder)
 
-    # Normalizamos el rol para evitar accesos repetidos a relaciones
-    role_name = current_user.role.name if current_user.role else None
-
-    # Filtro automático por rol (nombre en español: "tecnico")
-    if role_name == "tecnico":
+    # Filtro automático por capability (backend authority):
+    # - `work_orders.view_all` (o `*`) → ve todas.
+    # - si no → técnico de campo: solo las propias.
+    from src.core.security import build_capabilities
+    caps = build_capabilities(current_user)
+    if "work_orders.view_all" not in caps and "*" not in caps:
         base_query = base_query.filter(WorkOrder.technician_id == current_user.id)
-    # Admin/Coordinator u otros roles ven todas
 
     # Filtros opcionales
     if status:
@@ -164,7 +165,11 @@ def list_work_orders(
             # Si el formato no es válido, ignoramos el filtro
             pass
 
-    if mobile_unit_id and role_name != "technician":
+    # Filtro por técnico/móvil: aplica a cualquier usuario con visión de todas
+    # las OTs. Para un técnico de campo (sin `work_orders.view_all`), el filtro
+    # automático de arriba ya restringe a sus propias OTs, así que este filtro
+    # solo acota más (no hay escalada de privilegios).
+    if mobile_unit_id:
         base_query = base_query.filter(WorkOrder.technician_id == mobile_unit_id)
 
     if search:
@@ -460,8 +465,10 @@ def get_work_order_detail(
                 "client_dni": conn_snap.get("client_dni"),
                 "node_name": conn_snap.get("node_name"),
                 "node_ip": conn_snap.get("node_ip"),
+                "vlans": conn_snap.get("vlans"),
                 "plan_name": conn_snap.get("plan_name"),
                 "plan_speed": conn_snap.get("plan_speed"),
+                "address_parts": conn_snap.get("address_parts"),
             })
         # 2) Fallback: consultar DB si no hay snapshot y hay connection_id.
         #    Instalaciones/traslados usan destination/origin_connection_id.
@@ -477,8 +484,10 @@ def get_work_order_detail(
                         cl.doc_number as client_dni,
                         n.name as node_name,
                         n.ip_address as node_ip,
+                        n.vlans as vlans,
                         p.name as plan_name,
                         p.speed as plan_speed,
+                        c.address_parts,
                         COALESCE(
                             ct.number,
                             cl.raw_data->>'phone',
@@ -514,9 +523,11 @@ def get_work_order_detail(
                         "client_dni": conn_row[4],
                         "node_name": conn_row[5],
                         "node_ip": conn_row[6],
-                        "plan_name": conn_row[7],
-                        "plan_speed": conn_row[8],
-                        "contact_phone": conn_row[9],
+                        "vlans": conn_row[7],
+                        "plan_name": conn_row[8],
+                        "plan_speed": conn_row[9],
+                        "address_parts": conn_row[10],
+                        "contact_phone": conn_row[11],
                     }
                 )
 
@@ -766,10 +777,18 @@ def update_work_order(
                 Connection.connection_id == effective_conn_id
             ).first()
             if conn:
+                # Se persiste como Decimal (sin pérdida de precisión por float) y
+                # de forma null-safe: si el valor es inválido, no se pisa nada.
                 if wo.latitude is not None:
-                    conn.latitude = wo.latitude
+                    try:
+                        conn.latitude = Decimal(str(wo.latitude))
+                    except Exception:
+                        pass
                 if wo.longitude is not None:
-                    conn.longitude = wo.longitude
+                    try:
+                        conn.longitude = Decimal(str(wo.longitude))
+                    except Exception:
+                        pass
     
     # Flag modified para campos JSONB (photo_urls, custom_data)
     if 'photo_urls' in update_data:
@@ -1065,7 +1084,171 @@ def reopen_work_order(
     return get_work_order_detail(work_order_id, db, user_id)
 
 
-def _wo_to_list_response(wo: WorkOrder, db: Session):
+@router.post("/{work_order_id}/cancel-start", response_model=WorkOrderDetailResponse)
+def cancel_work_order_start(
+    work_order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Cancelar un inicio accidental de OT por parte del técnico.
+
+    Revierte el estado `in_progress` al estado previo correspondiente
+    (`scheduled` / `assigned` / `pending_planning`) y limpia `started_at`.
+
+    **Reglas de Negocio:**
+    - Solo aplica a OTs en curso (`in_progress`) con `started_at` definido.
+    - OTs completadas/fallidas son inmutables.
+    - El tiempo registrado desde el inicio se descarta (se pierde).
+    - Los materiales ya cargados NO se modifican.
+
+    **Errores:**
+    - 404: OT no existe
+    - 423: OT ya finalizada (inmutable)
+    - 400: La OT no está en curso (no hay un inicio que cancelar)
+    """
+    wo = (
+        db.query(WorkOrder)
+        .options(
+            joinedload(WorkOrder.technician),
+            joinedload(WorkOrder.team),
+            joinedload(WorkOrder.ticket),
+        )
+        .filter(WorkOrder.id == work_order_id)
+        .first()
+    )
+
+    if not wo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Orden de Trabajo no encontrada",
+        )
+
+    # OTs finalizadas son inmutables
+    if wo.status in [WorkOrderStatus.completed, WorkOrderStatus.failed]:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail="La OT ya está finalizada y no se puede cancelar.",
+        )
+
+    # Solo se puede cancelar un inicio real
+    if wo.status != WorkOrderStatus.in_progress or not wo.started_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La OT no está en curso; no hay un inicio que cancelar.",
+        )
+
+    old_status = wo.status
+    old_started_at = wo.started_at
+
+    # Revertir al estado previo lógico según el tipo de asignación
+    if wo.team_id is not None:
+        target_status = WorkOrderStatus.scheduled
+    elif wo.technician_id is not None:
+        target_status = WorkOrderStatus.assigned
+    else:
+        target_status = WorkOrderStatus.pending_planning
+
+    wo.status = target_status
+    wo.started_at = None
+
+    # Evento de timeline con trazabilidad de la corrección
+    db.add(TicketTimeline(
+        ticket_id=wo.ticket_id,
+        author_id=current_user.id,
+        event_type=TicketTimelineEventType.ot_event,
+        content=(
+            f"OT #{wo.id}: inicio cancelado por el técnico. "
+            f"El tiempo registrado fue descartado."
+        ),
+        meta_data={
+            "work_order_id": wo.id,
+            "action": "cancel_start",
+            "old_status": old_status.value,
+            "new_status": target_status.value,
+            "discarded_started_at": old_started_at.isoformat() if old_started_at else None,
+            "cancelled_by": current_user.full_name or current_user.email,
+        },
+    ))
+
+    # 🔒 AUDIT LOG
+    try:
+        log_update(
+            db=db,
+            user_id=current_user.id,
+            entity_name="work_orders",
+            entity_id=wo.id,
+            old_values={
+                "status": old_status.value,
+                "started_at": old_started_at.isoformat() if old_started_at else None,
+            },
+            new_values={
+                "status": target_status.value,
+                "started_at": None,
+            },
+        )
+    except Exception as audit_error:
+        logging.getLogger("uvicorn.error").error(
+            f"❌ [AUDIT] Error al registrar cancelación de inicio de OT {wo.id}: {audit_error}"
+        )
+
+    db.commit()
+    db.refresh(wo)
+
+    return get_work_order_detail(work_order_id, db, current_user)
+
+
+def _bulk_fetch_connections(db: Session, connection_ids: list[int]) -> dict:
+    """Prefetch de datos de conexión en UNA sola query (evita N+1 por OT)."""
+    ids = list(dict.fromkeys([int(i) for i in connection_ids if i])) if connection_ids else []
+    if not ids:
+        return {}
+    rows = db.execute(
+        text(
+            """
+            SELECT
+                c.connection_id,
+                c.pppoe_username,
+                COALESCE(c.direccion, cl.address) as address,
+                cl.name as client_name,
+                cl.doc_number as client_dni,
+                n.name as node_name,
+                n.ip_address as node_ip,
+                p.name as plan_name,
+                p.speed as plan_speed,
+                COALESCE(
+                    ct.number,
+                    cl.raw_data->>'phone',
+                    cl.raw_data->>'mobile',
+                    cl.raw_data->>'telefono'
+                ) as phone,
+                cy.name as city_name,
+                nb.name as neighborhood_name,
+                c.address_parts
+            FROM connections c
+            LEFT JOIN clientes cl ON c.customer_id = cl.id
+            LEFT JOIN LATERAL (
+                SELECT ct_inner.number
+                FROM clientes_telefonos ct_inner
+                WHERE ct_inner.customer_id = cl.id
+                  AND ct_inner.number IS NOT NULL
+                  AND btrim(ct_inner.number) <> ''
+                ORDER BY ct_inner.id ASC
+                LIMIT 1
+            ) ct ON true
+            LEFT JOIN nodes n ON c.node_id = n.node_id
+            LEFT JOIN plans p ON c.plan_id = p.plan_id
+            LEFT JOIN cities cy ON c.city_id = cy.id
+            LEFT JOIN neighborhoods nb ON c.neighborhood_id = nb.id
+            WHERE c.connection_id = ANY(:conn_ids)
+            """
+        ),
+        {"conn_ids": ids},
+    ).all()
+    return {row[0]: row for row in rows}
+
+
+def _wo_to_list_response(wo: WorkOrder, db: Session, conn_map: Optional[dict] = None):
     """Construye la respuesta resumida para listado, enriquecida con datos de conexión.
     
     Retorna un diccionario simple para evitar problemas de serialización Pydantic
@@ -1074,6 +1257,7 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
     ticket_title = wo.ticket.subject if wo.ticket else "Sin ticket"
     client_name = None
     address = getattr(wo.ticket, "availability_note", None)
+    address_parts = None
 
     # Fuente de verdad del cliente: datos de conexión/contacto del ticket.
     # Nunca usar el creador del ticket como nombre de cliente.
@@ -1117,50 +1301,54 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
         or wo.ticket.origin_connection_id
     ) if wo.ticket else None
 
-    if wo.ticket and effective_connection_id and (not client_name or not address):
+    if wo.ticket and effective_connection_id:
         try:
-            conn_row = db.execute(
-                text(
-                    """
-                    SELECT 
-                        c.connection_id,
-                        c.pppoe_username,
-                        COALESCE(c.direccion, cl.address) as address,
-                        cl.name as client_name,
-                        cl.doc_number as client_dni,
-                        n.name as node_name,
-                        n.ip_address as node_ip,
-                        p.name as plan_name,
-                        p.speed as plan_speed,
-                        COALESCE(
-                            ct.number,
-                            cl.raw_data->>'phone',
-                            cl.raw_data->>'mobile',
-                            cl.raw_data->>'telefono'
-                        ) as phone,
-                        cy.name as city_name,
-                        nb.name as neighborhood_name
-                    FROM connections c
-                    LEFT JOIN clientes cl ON c.customer_id = cl.id
-                    LEFT JOIN LATERAL (
-                        SELECT ct_inner.number
-                        FROM clientes_telefonos ct_inner
-                        WHERE ct_inner.customer_id = cl.id
-                          AND ct_inner.number IS NOT NULL
-                          AND btrim(ct_inner.number) <> ''
-                        ORDER BY ct_inner.id ASC
+            # Preferir mapa prefetcheado (evita N+1 por OT); si no hay, query puntual.
+            conn_row = conn_map.get(effective_connection_id) if conn_map is not None else None
+            if conn_row is None:
+                conn_row = db.execute(
+                    text(
+                        """
+                        SELECT
+                            c.connection_id,
+                            c.pppoe_username,
+                            COALESCE(c.direccion, cl.address) as address,
+                            cl.name as client_name,
+                            cl.doc_number as client_dni,
+                            n.name as node_name,
+                            n.ip_address as node_ip,
+                            p.name as plan_name,
+                            p.speed as plan_speed,
+                            COALESCE(
+                                ct.number,
+                                cl.raw_data->>'phone',
+                                cl.raw_data->>'mobile',
+                                cl.raw_data->>'telefono'
+                            ) as phone,
+                            cy.name as city_name,
+                            nb.name as neighborhood_name,
+                            c.address_parts
+                        FROM connections c
+                        LEFT JOIN clientes cl ON c.customer_id = cl.id
+                        LEFT JOIN LATERAL (
+                            SELECT ct_inner.number
+                            FROM clientes_telefonos ct_inner
+                            WHERE ct_inner.customer_id = cl.id
+                              AND ct_inner.number IS NOT NULL
+                              AND btrim(ct_inner.number) <> ''
+                            ORDER BY ct_inner.id ASC
+                            LIMIT 1
+                        ) ct ON true
+                        LEFT JOIN nodes n ON c.node_id = n.node_id
+                        LEFT JOIN plans p ON c.plan_id = p.plan_id
+                        LEFT JOIN cities cy ON c.city_id = cy.id
+                        LEFT JOIN neighborhoods nb ON c.neighborhood_id = nb.id
+                        WHERE c.connection_id = :conn_id
                         LIMIT 1
-                    ) ct ON true
-                    LEFT JOIN nodes n ON c.node_id = n.node_id
-                    LEFT JOIN plans p ON c.plan_id = p.plan_id
-                    LEFT JOIN cities cy ON c.city_id = cy.id
-                    LEFT JOIN neighborhoods nb ON c.neighborhood_id = nb.id
-                    WHERE c.connection_id = :conn_id
-                    LIMIT 1
-                    """
-                ),
-                {"conn_id": effective_connection_id},
-            ).first()
+                        """
+                    ),
+                    {"conn_id": effective_connection_id},
+                ).first()
 
             if conn_row:
                 # Actualizar con datos reales de conexión
@@ -1175,6 +1363,10 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
                     ticket_dict['contact_info']['city'] = conn_row[10]
                 if ticket_dict and conn_row[11]:  # neighborhood_name
                     ticket_dict['contact_info']['neighborhood'] = conn_row[11]
+                if conn_row[12]:  # address_parts (JSONB)
+                    address_parts = conn_row[12]
+                    if ticket_dict:
+                        ticket_dict['contact_info']['address_parts'] = conn_row[12]
         except Exception as e:
             # Si falla la consulta, usar datos fallback del ticket
             print(f"⚠️  Error enriqueciendo conexión {effective_connection_id}: {e}")
@@ -1190,6 +1382,7 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
         "priority": wo.priority.value if wo.priority else "medium",
         "client_name": client_name or "Sin cliente",
         "address": address or "-",
+        "address_parts": address_parts,
         "technician_name": wo.technician.full_name if wo.technician else None,
         # CAMPOS DE COORDINACIÓN (AÑADIDOS PARA GRID DE COORDINACIÓN)
         "team_id": wo.team_id,
@@ -1366,14 +1559,21 @@ def get_coordination_grid(
         teams = db.query(Team).filter(Team.is_active == True)\
             .options(selectinload(Team.members)).all()
         
+        # Prefetch de contadores pending_closure por equipo (evita N+1 por team).
+        pending_closure_map = dict(
+            db.query(WorkOrder.team_id, func.count(WorkOrder.id))
+            .filter(
+                WorkOrder.status == WorkOrderStatus.pending_closure,
+                WorkOrder.team_id.isnot(None),
+            )
+            .group_by(WorkOrder.team_id)
+            .all()
+        )
+
         teams_data = []
         for team in teams:
-            # Contar OTs en pending_closure para este equipo (Equipos Bloqueados)
-            pending_closure_count = db.query(WorkOrder).filter(
-                WorkOrder.team_id == team.id,
-                WorkOrder.status == WorkOrderStatus.pending_closure
-            ).count()
-            
+            pending_closure_count = pending_closure_map.get(team.id, 0)
+
             teams_data.append({
                 "id": team.id,
                 "name": team.name,
@@ -1404,7 +1604,7 @@ def get_coordination_grid(
                 selectinload(WorkOrder.technician),
             ).all()
         
-        allocations_data = [_wo_to_list_response(wo, db) for wo in allocations]
+        # (allocations_data se computa abajo, junto con backlog, con conn_map prefetcheado)
         
         # Backlog (pending_planning o coordinated sin team)
         backlog = db.query(WorkOrder)\
@@ -1417,7 +1617,21 @@ def get_coordination_grid(
                 selectinload(WorkOrder.technician),
             ).all()
         
-        backlog_data = [_wo_to_list_response(wo, db) for wo in backlog]
+        # Prefetch de datos de conexión para allocations + backlog (evita N+1 por OT).
+        conn_ids = []
+        for wo in list(allocations) + list(backlog):
+            if wo.ticket:
+                eid = (
+                    wo.ticket.connection_id
+                    or wo.ticket.destination_connection_id
+                    or wo.ticket.origin_connection_id
+                )
+                if eid:
+                    conn_ids.append(eid)
+        conn_map = _bulk_fetch_connections(db, conn_ids)
+
+        allocations_data = [_wo_to_list_response(wo, db, conn_map) for wo in allocations]
+        backlog_data = [_wo_to_list_response(wo, db, conn_map) for wo in backlog]
         
         # Team Load Metrics
         WORKING_HOURS_PER_DAY = 10  # 8:00 a 18:00
@@ -1865,8 +2079,11 @@ def complete_work_order(
     if not wo:
         raise HTTPException(status_code=404, detail="WorkOrder no encontrada")
 
-    # Solo el técnico asignado o admin puede completar
-    if current_user.role not in ("admin", "super_user"):
+    # Solo el técnico asignado o admin puede completar.
+    # current_user.role es un objeto Role; comparar por su nombre y por is_superuser.
+    role_name = current_user.role.name if current_user.role else None
+    is_admin = role_name in ("admin", "super_user") or current_user.is_superuser
+    if not is_admin:
         if wo.technician_id and wo.technician_id != current_user.id:
             raise HTTPException(
                 status_code=403,

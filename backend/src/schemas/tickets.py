@@ -29,6 +29,7 @@ class TicketCategoryResponse(BaseModel):
     name: str
     description: Optional[str] = None
     priority_default: TicketPriority
+    flow_key: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -306,8 +307,12 @@ class ConnectionDetailsResponse(BaseModel):
     client_dni: Optional[str] = None
     node_name: Optional[str] = None
     node_ip: Optional[str] = None
+    vlans: Optional[str] = None
     plan_name: Optional[str] = None
     plan_speed: Optional[int] = None  # En Mbps
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    address_parts: Optional[dict] = None  # Campos de dirección sondeados de ISPCube
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -144,6 +144,7 @@ export default function WorkOrderExecutionPage() {
   const [showMaterialDialog, setShowMaterialDialog] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [showLocationModal, setShowLocationModal] = useState(false);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
 
   // Material selector compartido (hook unificado)
   const materialState = useMaterialSelector(id, {
@@ -253,6 +254,23 @@ export default function WorkOrderExecutionPage() {
       setTimeout(() => navigate('/app/work-orders'), 1500);
     } catch (err) {
       console.error('[ERROR] Failed to reload WO after completion:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCancelStart = async () => {
+    try {
+      setIsSubmitting(true);
+      const updated = await workOrdersService.cancelWorkOrderStart(id);
+      setWorkOrder(updated);
+      setShowCancelDialog(false);
+      navigate('/app/work-orders');
+    } catch (err) {
+      alert(
+        'Error al cancelar el inicio: ' +
+          (err.response?.data?.detail || err.message)
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -433,16 +451,30 @@ export default function WorkOrderExecutionPage() {
             )}
 
             {isActive && (
-              <Button
-                size="sm"
-                onClick={() => setShowCloseDialog(true)}
-                disabled={needsInspection}
-                title={needsInspection ? inspectionBlockMessage : 'Completar orden'}
-                className="bg-emerald-600 hover:bg-emerald-700 h-9"
-              >
-                <CheckCircle2 size={14} className="mr-1" />
-                Completar
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowCancelDialog(true)}
+                  disabled={isSubmitting}
+                  title="Cancelar el inicio de la OT (se perderá el tiempo registrado)"
+                  className="h-9 border-rose-700/50 text-rose-300 hover:bg-rose-950/30"
+                >
+                  <X size={14} className="mr-1" />
+                  Cancelar
+                </Button>
+
+                <Button
+                  size="sm"
+                  onClick={() => setShowCloseDialog(true)}
+                  disabled={needsInspection || isSubmitting}
+                  title={needsInspection ? inspectionBlockMessage : 'Completar orden'}
+                  className="bg-emerald-600 hover:bg-emerald-700 h-9"
+                >
+                  <CheckCircle2 size={14} className="mr-1" />
+                  Completar
+                </Button>
+              </>
             )}
 
             {isCompleted && (
@@ -522,6 +554,33 @@ export default function WorkOrderExecutionPage() {
                       {workOrder.ticket_info.address}
                     </p>
                   </div>
+
+                  {workOrder.ticket_info.address_parts && (
+                    <div className="space-y-1 pl-6 text-xs text-zinc-400">
+                      {Array.isArray(workOrder.ticket_info.address_parts.cross_streets) &&
+                        workOrder.ticket_info.address_parts.cross_streets.length > 0 && (
+                          <p>Entre calles: {workOrder.ticket_info.address_parts.cross_streets.join(' y ')}</p>
+                        )}
+                      {workOrder.ticket_info.address_parts.neighborhood && (
+                        <p>Barrio/Localidad: {workOrder.ticket_info.address_parts.neighborhood}</p>
+                      )}
+                      {workOrder.ticket_info.address_parts.city && (
+                        <p>
+                          Ciudad: {[workOrder.ticket_info.address_parts.city.name, workOrder.ticket_info.address_parts.city.province].filter(Boolean).join(', ')}
+                          {workOrder.ticket_info.address_parts.city.postal_code
+                            ? ` (CP ${workOrder.ticket_info.address_parts.city.postal_code})`
+                            : ''}
+                        </p>
+                      )}
+                      {workOrder.ticket_info.address_parts.tax_residence && (
+                        <p>Domicilio fiscal: {workOrder.ticket_info.address_parts.tax_residence}</p>
+                      )}
+                      {Array.isArray(workOrder.ticket_info.address_parts.extra) &&
+                        workOrder.ticket_info.address_parts.extra.length > 0 && (
+                          <p>Referencias: {workOrder.ticket_info.address_parts.extra.join(' | ')}</p>
+                        )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -591,6 +650,9 @@ export default function WorkOrderExecutionPage() {
                     {workOrder.ticket_info.node_name}
                     {workOrder?.ticket_info?.node_ip ? ` (${workOrder.ticket_info.node_ip})` : ''}
                   </p>
+                  {workOrder?.ticket_info?.vlans && (
+                    <p className="text-zinc-400 text-xs mt-1">VLAN: {workOrder.ticket_info.vlans}</p>
+                  )}
                 </div>
               )}
             </div>
@@ -663,10 +725,13 @@ export default function WorkOrderExecutionPage() {
                     <p className="text-zinc-500 mb-1">Nodo</p>
                     <p className="text-zinc-200">
                       {workOrder.ticket_info.node_name}
-                      {workOrder.ticket_info.node_ip && 
+                      {workOrder.ticket_info.node_ip &&
                         ` • ${workOrder.ticket_info.node_ip}`
                       }
                     </p>
+                    {workOrder.ticket_info.vlans && (
+                      <p className="text-zinc-400 mt-1">VLAN: {workOrder.ticket_info.vlans}</p>
+                    )}
                   </div>
                 )}
               </div>
@@ -743,6 +808,58 @@ export default function WorkOrderExecutionPage() {
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-zinc-400">Señal RX</span>
                       <span className="text-xs text-zinc-200">{beholderData.onu_signal_smrt.onu_signal_value} dBm</span>
+                    </div>
+                  )}
+
+                  {/* ONU SN — identifica marca/modelo de la ONT */}
+                  {beholderData.onu_sn && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-400">ONU SN</span>
+                      <span className="text-xs text-zinc-200 font-mono">{beholderData.onu_sn}</span>
+                    </div>
+                  )}
+
+                  {beholderData.OLT && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-400">OLT</span>
+                      <span className="text-xs text-zinc-200">{beholderData.OLT}</span>
+                    </div>
+                  )}
+
+                  {beholderData.Modo && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-400">Modo</span>
+                      <span className="text-xs text-zinc-200">{beholderData.Modo}</span>
+                    </div>
+                  )}
+
+                  {beholderData.puerto && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-400">Puerto</span>
+                      <span className="text-xs text-zinc-200">{beholderData.puerto}</span>
+                    </div>
+                  )}
+
+                  {beholderData.mac && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-400">MAC</span>
+                      <span className="text-xs text-zinc-200 font-mono">{beholderData.mac}</span>
+                    </div>
+                  )}
+
+                  {Array.isArray(beholderData.onu_vlan) && beholderData.onu_vlan.length > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-400">VLAN</span>
+                      <span className="text-xs text-zinc-200">{beholderData.onu_vlan.join(', ')}</span>
+                    </div>
+                  )}
+
+                  {(beholderData.mikrotik?.secret?.['last-logged-out'] || beholderData.last_logged_out) && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-400">Último logout</span>
+                      <span className="text-xs text-zinc-200">
+                        {beholderData.mikrotik?.secret?.['last-logged-out'] || beholderData.last_logged_out}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -869,6 +986,51 @@ export default function WorkOrderExecutionPage() {
         onClose={() => setShowLocationModal(false)}
         onSaved={handleLocationSaved}
       />
+
+      {/* Cancel Start Dialog */}
+      <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+        <DialogContent
+          className="bg-zinc-900 border-zinc-800 max-w-md"
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <AlertCircle size={18} className="text-rose-400" />
+              Cancelar inicio de OT
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="py-4 text-sm text-zinc-300 space-y-3">
+            <p>
+              ¿Seguro que querés cancelar el inicio de la OT{' '}
+              <span className="font-semibold text-white">#{workOrder?.id}</span>?
+            </p>
+            <div className="p-3 rounded-lg border border-rose-700/40 bg-rose-950/30 text-rose-200 text-xs">
+              ⚠️ Se perderá el tiempo registrado en esta OT. Volverá a su estado
+              anterior y podrás iniciarla de nuevo más tarde.
+            </div>
+          </div>
+
+          <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowCancelDialog(false)}
+              disabled={isSubmitting}
+              className="w-full sm:w-auto"
+            >
+              Volver
+            </Button>
+            <Button
+              onClick={handleCancelStart}
+              disabled={isSubmitting}
+              className="bg-rose-600 hover:bg-rose-700 w-full sm:w-auto"
+            >
+              {isSubmitting ? 'Cancelando...' : 'Sí, cancelar inicio'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Completion Dialog */}
       {/* Close Work Order Dialog (Wizard de 3 pasos) */}

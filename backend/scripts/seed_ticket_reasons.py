@@ -29,11 +29,14 @@ def seed_ticket_reasons():
     try:
         # Mapeo de categorías y sus motivos
         category_reasons = {
-            "Soporte Técnico": [
+            "Servicio Técnico": [
                 "Sin Servicio",
                 "Intermitencia/Microcortes",
                 "Lentitud",
-                "Problema WiFi"
+                "Problema WiFi",
+                "Cambio de clave WiFi",
+                "Cableado de dispositivos",
+                "Auditar instalación"
             ],
             "Administrativo": [
                 "Cambio de Plan/Servicio",

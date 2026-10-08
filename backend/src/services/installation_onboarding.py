@@ -12,6 +12,7 @@ from src.services.location_resolver import (
     get_or_create_neighborhood,
     resolve_address_data,
 )
+from src.services.geo_normalizer import extract_lat_lng, extract_address_parts
 
 
 class InstallationSyncError(Exception):
@@ -35,6 +36,9 @@ def _normalize_selected_connection(connection: Dict[str, Any], customer_id: Any)
         "plan_id": connection.get("plan_id"),
         "direccion": connection.get("direccion") or connection.get("address"),
         "status": connection.get("status") or connection.get("state"),
+        # Se conserva la conexión cruda para que el normalizador de ubicación
+        # pueda leer lat/lng y todos los campos de dirección de ISPCube.
+        "raw": connection,
     }
 
 
@@ -88,22 +92,20 @@ def _sync_installation_to_session(
         if not conn.get("id"):
             continue
 
-        resolved = resolve_address_data({"connection": conn, "client": customer_data})
+        # La conexión cruda (raw) conserva lat/lng y todos los campos de dirección
+        # de ISPCube. El dict normalizado no los trae, por eso se usa `raw_conn`.
+        raw_conn = conn.get("raw") or conn
+
+        resolved = resolve_address_data({"connection": raw_conn, "client": customer_data})
         city = get_or_create_city(db, resolved.get("city_name"))
         neighborhood = get_or_create_neighborhood(
             db, resolved.get("neighborhood_name"), city.id if city else None
         )
 
         conn_id = conn.get("id")
-        # Coordenadas: vienen del cliente ISPCube (top-level lat/lng) o de la conexión.
-        lat = (
-            conn.get("lat") or conn.get("latitude")
-            or customer_data.get("lat") or customer_data.get("latitude")
-        )
-        lng = (
-            conn.get("lng") or conn.get("longitude")
-            or customer_data.get("lng") or customer_data.get("longitude")
-        )
+        # Coordenadas unificadas: normalizador único, null-safe, sin redondeo.
+        lat, lng = extract_lat_lng(raw_conn, customer_data)
+        address_parts = extract_address_parts(raw_conn, customer_data)
 
         existing_conn = db.query(models.Connection).filter_by(connection_id=conn_id).first()
         if existing_conn:
@@ -118,6 +120,8 @@ def _sync_installation_to_session(
                 existing_conn.latitude = lat
             if lng is not None:
                 existing_conn.longitude = lng
+            if address_parts:
+                existing_conn.address_parts = address_parts
         else:
             db.add(
                 models.Connection(
@@ -131,6 +135,7 @@ def _sync_installation_to_session(
                     neighborhood_id=neighborhood.id if neighborhood else None,
                     latitude=lat,
                     longitude=lng,
+                    address_parts=address_parts or None,
                 )
             )
 

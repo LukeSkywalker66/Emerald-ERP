@@ -137,6 +137,7 @@ class TicketType(StrEnum):
     relocation = "relocation"            # Traslado/Mudanza (origen → destino)
     administrative = "administrative"    # Gestión administrativa
     fiber_migration = "fiber_migration"  # Pase a fibra (misma conexión, retiro de aire)
+    mesh = "mesh"                        # Instalación de sistema mesh (red inalámbrica sobre conexión existente)
 
 
 class AdministrativeSubtype(StrEnum):
@@ -240,6 +241,11 @@ class TicketCategory(Base, TimestampMixin):
         default=TicketPriority.medium,
         nullable=False,
         comment="Prioridad sugerida por defecto para esta categoría",
+    )
+    flow_key: Mapped[Optional[str]] = mapped_column(
+        String(40),
+        nullable=True,
+        comment="Slug del flujo de creación (technical, installation, withdrawal, relocation, fiber_migration, administrative)",
     )
 
     tickets: Mapped[list['Ticket']] = relationship("Ticket", back_populates="category", lazy="select")
@@ -783,12 +789,13 @@ class WorkOrder(Base, TimestampMixin):
     )
 
     # ===== GEOLOCALIZACIÓN =====
+    # Numeric(15, 12): coordenada exacta (hasta 12 decimales), sin redondeo.
     latitude: Mapped[Optional[float]] = mapped_column(
-        Numeric(10, 8), nullable=True,
+        Numeric(15, 12), nullable=True,
         comment="Latitud para geolocalización de la dirección"
     )
     longitude: Mapped[Optional[float]] = mapped_column(
-        Numeric(10, 8), nullable=True,
+        Numeric(15, 12), nullable=True,
         comment="Longitud para geolocalización de la dirección"
     )
 

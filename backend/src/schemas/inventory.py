@@ -48,6 +48,10 @@ class WarehouseResponse(WarehouseBase):
         None,
         description="Vehículo asociado (solo MOBILE). Populado via JOIN a tabla vehicles, no es columna propia."
     )
+    team_name: Optional[str] = Field(
+        None,
+        description="Cuadrilla asociada al vehículo móvil (si tiene). Dinámico: puede variar o ser nulo.",
+    )
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -319,6 +323,14 @@ class WarehouseStockResponse(BaseModel):
     warehouse_name: str
     warehouse_type: WarehouseType
     user_id: Optional[int] = None
+    vehicle: Optional[VehicleSummary] = Field(
+        None,
+        description="Vehículo asociado (solo MOBILE).",
+    )
+    team_name: Optional[str] = Field(
+        None,
+        description="Cuadrilla asociada al vehículo móvil (si tiene).",
+    )
     items: List[StockItemDetail]
     
     model_config = ConfigDict(from_attributes=True)
@@ -415,6 +427,48 @@ class StockAlertItem(BaseModel):
     total_stock: float = Field(..., description="Suma total del stock en todos los warehouses")
     min_stock_alert: float = Field(..., description="Mínimo configurado antes de alertar")
     deficit: float = Field(..., description="Cuánto falta para alcanzar el mínimo")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProductAnalyticsItem(BaseModel):
+    """
+    Producto con métricas agregadas de stock y flujo para el Product Explorer.
+
+    Permite leer la base en cualquier dirección:
+    - stock bulk y seriales por estado
+    - flujo acumulado (comprado, consumido, transferido, recuperado, ajustado)
+    - alerta de stock mínimo
+    """
+    id: int
+    name: str
+    sku: str
+    type: ProductType
+    category: Optional[str] = None
+    group_id: Optional[int] = None
+    group_name: Optional[str] = None
+    unit_measure: Optional[str] = None
+    is_composite: bool = False
+    min_stock_alert: float = 0
+
+    bulk_in_stock: float = 0
+    serial_new: int = 0
+    serial_in_vehicle: int = 0
+    serial_installed: int = 0
+    serial_defective: int = 0
+    serial_damaged: int = 0
+    serial_decommissioned: int = 0
+    serial_sold: int = 0
+    serial_total: int = 0
+
+    total_purchased: float = 0
+    total_consumed: float = 0
+    total_transferred: float = 0
+    total_recovered: float = 0
+    total_adjusted: float = 0
+    total_sold: float = 0
+
+    below_min_stock: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

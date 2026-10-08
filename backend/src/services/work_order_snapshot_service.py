@@ -25,11 +25,13 @@ def build_connection_snapshot(db: Session, connection_id: Optional[int]) -> Opti
                     n.node_id AS node_id,
                     n.name AS node_name,
                     n.ip_address AS node_ip,
+                    n.vlans AS vlans,
                     p.plan_id AS plan_id,
                     p.name AS plan_name,
                     p.speed AS plan_speed,
                     c.latitude,
-                    c.longitude
+                    c.longitude,
+                    c.address_parts
                 FROM connections c
                 LEFT JOIN clientes cl ON c.customer_id = cl.id
                 LEFT JOIN nodes n ON c.node_id = n.node_id
@@ -54,11 +56,13 @@ def build_connection_snapshot(db: Session, connection_id: Optional[int]) -> Opti
             "node_id": row[6],
             "node_name": row[7],
             "node_ip": row[8],
-            "plan_id": row[9],
-            "plan_name": row[10],
-            "plan_speed": row[11],
-            "latitude": row[12],
-            "longitude": row[13],
+            "vlans": row[9],
+            "plan_id": row[10],
+            "plan_name": row[11],
+            "plan_speed": row[12],
+            "latitude": row[13],
+            "longitude": row[14],
+            "address_parts": row[15],
             "snapshot_at": datetime.utcnow().isoformat(),
         }
     except Exception:

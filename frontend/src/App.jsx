@@ -30,6 +30,7 @@ const InventoryDashboard = lazy(() => import('./pages/inventory/InventoryDashboa
 const WarehouseList = lazy(() => import('./pages/inventory/WarehouseList'));
 const WarehouseDetail = lazy(() => import('./pages/inventory/WarehouseDetail'));
 const ProductCatalog = lazy(() => import('./pages/inventory/ProductCatalog'));
+const ProductExplorer = lazy(() => import('./pages/inventory/ProductExplorer'));
 const StockTransferWizard = lazy(() => import('./pages/inventory/StockTransferWizard'));
 const StockAdjustments = lazy(() => import('./pages/inventory/StockAdjustments'));
 const MovementsHistory = lazy(() => import('./pages/inventory/MovementsHistory'));
@@ -47,6 +48,11 @@ const MaterialDeliveryDashboard = lazy(() => import('./pages/logistics/MaterialD
 const MaterialDeliveryWizard = lazy(() => import('./pages/logistics/MaterialDeliveryWizard'));
 const MaterialReceiptWizard = lazy(() => import('./pages/logistics/MaterialReceiptWizard'));
 const BarcodeLabelPrinter = lazy(() => import('./pages/logistics/BarcodeLabelPrinter'));
+
+// Sales Module Pages
+const SalesPage = lazy(() => import('./pages/sales/SalesPage'));
+const SaleWizard = lazy(() => import('./pages/sales/SaleWizard'));
+const SaleDetail = lazy(() => import('./pages/sales/SaleDetail'));
 
 const PrivateRoute = ({ children }) => {
   const { isAuthenticated } = useAuth();
@@ -92,6 +98,7 @@ const AppRoutes = () => (
         <Route path="inventory/warehouses" element={<RoleGuard resource="inventory_warehouses" fallbackPath="/app/work-orders"><WarehouseList /></RoleGuard>} />
         <Route path="inventory/warehouses/:id" element={<RoleGuard resource="inventory_warehouses" fallbackPath="/app/inventory/warehouses"><WarehouseDetail /></RoleGuard>} />
         <Route path="inventory/products" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><ProductCatalog /></RoleGuard>} />
+        <Route path="inventory/explorer" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><ProductExplorer /></RoleGuard>} />
         <Route path="inventory/transfer" element={<RoleGuard resource="inventory" action="transfer" fallbackPath="/app/inventory/warehouses"><StockTransferWizard /></RoleGuard>} />
         <Route path="inventory/adjustments" element={<RoleGuard resource="inventory" action="adjust" fallbackPath="/app/inventory/warehouses"><StockAdjustments /></RoleGuard>} />
         <Route path="inventory/movements" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><MovementsHistory /></RoleGuard>} />
@@ -104,6 +111,11 @@ const AppRoutes = () => (
         <Route path="logistics/receipts/new" element={<RoleGuard resource="inventory_admin"><MaterialReceiptWizard /></RoleGuard>} />
         <Route path="logistics/receipts/:id" element={<RoleGuard resource="inventory_admin"><MaterialReceiptWizard /></RoleGuard>} />
         <Route path="logistics/print-labels" element={<RoleGuard resource="inventory" action="adjust" fallbackPath="/app/inventory/adjustments"><BarcodeLabelPrinter /></RoleGuard>} />
+
+        {/* Sales Module Routes */}
+        <Route path="sales" element={<RoleGuard resource="sales"><SalesPage /></RoleGuard>} />
+        <Route path="sales/new" element={<RoleGuard resource="sales" action="create"><SaleWizard /></RoleGuard>} />
+        <Route path="sales/:id" element={<RoleGuard resource="sales"><SaleDetail /></RoleGuard>} />
         
         {/*
           Settings route: permisivo por RBAC con self_service (todo usuario autenticado).

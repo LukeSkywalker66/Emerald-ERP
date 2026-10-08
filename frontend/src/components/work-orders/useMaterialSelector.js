@@ -3,6 +3,7 @@ import * as inventoryService from '@/services/inventory.service';
 import workOrdersService from '@/services/workOrders.service';
 import coordinationService from '@/services/coordination.service';
 import { useAuth } from '@/context/AuthContext';
+import { reportClientError } from '@/api/client';
 
 /**
  * useMaterialSelector - Hook compartido para la selección y gestión de materiales
@@ -294,8 +295,25 @@ export default function useMaterialSelector(workOrderId, context = {}) {
    * Agregar material a la OT
    */
   const addMaterial = useCallback(async () => {
-    if (!isFormValid()) return { success: false, error: 'Formulario inválido' };
-    if (!currentWarehouse) return { success: false, error: 'No tienes una camioneta asignada' };
+    // Reportar fallos silenciosos del frontend (no generan request HTTP, por lo
+    // que el interceptor de axios no los captura). Así quedan trazables en error_logs.
+    if (!isFormValid()) {
+      reportClientError({
+        module: `/v2/work-orders/${workOrderId}/items`,
+        message: 'Formulario inválido al intentar agregar material',
+        status: 422,
+        payload: { workOrderId, form, product_type: selectedProduct?.type },
+      });
+      return { success: false, error: 'Formulario inválido' };
+    }
+    if (!currentWarehouse) {
+      reportClientError({
+        module: `/v2/work-orders/${workOrderId}/items`,
+        message: 'No hay camioneta/almacén asignado al intentar agregar material',
+        payload: { workOrderId, teamIdFromWorkOrder },
+      });
+      return { success: false, error: 'No tienes una camioneta asignada' };
+    }
 
     try {
       setIsSubmitting(true);

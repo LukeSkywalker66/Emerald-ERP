@@ -13,19 +13,40 @@ from sqlalchemy.orm import Session
 
 from src.models.beholder import Connection, Cliente, ClienteEmail, ClienteTelefono
 
-# Estados terminales de OT: el técnico visitó el sitio (aunque no haya instalado)
+# Solo una OT COMPLETADA impide el rollback (ADR-0001). Una OT `failed` no
+# implica visita efectiva del técnico y no debe bloquear el reciclado.
+COMPLETED_WO_STATUSES = {"completed"}
+
+# Estados que ya no son "pendientes": usados para cancelar OTs al rollbackear.
 TERMINAL_WO_STATUSES = {"completed", "failed"}
 
 
 def has_executed_work_orders(ticket) -> bool:
     """
-    Retorna True si alguna OT del ticket fue ejecutada (completed o failed).
+    Retorna True solo si alguna OT del ticket está `completed`.
 
-    Si el técnico llegó a sitio, los datos sincronizados se conservan aunque
-    la instalación no se haya completado (ej: cliente sin lugar en NAP).
+    Una OT `failed` (ej. cancelación administrativa o "no realizada" sin visita)
+    ya no impide el rollback: permite reciclar la conexión sincronizada.
     """
     return any(
-        wo.status.value in TERMINAL_WO_STATUSES
+        wo.status.value in COMPLETED_WO_STATUSES
+        for wo in ticket.work_orders
+    )
+
+
+def has_visited_failed_work_order(ticket) -> bool:
+    """
+    Mitigación ADR-0001: retorna True si hay una OT `failed` cuyo
+    `resolution_category` NO es "incomplete"/"no_realizada".
+
+    Es decir, una OT fallida que NO fue una simple "no realizada" implica que
+    pudo haber visita efectiva (ej. cliente sin lugar en NAP); en ese caso se
+    conservan la conexión y el cliente en lugar de ejecutar el rollback.
+    """
+    return any(
+        wo.status.value == "failed"
+        and wo.resolution_category is not None
+        and wo.resolution_category not in ("incomplete", "no_realizada")
         for wo in ticket.work_orders
     )
 

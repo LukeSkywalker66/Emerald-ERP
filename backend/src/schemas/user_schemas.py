@@ -102,6 +102,10 @@ class UserResponse(UserBase):
     last_login: Optional[datetime]
     created_at: datetime
     updated_at: datetime
+    capabilities: Optional[list[str]] = Field(
+        default_factory=list,
+        description="Capacidades canónicas RBAC (slugs recurso.accion) del rol actual",
+    )
     
     model_config = ConfigDict(from_attributes=True)
 

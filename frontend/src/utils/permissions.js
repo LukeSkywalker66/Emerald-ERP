@@ -129,6 +129,17 @@ const PERMISSIONS_MATRIX = {
     },
   },
 
+  // Ventas al Público (acción de stock)
+  'sales': {
+    actions: ['view', 'create'],
+    roleWhitelist: {
+      'admin': true,
+      'operator': true,
+      // 'coordinator': false,
+      // 'tecnico': false,
+    },
+  },
+
   // Logística - Flota asignada (lectura para técnico)
   'fleet_assigned': {
     actions: ['view'],
@@ -282,6 +293,24 @@ export const hasPermission = (role, resource, action = 'view') => {
   
   const hasAccess = resourceConfig.roleWhitelist[normalizedRole] === true;
   return hasAccess;
+};
+
+/**
+ * Verifica permiso usando capabilities canónicas del backend (slugs `recurso.accion`).
+ *
+ * @param {string[]|null|undefined} capabilities - lista de slugs (o ['*'])
+ * @param {string} resource
+ * @param {string} [action='view']
+ * @returns {boolean|undefined} true/false; undefined si no hay capabilities (usar fallback a matriz)
+ */
+export const can = (capabilities, resource, action = 'view') => {
+  if (!Array.isArray(capabilities) || capabilities.length === 0) {
+    return undefined;
+  }
+  if (capabilities.includes('*')) {
+    return true;
+  }
+  return capabilities.includes(`${resource}.${action}`);
 };
 
 /**

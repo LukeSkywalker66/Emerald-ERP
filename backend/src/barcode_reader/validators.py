@@ -11,6 +11,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from src.barcode_reader.normalization import normalize_scanned_code
 from src.barcode_reader.schemas import (
     ScanType,
     Confidence,
@@ -309,7 +310,7 @@ class TrackedUnitValidator:
         if not code or not code.strip():
             return None
 
-        cleaned = code.strip().upper()
+        cleaned = normalize_scanned_code(code)
         if not self._pattern.match(cleaned):
             return None
 

@@ -25,14 +25,16 @@ from src.routers.v1 import admin  # Administración y desbloqueo
 from src.routers.v2 import users as users_v2
 from src.routers.v2 import roles as roles_v2
 from src.routers.v2 import preferences as preferences_v2
-from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet, installation_types, audit, work_order_types, utils, dashboard as dashboard_router
+from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet, installation_types, audit, work_order_types, utils, dashboard as dashboard_router, error_logs
 from src.routers import logistics as logistics_router
+from src.routers import sales as sales_router
 from src.routers.tickets_v2_attachment import router as attachment_router
 from src.routers import settings as settings_router
 from src.routers.oraculo import router as oraculo_router
 
 # 👇 IMPORTAMOS EL NUEVO SERVICIO (Tu lógica adaptada)
-from src.services import diagnosis as diagnosis_service 
+from src.services import diagnosis as diagnosis_service
+from src.services.error_log_service import log_error
 
 # Ejecutar migraciones Alembic en startup en lugar de create_all
 from alembic import command as alembic_command
@@ -58,6 +60,24 @@ app = FastAPI(
     version="1.0.0-rc.1",
     redirect_slashes=True,  # Redirigir automáticamente entre /endpoint y /endpoint/
 )
+
+# --- Manejador global de excepciones no manejadas → error_logs (best-effort) ---
+import traceback as _traceback
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    log_error(
+        level="ERROR",
+        source="backend",
+        module="unhandled",
+        message=f"{type(exc).__name__}: {exc}",
+        stack_trace=_traceback.format_exc(),
+        user_id=getattr(request.state, "user_id", None),
+        request_method=request.method,
+        request_path=request.url.path,
+        status_code=500,
+    )
+    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
 # Incluir routers v1
 app.include_router(
@@ -178,6 +198,12 @@ app.include_router(
     tags=["Audit Logs"]
 )
 
+# Error Logs Module (POST público para reporte de frontend; GET admin)
+app.include_router(
+    error_logs.router,
+    tags=["Error Logs"]
+)
+
 # Utilities Module (parse-map-link, etc.)
 app.include_router(
     utils.router,
@@ -211,6 +237,13 @@ app.include_router(
     logistics_router.router,
     prefix="/api/v2",
     tags=["Logistics"]
+)
+
+# Sales Module (Ventas al Público)
+app.include_router(
+    sales_router.router,
+    prefix="/api/v2",
+    tags=["Sales"]
 )
 
 @app.on_event("startup")
@@ -278,11 +311,14 @@ async def security_middleware(request: Request, call_next):
     is_attachment_file = "/attachments/" in path and path.endswith("/file")
     
     # Pasar libremente si es whitelist u OPTIONS
+    # El POST de error-logs es público para que el frontend pueda reportar
+    # fallas incluso cuando el token expiró; el GET sigue protegido.
     if (
         request.method == "OPTIONS"
         or path == "/"
         or any(path.startswith(p) for p in whitelist)
         or is_attachment_file
+        or (request.method == "POST" and path == "/api/v2/error-logs")
     ):
         return await call_next(request)
     
@@ -304,6 +340,7 @@ async def security_middleware(request: Request, call_next):
         "/api/v2/fleet",
         "/api/v2/installation-types",
         "/api/v2/audit-logs",
+        "/api/v2/error-logs",
         "/api/v2/settings",
     ]
     is_protected = any(request.url.path.startswith(p) for p in protected_endpoints)

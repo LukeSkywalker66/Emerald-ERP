@@ -50,6 +50,12 @@ from .inventory import (
 	StockMovement,
 	MovementType,
 )
+from .sales import (
+	# Ventas al Público (acción de stock)
+	Sale,
+	SaleItem,
+	SaleStatus,
+)
 from .beholder import (
 	# Infraestructura
 	Subscriber,
@@ -81,7 +87,8 @@ from .scheduled_task import (
 	ScheduledTask,
 )
 from .locations import City, Neighborhood
-
+from .error_log import ErrorLog
+ 
 __all__ = [
 	# Auth models
 	"Role",
@@ -126,6 +133,10 @@ __all__ = [
 	"SerialItemStatus",
 	"StockMovement",
 	"MovementType",
+	# Sales models
+	"Sale",
+	"SaleItem",
+	"SaleStatus",
 	# Engineering models
 	"EngineeringTask",
 	"EngineeringTaskType",
@@ -156,4 +167,6 @@ __all__ = [
 	"MonitorStatus",
 	# Scheduled Tasks
 	"ScheduledTask",
+	# Error logging
+	"ErrorLog",
 ]

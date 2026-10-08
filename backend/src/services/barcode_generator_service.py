@@ -128,29 +128,53 @@ class BarcodeGeneratorService:
         db.flush()
         return created
 
-    def render_svg(self, barcode_string: str) -> str:
-        """Renderiza un barcode CODE128 en SVG crudo (XML).
+    # Zona de silencio (quiet zone) exigida por el estándar Code 128:
+    # 10 módulos en cada extremo.
+    _QUIET_ZONE_MODULES = 10
 
-        Optimizado para lectura por pistola: barras más gruesas
-        (module_width) y mayor altura (module_height). El default de
-        python-barcode (module_width=0.2mm) genera barras demasiado finas
-        que, al escalar la etiqueta en impresión, la pistola no decodifica.
+    @staticmethod
+    def _build_barcode_row(binary: str, quiet_modules: int, module_px: int) -> bytes:
+        """Empaqueta una fila 1-bit (MSB primero, 0=negro, 1=blanco)."""
+        width = (len(binary) + 2 * quiet_modules) * module_px
+        row = bytearray([0xFF] * ((width + 7) // 8))
+        start = quiet_modules * module_px
+
+        for i, ch in enumerate(binary):
+            if ch == "1":
+                x0 = start + i * module_px
+                for x in range(x0, x0 + module_px):
+                    row[x // 8] &= ~(1 << (7 - (x % 8)))
+
+        return bytes(row)
+
+    def render_png(
+        self,
+        barcode_string: str,
+        module_px: int = 2,
+        height_px: int = 64,
+        dpi: int = 96,
+    ):
+        """Renderiza un barcode CODE128 como PNG 1-bit de geometría exacta.
+
+        Cada módulo ocupa `module_px` píxeles enteros (2 px ≈ 0.53 mm a
+        96 dpi). Devuelve ``(png_bytes, width_px, height_px)``.
+
+        El frontend debe mostrarlo a su tamaño natural en píxeles (1:1):
+        así el navegador NO reescalea la imagen. El reescalado (de vectores
+        o de bitmaps con ancho en mm) era lo que degradaba el guion y lo
+        convertía en apóstrofe al escanear.
         """
         import barcode
-        from barcode.writer import SVGWriter
+
+        from src.utils.barcode_png import encode_1bit_png
 
         code128 = barcode.get_barcode_class("code128")
-        writer = SVGWriter()
-        svg = code128(barcode_string, writer=writer).render(
-            writer_options={
-                "write_text": False,
-                "module_width": 0.35,   # mm — barras más gruesas (default 0.2)
-                "module_height": 16.0,  # mm — mayor altura para facilitar el scan
-                "background": "white",
-                "foreground": "black",
-            }
-        )
+        binary = code128(barcode_string).build()[0]
 
-        if isinstance(svg, bytes):
-            return svg.decode("utf-8")
-        return str(svg)
+        width_px = (len(binary) + 2 * self._QUIET_ZONE_MODULES) * module_px
+        height_px = max(1, int(height_px))
+
+        row = self._build_barcode_row(binary, self._QUIET_ZONE_MODULES, module_px)
+        png = encode_1bit_png(width_px, height_px, row, dpi=dpi)
+
+        return png, width_px, height_px

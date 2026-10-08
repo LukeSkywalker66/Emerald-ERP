@@ -18,6 +18,7 @@ export default function FiberMigrationWizard({ onBack, onSuccess, categoryId }) 
   const [searchResults, setSearchResults] = useState([]);
   const [selectedConnection, setSelectedConnection] = useState(null);
   const [removeAirEquipment, setRemoveAirEquipment] = useState(true);
+  const [availabilityNote, setAvailabilityNote] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -64,7 +65,9 @@ export default function FiberMigrationWizard({ onBack, onSuccess, categoryId }) 
         category_id: categoryId,
         connection_id: selectedConnection.connection_id,
         installation_tech: 'fiber',
-        availability_note: equipmentNote,
+        // La disponibilidad es la del cliente (opcional). El retiro de equipo ya
+        // quedó en la descripción; no debe pisar este campo.
+        availability_note: availabilityNote.trim() || null,
       });
 
       onSuccess?.();
@@ -174,6 +177,17 @@ export default function FiberMigrationWizard({ onBack, onSuccess, categoryId }) 
           Retirar antena/equipo de aire instalado
         </span>
       </label>
+
+      <div>
+        <label className="text-sm font-medium text-zinc-300 block mb-2">Horarios de Disponibilidad (opcional)</label>
+        <textarea
+          value={availabilityNote}
+          onChange={(e) => setAvailabilityNote(e.target.value)}
+          rows={2}
+          placeholder="Ej: Lunes a viernes de 9 a 13hs"
+          className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 resize-none"
+        />
+      </div>
 
       <div className="flex items-center justify-between pt-2">
         <Button type="button" variant="outline" onClick={() => setStep(1)} className="gap-2">

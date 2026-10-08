@@ -32,10 +32,11 @@ class Subscriber(Base):
 class Node(Base):
     __tablename__ = "nodes"
     # Respetamos tus nombres originales
-    node_id = Column(Integer, primary_key=True) 
+    node_id = Column(Integer, primary_key=True)
     name = Column(String)
     ip_address = Column(String)  # Volvemos a ip_address
     puerto = Column(String)
+    vlans = Column(String, nullable=True)  # VLANs separadas por coma (ej: '700' o '100,300'). Null = sin VLAN.
 
 
 class Plan(Base):
@@ -58,8 +59,15 @@ class Connection(Base):
     neighborhood_id = Column(Integer, ForeignKey("neighborhoods.id"), index=True, nullable=True)
     # Fuente de verdad de geolocalización: cada conexión tiene un lugar físico.
     # work_orders.lat/lng es solo un snapshot operativo que hereda/actualiza estos valores.
-    latitude = Column(Numeric(10, 8), nullable=True, comment="Latitud de la dirección de la conexión (fuente de verdad)")
-    longitude = Column(Numeric(10, 8), nullable=True, comment="Longitud de la dirección de la conexión (fuente de verdad)")
+    # Numeric(15, 12): guarda la coordenada exacta de ISPCube (hasta 12 decimales)
+    # sin redondear nada (latitud +/-90, longitud +/-180).
+    latitude = Column(Numeric(15, 12), nullable=True, comment="Latitud de la dirección de la conexión (fuente de verdad)")
+    longitude = Column(Numeric(15, 12), nullable=True, comment="Longitud de la dirección de la conexión (fuente de verdad)")
+    address_parts = Column(
+        JSONB,
+        nullable=True,
+        comment="Campos de dirección sondeados del payload de ISPCube (calle, entre calles, barrio, localidad, ciudad, provincia, CP, extras)",
+    )
     installation_signal_dbm = Column(
         Numeric(6, 2), nullable=True,
         comment="Nivel de señal óptica/RSSI al momento de la instalación (dBm). "

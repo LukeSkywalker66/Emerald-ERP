@@ -14,7 +14,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { hasPermission } from '@/utils/permissions';
+import { hasPermission, can } from '@/utils/permissions';
 import { getStockAlerts } from '@/services/inventory.service';
 import {
   LayoutDashboard,
@@ -30,6 +30,7 @@ import {
   Building2,
   Package,
   ArrowLeftRight,
+  ShoppingCart,
   AlertCircle,
   Wrench,
   Truck,
@@ -141,6 +142,13 @@ const MENU_ITEMS = [
         resource: 'inventory_admin',
       },
       {
+        title: 'Explorador',
+        icon: BarChart3,
+        href: '/app/inventory/explorer',
+        description: 'Analítica de productos y flujo',
+        resource: 'inventory_admin',
+      },
+      {
         title: 'Almacenes',
         icon: Building2,
         href: '/app/inventory/warehouses',
@@ -189,6 +197,13 @@ const MENU_ITEMS = [
         href: '/app/logistics/deliveries',
         description: 'Transferencia de materiales a móviles',
         resource: 'inventory_admin',
+      },
+      {
+        title: 'Ventas',
+        icon: ShoppingCart,
+        href: '/app/sales',
+        description: 'Salida de stock por venta al público',
+        resource: 'sales',
       },
     ],
   },
@@ -518,11 +533,21 @@ export function AppSidebar() {
                     .filter((item) => {
                       // Si no hay recurso definido, mostrar siempre
                       if (!item.resource) return true;
-                      // Verificar permiso primario del recurso
-                      const hasResourceAccess = user && hasPermission(user.role, item.resource, 'view');
+
+                      // Priorizar capabilities del backend; si no hay, caer a la matriz (fallback)
+                      const viaCaps = user ? can(user.permissions, item.resource, 'view') : undefined;
+                      const hasResourceAccess = viaCaps !== undefined
+                        ? viaCaps
+                        : Boolean(user && hasPermission(user.role, item.resource, 'view'));
+
                       // Fallback: si el recurso es "settings" y tiene self_service, mostrar igual
                       // (permite a no-admins acceder a su auto-gestión de perfil)
-                      const hasSelfServiceFallback = item.resource === 'settings' && user && hasPermission(user.role, 'self_service', 'view');
+                      const selfViaCaps = user ? can(user.permissions, 'self_service', 'view') : undefined;
+                      const hasSelfServiceFallback = item.resource === 'settings' && (
+                        selfViaCaps !== undefined
+                          ? selfViaCaps
+                          : Boolean(user && hasPermission(user.role, 'self_service', 'view'))
+                      );
                       return hasResourceAccess || hasSelfServiceFallback;
                     })
                     .map((item) => {

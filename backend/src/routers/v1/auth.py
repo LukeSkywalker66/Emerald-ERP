@@ -224,8 +224,23 @@ def register(
 def get_current_user_info(
     current_user: User = Depends(get_current_user)
 ):
-    """Endpoint para obtener información del usuario actual."""
-    return current_user
+    """Endpoint para obtener información del usuario actual + capabilities RBAC."""
+    from src.core.security import build_capabilities
+
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "username": current_user.username,
+        "full_name": current_user.full_name,
+        "is_active": current_user.is_active,
+        "is_superuser": current_user.is_superuser,
+        "role_id": current_user.role_id,
+        "role": current_user.role,
+        "last_login": current_user.last_login,
+        "created_at": current_user.created_at,
+        "updated_at": current_user.updated_at,
+        "capabilities": build_capabilities(current_user),
+    }
 
 
 @router.post("/change-password")

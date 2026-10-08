@@ -317,7 +317,10 @@ export default function StockTransferWizard() {
                 <option value="">Selecciona almacén origen...</option>
                 {warehouses.map((warehouse) => (
                   <option key={warehouse.id} value={warehouse.id}>
-                    {warehouse.name} ({warehouse.type})
+                    {warehouse.name}
+                    {warehouse.vehicle?.license_plate ? `, ${warehouse.vehicle.license_plate}` : ''}
+                    {warehouse.team_name ? ` (${warehouse.team_name})` : ''}
+                    {' '}({warehouse.type})
                   </option>
                 ))}
               </select>
@@ -347,7 +350,10 @@ export default function StockTransferWizard() {
                   )
                   .map((warehouse) => (
                     <option key={warehouse.id} value={warehouse.id}>
-                      {warehouse.name} ({warehouse.type})
+                      {warehouse.name}
+                      {warehouse.vehicle?.license_plate ? `, ${warehouse.vehicle.license_plate}` : ''}
+                      {warehouse.team_name ? ` (${warehouse.team_name})` : ''}
+                      {' '}({warehouse.type})
                     </option>
                   ))}
               </select>
@@ -501,6 +507,8 @@ export default function StockTransferWizard() {
                   <p className="text-sm text-zinc-400">Origen</p>
                   <p className="text-lg font-semibold text-white">
                     {sourceWarehouse.name}
+                    {sourceWarehouse.vehicle?.license_plate ? `, ${sourceWarehouse.vehicle.license_plate}` : ''}
+                    {sourceWarehouse.team_name ? ` (${sourceWarehouse.team_name})` : ''}
                   </p>
                 </div>
                 <ArrowRight className="text-emerald-400 flex-shrink-0" />
@@ -508,6 +516,8 @@ export default function StockTransferWizard() {
                   <p className="text-sm text-zinc-400">Destino</p>
                   <p className="text-lg font-semibold text-white">
                     {destWarehouse.name}
+                    {destWarehouse.vehicle?.license_plate ? `, ${destWarehouse.vehicle.license_plate}` : ''}
+                    {destWarehouse.team_name ? ` (${destWarehouse.team_name})` : ''}
                   </p>
                 </div>
               </div>

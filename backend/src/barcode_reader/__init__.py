@@ -13,6 +13,7 @@ Uso básico:
 """
 
 from src.barcode_reader.core import BarcodeScannerEngine
+from src.barcode_reader.normalization import normalize_scanned_code
 from src.barcode_reader.schemas import (
     ScanType,
     Confidence,
@@ -30,4 +31,5 @@ __all__ = [
     "ScanResult",
     "BaseValidator",
     "SerialPatternRegistry",
+    "normalize_scanned_code",
 ]
