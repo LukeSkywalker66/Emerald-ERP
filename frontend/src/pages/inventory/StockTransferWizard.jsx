@@ -45,7 +45,10 @@ export default function StockTransferWizard() {
   const destWarehouse = warehouses.find(
     (w) => w.id === formData.to_warehouse_id
   );
-  const isBulk = selectedProduct?.product_type === 'BULK';
+  // Un BULK compuesto (bobina, blister) se trackea por unidades trazables
+  // (SerialItem), no por StockBulk: se transfiere por serial, igual que un
+  // producto SERIALIZED. Solo el BULK no compuesto se transfiere por cantidad.
+  const isBulk = selectedProduct?.type === 'BULK' && !selectedProduct?.is_composite;
 
   // Cargar datos iniciales
   useEffect(() => {
@@ -284,7 +287,7 @@ export default function StockTransferWizard() {
                 {products.map((product) => (
                   <option key={product.id} value={product.id}>
                     {product.name} ({product.sku}) -{' '}
-                    {product.product_type === 'BULK' ? 'A Granel' : 'Serializado'}
+                    {product.type === 'BULK' ? 'A Granel' : 'Serializado'}
                   </option>
                 ))}
               </select>

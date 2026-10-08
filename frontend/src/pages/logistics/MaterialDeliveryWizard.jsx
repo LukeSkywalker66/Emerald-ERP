@@ -154,7 +154,7 @@ export default function MaterialDeliveryWizard() {
           getTeams({ active_only: true }),
         ]);
 
-        setCentralWarehouses(whData.filter(w => w.type === 'CENTRAL') || []);
+        setCentralWarehouses(whData.filter(w => w.type === 'CENTRAL' || w.type === 'AUXILIAR') || []);
         setProducts(prodData || []);
 
         // Build team list from coordination API + match mobile warehouses
