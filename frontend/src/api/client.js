@@ -103,7 +103,19 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const { response, config, code, message } = error || {};
-    
+
+    // Ignorar requests cancelados intencionalmente (AbortController, polling,
+    // navegación). No son errores reales y solo ensucian error_logs con ruido
+    // ("canceled"). Se rechaza la promesa sin reportar al backend.
+    if (
+      axios.isCancel?.(error) ||
+      code === 'ERR_CANCELED' ||
+      error?.name === 'AbortError' ||
+      message === 'canceled'
+    ) {
+      return Promise.reject(error);
+    }
+
     // Solo intentar refresh si el error es 401 y no es un retry
     if (response?.status === 401 && !config?._retry) {
       config._retry = true;

@@ -1220,119 +1220,43 @@ def transfer_stock(
         )
     
     movements_created = []
-    
-    # CASO 1: Producto BULK
-    if product.type == ProductType.BULK:
-        if not payload.quantity or payload.quantity <= 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Productos BULK requieren 'quantity' > 0"
-            )
-        
-        if payload.serial_item_ids:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Productos BULK no deben especificar 'serial_item_ids'"
-            )
-        
-        # Validar stock suficiente en origen
-        origin_stock = db.execute(
-            select(StockBulk).where(
-                and_(
-                    StockBulk.warehouse_id == payload.from_warehouse_id,
-                    StockBulk.product_id == payload.product_id
-                )
-            )
-        ).scalar_one_or_none()
-        
-        if not origin_stock or origin_stock.quantity < payload.quantity:
-            available = origin_stock.quantity if origin_stock else 0
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Stock insuficiente en warehouse origen. Disponible: {available}, Solicitado: {payload.quantity}"
-            )
-        
-        # Reducir stock en origen
-        origin_stock.quantity -= payload.quantity
-        
-        # Aumentar stock en destino (crear si no existe)
-        dest_stock = db.execute(
-            select(StockBulk).where(
-                and_(
-                    StockBulk.warehouse_id == payload.to_warehouse_id,
-                    StockBulk.product_id == payload.product_id
-                )
-            )
-        ).scalar_one_or_none()
-        
-        if dest_stock:
-            dest_stock.quantity += payload.quantity
-        else:
-            dest_stock = StockBulk(
-                warehouse_id=payload.to_warehouse_id,
-                product_id=payload.product_id,
-                quantity=payload.quantity
-            )
-            db.add(dest_stock)
-        
-        # Registrar movimiento
-        movement = StockMovement(
-            product_id=product.id,
-            from_warehouse_id=payload.from_warehouse_id,
-            to_warehouse_id=payload.to_warehouse_id,
-            quantity=payload.quantity,
-            serial_item_id=None,
-            movement_type=MovementType.TRANSFER,
-            reference=payload.reference or f"Transferencia de {from_warehouse.name} a {to_warehouse.name}",
-            user_id=user_id,
-            notes=payload.notes
+
+    has_quantity = payload.quantity is not None and payload.quantity > 0
+    has_serials = bool(payload.serial_item_ids)
+
+    if has_quantity and has_serials:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se puede combinar 'quantity' con 'serial_item_ids'",
         )
-        db.add(movement)
-        db.flush()
-        movements_created.append(movement.id)
-    
-    # CASO 2: Producto SERIALIZED
-    elif product.type == ProductType.SERIALIZED:
-        if not payload.serial_item_ids or len(payload.serial_item_ids) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Productos SERIALIZED requieren 'serial_item_ids' (al menos uno)"
-            )
-        
-        if payload.quantity:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Productos SERIALIZED no deben especificar 'quantity'"
-            )
-        
-        # Validar y transferir cada serial
+
+    # CASO 1: transferencia por seriales.
+    # Aplica a SERIALIZED y a BULK compuesto (unidades trazables), que se
+    # trackean como SerialItem y se transfieren enteros (bobina/blister).
+    if has_serials:
         for serial_id in payload.serial_item_ids:
             serial_item = db.get(SerialItem, serial_id)
-            
+
             if not serial_item:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Serial item con id {serial_id} no encontrado"
                 )
-            
-            # Validar que pertenece al producto correcto
+
             if serial_item.product_id != payload.product_id:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Serial {serial_item.serial_number} no pertenece al producto especificado"
                 )
-            
-            # Validar que está en warehouse origen
+
             if serial_item.warehouse_id != payload.from_warehouse_id:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Serial {serial_item.serial_number} no está en warehouse origen"
                 )
-            
-            # Transferir serial
+
             serial_item.warehouse_id = payload.to_warehouse_id
-            
-            # Registrar movimiento
+
             movement = StockMovement(
                 product_id=product.id,
                 from_warehouse_id=payload.from_warehouse_id,
@@ -1347,6 +1271,75 @@ def transfer_stock(
             db.add(movement)
             db.flush()
             movements_created.append(movement.id)
+
+    # CASO 2: transferencia por cantidad (solo BULK no compuesto).
+    elif has_quantity:
+        if product.type != ProductType.BULK:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Solo productos BULK se transfieren por 'quantity'"
+            )
+
+        # Validar stock suficiente en origen
+        origin_stock = db.execute(
+            select(StockBulk).where(
+                and_(
+                    StockBulk.warehouse_id == payload.from_warehouse_id,
+                    StockBulk.product_id == payload.product_id
+                )
+            )
+        ).scalar_one_or_none()
+
+        if not origin_stock or origin_stock.quantity < payload.quantity:
+            available = origin_stock.quantity if origin_stock else 0
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Stock insuficiente en warehouse origen. Disponible: {available}, Solicitado: {payload.quantity}"
+            )
+
+        # Reducir stock en origen
+        origin_stock.quantity -= payload.quantity
+
+        # Aumentar stock en destino (crear si no existe)
+        dest_stock = db.execute(
+            select(StockBulk).where(
+                and_(
+                    StockBulk.warehouse_id == payload.to_warehouse_id,
+                    StockBulk.product_id == payload.product_id
+                )
+            )
+        ).scalar_one_or_none()
+
+        if dest_stock:
+            dest_stock.quantity += payload.quantity
+        else:
+            dest_stock = StockBulk(
+                warehouse_id=payload.to_warehouse_id,
+                product_id=payload.product_id,
+                quantity=payload.quantity
+            )
+            db.add(dest_stock)
+
+        movement = StockMovement(
+            product_id=product.id,
+            from_warehouse_id=payload.from_warehouse_id,
+            to_warehouse_id=payload.to_warehouse_id,
+            quantity=payload.quantity,
+            serial_item_id=None,
+            movement_type=MovementType.TRANSFER,
+            reference=payload.reference or f"Transferencia de {from_warehouse.name} a {to_warehouse.name}",
+            user_id=user_id,
+            notes=payload.notes
+        )
+        db.add(movement)
+        db.flush()
+        movements_created.append(movement.id)
+
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Debés indicar 'quantity' (BULK) o 'serial_item_ids' (seriales) para transferir"
+        )
     
     db.commit()
     
