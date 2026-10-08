@@ -1198,7 +1198,57 @@ def cancel_work_order_start(
     return get_work_order_detail(work_order_id, db, current_user)
 
 
-def _wo_to_list_response(wo: WorkOrder, db: Session):
+def _bulk_fetch_connections(db: Session, connection_ids: list[int]) -> dict:
+    """Prefetch de datos de conexión en UNA sola query (evita N+1 por OT)."""
+    ids = list(dict.fromkeys([int(i) for i in connection_ids if i])) if connection_ids else []
+    if not ids:
+        return {}
+    rows = db.execute(
+        text(
+            """
+            SELECT
+                c.connection_id,
+                c.pppoe_username,
+                COALESCE(c.direccion, cl.address) as address,
+                cl.name as client_name,
+                cl.doc_number as client_dni,
+                n.name as node_name,
+                n.ip_address as node_ip,
+                p.name as plan_name,
+                p.speed as plan_speed,
+                COALESCE(
+                    ct.number,
+                    cl.raw_data->>'phone',
+                    cl.raw_data->>'mobile',
+                    cl.raw_data->>'telefono'
+                ) as phone,
+                cy.name as city_name,
+                nb.name as neighborhood_name,
+                c.address_parts
+            FROM connections c
+            LEFT JOIN clientes cl ON c.customer_id = cl.id
+            LEFT JOIN LATERAL (
+                SELECT ct_inner.number
+                FROM clientes_telefonos ct_inner
+                WHERE ct_inner.customer_id = cl.id
+                  AND ct_inner.number IS NOT NULL
+                  AND btrim(ct_inner.number) <> ''
+                ORDER BY ct_inner.id ASC
+                LIMIT 1
+            ) ct ON true
+            LEFT JOIN nodes n ON c.node_id = n.node_id
+            LEFT JOIN plans p ON c.plan_id = p.plan_id
+            LEFT JOIN cities cy ON c.city_id = cy.id
+            LEFT JOIN neighborhoods nb ON c.neighborhood_id = nb.id
+            WHERE c.connection_id = ANY(:conn_ids)
+            """
+        ),
+        {"conn_ids": ids},
+    ).all()
+    return {row[0]: row for row in rows}
+
+
+def _wo_to_list_response(wo: WorkOrder, db: Session, conn_map: Optional[dict] = None):
     """Construye la respuesta resumida para listado, enriquecida con datos de conexión.
     
     Retorna un diccionario simple para evitar problemas de serialización Pydantic
@@ -1253,49 +1303,52 @@ def _wo_to_list_response(wo: WorkOrder, db: Session):
 
     if wo.ticket and effective_connection_id:
         try:
-            conn_row = db.execute(
-                text(
-                    """
-                    SELECT 
-                        c.connection_id,
-                        c.pppoe_username,
-                        COALESCE(c.direccion, cl.address) as address,
-                        cl.name as client_name,
-                        cl.doc_number as client_dni,
-                        n.name as node_name,
-                        n.ip_address as node_ip,
-                        p.name as plan_name,
-                        p.speed as plan_speed,
-                        COALESCE(
-                            ct.number,
-                            cl.raw_data->>'phone',
-                            cl.raw_data->>'mobile',
-                            cl.raw_data->>'telefono'
-                        ) as phone,
-                        cy.name as city_name,
-                        nb.name as neighborhood_name,
-                        c.address_parts
-                    FROM connections c
-                    LEFT JOIN clientes cl ON c.customer_id = cl.id
-                    LEFT JOIN LATERAL (
-                        SELECT ct_inner.number
-                        FROM clientes_telefonos ct_inner
-                        WHERE ct_inner.customer_id = cl.id
-                          AND ct_inner.number IS NOT NULL
-                          AND btrim(ct_inner.number) <> ''
-                        ORDER BY ct_inner.id ASC
+            # Preferir mapa prefetcheado (evita N+1 por OT); si no hay, query puntual.
+            conn_row = conn_map.get(effective_connection_id) if conn_map is not None else None
+            if conn_row is None:
+                conn_row = db.execute(
+                    text(
+                        """
+                        SELECT
+                            c.connection_id,
+                            c.pppoe_username,
+                            COALESCE(c.direccion, cl.address) as address,
+                            cl.name as client_name,
+                            cl.doc_number as client_dni,
+                            n.name as node_name,
+                            n.ip_address as node_ip,
+                            p.name as plan_name,
+                            p.speed as plan_speed,
+                            COALESCE(
+                                ct.number,
+                                cl.raw_data->>'phone',
+                                cl.raw_data->>'mobile',
+                                cl.raw_data->>'telefono'
+                            ) as phone,
+                            cy.name as city_name,
+                            nb.name as neighborhood_name,
+                            c.address_parts
+                        FROM connections c
+                        LEFT JOIN clientes cl ON c.customer_id = cl.id
+                        LEFT JOIN LATERAL (
+                            SELECT ct_inner.number
+                            FROM clientes_telefonos ct_inner
+                            WHERE ct_inner.customer_id = cl.id
+                              AND ct_inner.number IS NOT NULL
+                              AND btrim(ct_inner.number) <> ''
+                            ORDER BY ct_inner.id ASC
+                            LIMIT 1
+                        ) ct ON true
+                        LEFT JOIN nodes n ON c.node_id = n.node_id
+                        LEFT JOIN plans p ON c.plan_id = p.plan_id
+                        LEFT JOIN cities cy ON c.city_id = cy.id
+                        LEFT JOIN neighborhoods nb ON c.neighborhood_id = nb.id
+                        WHERE c.connection_id = :conn_id
                         LIMIT 1
-                    ) ct ON true
-                    LEFT JOIN nodes n ON c.node_id = n.node_id
-                    LEFT JOIN plans p ON c.plan_id = p.plan_id
-                    LEFT JOIN cities cy ON c.city_id = cy.id
-                    LEFT JOIN neighborhoods nb ON c.neighborhood_id = nb.id
-                    WHERE c.connection_id = :conn_id
-                    LIMIT 1
-                    """
-                ),
-                {"conn_id": effective_connection_id},
-            ).first()
+                        """
+                    ),
+                    {"conn_id": effective_connection_id},
+                ).first()
 
             if conn_row:
                 # Actualizar con datos reales de conexión
@@ -1506,14 +1559,21 @@ def get_coordination_grid(
         teams = db.query(Team).filter(Team.is_active == True)\
             .options(selectinload(Team.members)).all()
         
+        # Prefetch de contadores pending_closure por equipo (evita N+1 por team).
+        pending_closure_map = dict(
+            db.query(WorkOrder.team_id, func.count(WorkOrder.id))
+            .filter(
+                WorkOrder.status == WorkOrderStatus.pending_closure,
+                WorkOrder.team_id.isnot(None),
+            )
+            .group_by(WorkOrder.team_id)
+            .all()
+        )
+
         teams_data = []
         for team in teams:
-            # Contar OTs en pending_closure para este equipo (Equipos Bloqueados)
-            pending_closure_count = db.query(WorkOrder).filter(
-                WorkOrder.team_id == team.id,
-                WorkOrder.status == WorkOrderStatus.pending_closure
-            ).count()
-            
+            pending_closure_count = pending_closure_map.get(team.id, 0)
+
             teams_data.append({
                 "id": team.id,
                 "name": team.name,
@@ -1544,7 +1604,7 @@ def get_coordination_grid(
                 selectinload(WorkOrder.technician),
             ).all()
         
-        allocations_data = [_wo_to_list_response(wo, db) for wo in allocations]
+        # (allocations_data se computa abajo, junto con backlog, con conn_map prefetcheado)
         
         # Backlog (pending_planning o coordinated sin team)
         backlog = db.query(WorkOrder)\
@@ -1557,7 +1617,21 @@ def get_coordination_grid(
                 selectinload(WorkOrder.technician),
             ).all()
         
-        backlog_data = [_wo_to_list_response(wo, db) for wo in backlog]
+        # Prefetch de datos de conexión para allocations + backlog (evita N+1 por OT).
+        conn_ids = []
+        for wo in list(allocations) + list(backlog):
+            if wo.ticket:
+                eid = (
+                    wo.ticket.connection_id
+                    or wo.ticket.destination_connection_id
+                    or wo.ticket.origin_connection_id
+                )
+                if eid:
+                    conn_ids.append(eid)
+        conn_map = _bulk_fetch_connections(db, conn_ids)
+
+        allocations_data = [_wo_to_list_response(wo, db, conn_map) for wo in allocations]
+        backlog_data = [_wo_to_list_response(wo, db, conn_map) for wo in backlog]
         
         # Team Load Metrics
         WORKING_HOURS_PER_DAY = 10  # 8:00 a 18:00
