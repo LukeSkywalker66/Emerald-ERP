@@ -187,10 +187,15 @@ def create_delivery(
     if not team:
         raise HTTPException(status_code=404, detail="Cuadrilla no encontrada")
 
-    # Validar warehouses
+    # Validar warehouses.
+    # El origen puede ser CENTRAL o AUXILIAR (depósitos habilitados para despachar
+    # materiales a cuadrillas). El frontend ya expone ambos tipos en el combo.
     wh_from = db.get(Warehouse, payload.warehouse_from_id)
-    if not wh_from or wh_from.type != WarehouseType.CENTRAL:
-        raise HTTPException(status_code=400, detail="El almacén origen debe ser CENTRAL")
+    if not wh_from or wh_from.type not in (WarehouseType.CENTRAL, WarehouseType.AUXILIAR):
+        raise HTTPException(
+            status_code=400,
+            detail="El almacén origen debe ser CENTRAL o AUXILIAR"
+        )
 
     wh_to = db.get(Warehouse, payload.warehouse_to_id)
     if not wh_to or wh_to.type != WarehouseType.MOBILE:

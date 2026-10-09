@@ -733,7 +733,31 @@ def update_work_order(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Operación denegada: Debe completar la inspección diaria del vehículo antes de iniciar una tarea.",
                 )
-    
+
+    # ===== REGLA DE NEGOCIO: UNA SOLA TAREA EN CURSO POR CUADRILLA =====
+    # Solo aplica al ACTIVAR una tarea (pasar a in_progress). Si la cuadrilla ya
+    # tiene otra OT en curso, se bloquea el inicio para evitar tareas simultáneas.
+    if (
+        payload.status == WorkOrderStatus.in_progress
+        and wo.status != WorkOrderStatus.in_progress
+    ):
+        team_id_for_check = payload.team_id if payload.team_id is not None else wo.team_id
+        if team_id_for_check:
+            active_in_progress = (
+                db.query(WorkOrder)
+                .filter(
+                    WorkOrder.team_id == team_id_for_check,
+                    WorkOrder.status == WorkOrderStatus.in_progress,
+                    WorkOrder.id != work_order_id,
+                )
+                .count()
+            )
+            if active_in_progress > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="La cuadrilla ya tiene una tarea en curso. Cerrá la anterior antes de iniciar una nueva.",
+                )
+
     # Actualizar campos
     update_data = payload.model_dump(exclude_unset=True)
     
