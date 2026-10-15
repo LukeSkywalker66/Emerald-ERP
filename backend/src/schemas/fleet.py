@@ -48,6 +48,7 @@ class VehicleResponse(VehicleBase):
     id: int
     warehouse_id: int
     warehouse_name: str
+    team_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     
@@ -73,6 +74,7 @@ class VehicleSummary(BaseModel):
     license_plate: Optional[str] = None
     vehicle_brand: Optional[str] = None
     vehicle_model: Optional[str] = None
+    team_name: Optional[str] = None
     full_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)

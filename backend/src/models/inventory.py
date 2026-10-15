@@ -255,6 +255,11 @@ class Product(Base):
         index=True,
         comment="Código corto único"
     )
+    barcode_prefix: Mapped[Optional[str]] = mapped_column(
+        String(4),
+        nullable=True,
+        comment="Prefijo de 1-4 caracteres para códigos de barras propios (derivado de grupo/SKU si es null)"
+    )
     type: Mapped[ProductType] = mapped_column(
         Enum(ProductType, name="product_type_enum", native_enum=False),
         nullable=False,

@@ -551,7 +551,7 @@ export default function StockAdjustments() {
   const isSerialized = selectedProduct?.type === 'SERIALIZED';
   const canGenerateBarcodes = !isSerialized
     && selectedProduct?.is_composite
-    && (formData.movement_type === 'PURCHASE' || formData.movement_type === 'IN');
+    && formData.movement_type === 'PURCHASE';
   const getDisplayUnit = (product) => {
     if (!product) return 'u.';
     if (product.is_composite) {
@@ -575,16 +575,26 @@ export default function StockAdjustments() {
     <div className="min-h-screen bg-zinc-900 text-white p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <Plus className="w-8 h-8 text-emerald-400" />
-            <h1 className="text-4xl font-bold text-white">
-              Ajustes y Compras de Stock
-            </h1>
+        <div className="mb-8 flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <Plus className="w-8 h-8 text-emerald-400" />
+              <h1 className="text-4xl font-bold text-white">
+                Ajustes y Compras de Stock
+              </h1>
+            </div>
+            <p className="text-zinc-400">
+              Registra nuevas compras o correcciones de stock a granel
+            </p>
           </div>
-          <p className="text-zinc-400">
-            Registra nuevas compras o correcciones de stock a granel
-          </p>
+          <button
+            type="button"
+            onClick={() => navigate('/app/logistics/reprint-labels')}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 text-sm transition-colors"
+          >
+            <Printer className="w-4 h-4" />
+            Reimprimir etiquetas
+          </button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -806,26 +816,14 @@ export default function StockAdjustments() {
 
                 {canGenerateBarcodes && (
                   <div className="p-3 rounded border border-emerald-600/40 bg-zinc-800/60">
-                    <label className="flex items-start gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        name="generate_barcodes"
-                        checked={Boolean(formData.generate_barcodes)}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setFormData((prev) => ({ ...prev, generate_barcodes: checked }));
-                        }}
-                        className="mt-0.5 w-4 h-4"
-                      />
-                      <span>
-                        <span className="text-sm text-emerald-300 font-semibold">
-                          ¿Generar códigos de barra individuales?
-                        </span>
-                        <span className="block text-xs text-zinc-400 mt-1">
-                          En compras de compuestos, crea unidades trazables con etiqueta en lugar de incrementar stock bulk.
-                        </span>
-                      </span>
-                    </label>
+                    <p className="text-sm text-emerald-300 font-semibold">
+                      Unidades trazables con identidad propia
+                    </p>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      En compras de compuestos, el sistema crea una unidad trazable (con su
+                      código de barras) por cada unidad ingresada. Las etiquetas se pueden
+                      imprimir al finalizar la compra.
+                    </p>
                   </div>
                 )}
 

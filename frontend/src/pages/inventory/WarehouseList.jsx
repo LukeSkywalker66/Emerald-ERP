@@ -405,6 +405,11 @@ export default function WarehouseList() {
                   <p className="text-sm text-emerald-300 font-medium truncate">
                     {warehouse.vehicle.full_name || warehouse.vehicle.name}
                   </p>
+                  {(warehouse.team_name || warehouse.vehicle.team_name) && (
+                    <p className="text-xs text-zinc-300 truncate">
+                      Cuadrilla: {warehouse.team_name || warehouse.vehicle.team_name}
+                    </p>
+                  )}
                   {warehouse.vehicle.license_plate && (
                     <p className="text-xs text-zinc-400 truncate">
                       Patente: {warehouse.vehicle.license_plate}

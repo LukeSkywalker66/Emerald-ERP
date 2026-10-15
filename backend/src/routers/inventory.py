@@ -7,13 +7,14 @@ from datetime import datetime
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import select, and_, or_, func, text
+from sqlalchemy import select, and_, or_, func, text, exists
 
 from src.database import get_db
 from src.models.inventory import (
     Warehouse, Product, ProductCategory, ProductGroup, ProductSpec,
     StockBulk, SerialItem, StockMovement, PurchaseScanSession,
-    WarehouseType, ProductType, MovementType, SerialItemStatus
+    WarehouseType, ProductType, MovementType, SerialItemStatus,
+    ConnectionAsset, ConnectionAssetStatus
 )
 from src.models.user import User
 from src.models.coordination import Team, TeamMember
@@ -25,11 +26,15 @@ from src.schemas.inventory import (
     ProductGroupCreate, ProductGroupUpdate, ProductGroupResponse,
     ProductSpecUpdate, ProductSpecResponse,
     SerialItemCreate, SerialItemUpdate, SerialItemResponse,
+    SerialItemReconcileRequest, StockBulkReconcileRequest,
+    DiscrepancyItem,
     StockMovementResponse, WarehouseStockResponse, StockItemDetail,
     StockTransferRequest, StockTransferResponse,
     StockAdjustmentRequest, StockAdjustmentResponse,
     StockAlertItem,
     ProductAnalyticsItem,
+    ProductSearchItem,
+    AvailableStockItem,
     ScanCodeRequest, ScanCodeResponse,
     ScanSerialRequest, ScanSerialResponse,
     ScanSessionResponse, ScanSessionConfirmResponse,
@@ -664,6 +669,311 @@ def list_products(
     return [_product_to_response(p) for p in products]
 
 
+@router.get("/products/search", response_model=List[ProductSearchItem])
+def search_products(
+    q: str = Query(..., min_length=2, description="Texto: nombre, grupo, SN o SKU"),
+    warehouse_id: Optional[int] = Query(None, description="Depósito para calcular disponibilidad"),
+    type: Optional[ProductType] = Query(None, description="Filtrar por tipo"),
+    limit: int = Query(15, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    """
+    Búsqueda liviana de productos para pickers/combo.
+
+    Matchea `q` contra nombre, grupo, número de serie (SN) y SKU.
+    Si se pasa `warehouse_id`, devuelve la disponibilidad en ese depósito
+    (bulk + seriales NEW/IN_VEHICLE). Pensado para flujos CENTRAL/AUXILIAR.
+    """
+    pattern = f"%{q.strip()}%"
+
+    id_stmt = (
+        select(Product.id)
+        .outerjoin(ProductGroup, Product.group_id == ProductGroup.id)
+        .outerjoin(SerialItem, SerialItem.product_id == Product.id)
+        .where(
+            or_(
+                Product.name.ilike(pattern),
+                Product.sku.ilike(pattern),
+                ProductGroup.name.ilike(pattern),
+                SerialItem.serial_number.ilike(pattern),
+            )
+        )
+        .distinct()
+    )
+    if type is not None:
+        id_stmt = id_stmt.where(Product.type == type)
+
+    ids = [row[0] for row in db.execute(id_stmt.limit(limit)).all()]
+    if not ids:
+        return []
+
+    products = db.execute(
+        select(Product).where(Product.id.in_(ids)).order_by(Product.name)
+    ).scalars().all()
+
+    available_bulk: dict[int, float] = {}
+    available_serial: dict[int, int] = {}
+    if warehouse_id:
+        for pid, qty in db.execute(
+            select(StockBulk.product_id, func.sum(StockBulk.quantity))
+            .where(StockBulk.warehouse_id == warehouse_id, StockBulk.product_id.in_(ids))
+            .group_by(StockBulk.product_id)
+        ).all():
+            available_bulk[int(pid)] = float(qty or 0)
+        for pid, cnt in db.execute(
+            select(SerialItem.product_id, func.count(SerialItem.id))
+            .where(
+                SerialItem.warehouse_id == warehouse_id,
+                SerialItem.product_id.in_(ids),
+                SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.IN_VEHICLE]),
+            )
+            .group_by(SerialItem.product_id)
+        ).all():
+            available_serial[int(pid)] = int(cnt or 0)
+
+    rep_serial: dict[int, str] = {}
+    for pid, sn in db.execute(
+        select(SerialItem.product_id, SerialItem.serial_number)
+        .where(SerialItem.product_id.in_(ids))
+        .order_by(SerialItem.id)
+    ).all():
+        rep_serial.setdefault(int(pid), sn)
+
+    result: List[ProductSearchItem] = []
+    for p in products:
+        pid = p.id
+        avail = None
+        if warehouse_id:
+            avail = available_bulk.get(pid, 0.0) + float(available_serial.get(pid, 0))
+        sn = rep_serial.get(pid)
+        result.append(
+            ProductSearchItem(
+                id=p.id,
+                name=p.name,
+                sku=p.sku,
+                type=p.type,
+                is_composite=p.is_composite,
+                category=p.category,
+                group_id=p.group_id,
+                group_name=p.group.name if p.group else None,
+                unit_measure=p.unit_measure,
+                composite_unit_label=p.composite_unit_label,
+                unit_size=p.unit_size,
+                available_in_warehouse=avail,
+                barcode_label=sn or p.sku,
+                has_serial=sn is not None,
+            )
+        )
+
+    return result
+
+
+@router.get("/stock/available-search", response_model=List[AvailableStockItem])
+def search_available_stock(
+    q: str = Query(..., min_length=2, description="Texto: SN, nombre de producto, grupo o SKU"),
+    warehouse_id: int = Query(..., description="Depósito donde buscar disponibilidad (CENTRAL/AUXILIAR)"),
+    limit: int = Query(20, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    """
+    Búsqueda de unidades disponibles en un depósito para pickers.
+
+    Devuelve **unidades individuales**: seriales disponibles (SERIALIZED y compuestos
+    trazables) y productos BULK con stock. Pensado para que el operador seleccione el
+    item puntual a cargar (mismo concepto que el combo de materiales de las OT).
+    """
+    pattern = f"%{q.strip()}%"
+
+    serial_rows = db.execute(
+        select(SerialItem)
+        .join(Product, SerialItem.product_id == Product.id)
+        .outerjoin(ProductGroup, Product.group_id == ProductGroup.id)
+        .options(joinedload(SerialItem.product), joinedload(SerialItem.warehouse))
+        .where(
+            SerialItem.warehouse_id == warehouse_id,
+            SerialItem.status.in_([SerialItemStatus.NEW, SerialItemStatus.IN_VEHICLE]),
+            or_(
+                SerialItem.serial_number.ilike(pattern),
+                Product.name.ilike(pattern),
+                Product.sku.ilike(pattern),
+                ProductGroup.name.ilike(pattern),
+            ),
+        )
+        .order_by(Product.name, SerialItem.serial_number)
+        .limit(limit)
+    ).scalars().all()
+
+    items: List[AvailableStockItem] = []
+    for s in serial_rows:
+        p = s.product
+        items.append(
+            AvailableStockItem(
+                kind="serial",
+                serial_item_id=s.id,
+                serial_number=s.serial_number,
+                product_id=s.product_id,
+                product_name=p.name if p else "",
+                product_sku=p.sku if p else None,
+                product_type=p.type.value if p else None,
+                group_name=p.group.name if p and p.group else None,
+                category=p.category if p else None,
+                status=s.status.value,
+                unit_measure=p.unit_measure if p else None,
+                composite_unit_label=p.composite_unit_label if p else None,
+                unit_size=p.unit_size if p else None,
+                is_composite=bool(p and p.is_composite),
+                remaining_quantity=s.remaining_quantity,
+            )
+        )
+
+    if len(items) < limit:
+        remaining = limit - len(items)
+        bulk_rows = db.execute(
+            select(StockBulk, Product)
+            .join(Product, StockBulk.product_id == Product.id)
+            .outerjoin(ProductGroup, Product.group_id == ProductGroup.id)
+            .where(
+                StockBulk.warehouse_id == warehouse_id,
+                StockBulk.quantity > 0,
+                Product.is_composite.is_(False),
+                or_(
+                    Product.name.ilike(pattern),
+                    Product.sku.ilike(pattern),
+                    ProductGroup.name.ilike(pattern),
+                ),
+            )
+            .order_by(Product.name)
+            .limit(remaining)
+        ).all()
+
+        for stock, product in bulk_rows:
+            items.append(
+                AvailableStockItem(
+                    kind="bulk",
+                    product_id=product.id,
+                    product_name=product.name,
+                    product_sku=product.sku,
+                    product_type=product.type.value,
+                    group_name=product.group.name if product.group else None,
+                    category=product.category,
+                    unit_measure=product.unit_measure,
+                    available_quantity=float(stock.quantity),
+                )
+            )
+
+    return items
+
+
+@router.get("/products/{product_id}/detail")
+def get_product_detail(product_id: int, db: Session = Depends(get_db)):
+    """
+    Detalle completo de un producto para el Product Explorer:
+    info general, stock agregado, seriales y historial de movimientos.
+    """
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Producto con id {product_id} no encontrado",
+        )
+
+    bulk_total = db.execute(
+        select(func.coalesce(func.sum(StockBulk.quantity), 0.0)).where(
+            StockBulk.product_id == product_id
+        )
+    ).scalar() or 0.0
+
+    serial_rows = db.execute(
+        select(SerialItem.status, func.count(SerialItem.id))
+        .where(SerialItem.product_id == product_id)
+        .group_by(SerialItem.status)
+    ).all()
+    serial_summary = {
+        (row[0].value if hasattr(row[0], "value") else str(row[0])): int(row[1] or 0)
+        for row in serial_rows
+    }
+
+    serials = db.execute(
+        select(SerialItem)
+        .options(joinedload(SerialItem.warehouse))
+        .where(SerialItem.product_id == product_id)
+        .order_by(SerialItem.id.desc())
+        .limit(200)
+    ).scalars().all()
+
+    movements = db.execute(
+        select(StockMovement)
+        .options(
+            joinedload(StockMovement.from_warehouse),
+            joinedload(StockMovement.to_warehouse),
+            joinedload(StockMovement.serial_item),
+            joinedload(StockMovement.user),
+        )
+        .where(StockMovement.product_id == product_id)
+        .order_by(StockMovement.date.desc())
+        .limit(50)
+    ).scalars().all()
+
+    purchase_date = db.execute(
+        select(func.min(StockMovement.date)).where(
+            StockMovement.product_id == product_id,
+            StockMovement.movement_type == MovementType.PURCHASE,
+        )
+    ).scalar()
+
+    return {
+        "product": {
+            "id": product.id,
+            "name": product.name,
+            "sku": product.sku,
+            "type": product.type.value,
+            "category": product.category,
+            "group_id": product.group_id,
+            "group_name": product.group.name if product.group else None,
+            "is_composite": product.is_composite,
+            "unit_size": product.unit_size,
+            "unit_measure": product.unit_measure,
+            "composite_unit_label": product.composite_unit_label,
+            "min_stock_alert": product.min_stock_alert,
+            "description": product.description,
+            "barcode_prefix": product.barcode_prefix,
+            "specs": product.spec.specs if product.spec else None,
+            "created_at": product.created_at,
+        },
+        "bulk_in_stock": float(bulk_total),
+        "serial_summary": serial_summary,
+        "purchase_date": purchase_date,
+        "serial_items": [
+            {
+                "id": s.id,
+                "serial_number": s.serial_number,
+                "status": s.status.value,
+                "warehouse_id": s.warehouse_id,
+                "warehouse_name": s.warehouse.name if s.warehouse else None,
+                "connection_id": s.connection_id,
+                "initial_quantity": s.initial_quantity,
+                "remaining_quantity": s.remaining_quantity,
+                "created_at": s.created_at,
+            }
+            for s in serials
+        ],
+        "movements": [
+            {
+                "id": m.id,
+                "date": m.date,
+                "movement_type": m.movement_type.value,
+                "from_warehouse_name": m.from_warehouse.name if m.from_warehouse else None,
+                "to_warehouse_name": m.to_warehouse.name if m.to_warehouse else None,
+                "quantity": m.quantity,
+                "serial_number": m.serial_item.serial_number if m.serial_item else None,
+                "reference": m.reference,
+                "user_name": _safe_user_name(m.user),
+            }
+            for m in movements
+        ],
+    }
+
+
 # ============================================
 # PRODUCT ANALYTICS ENDPOINT (Product Explorer)
 # ============================================
@@ -1164,6 +1474,114 @@ def create_serial_item(
     )
 
 
+@router.get("/serial-items/search", response_model=SerialItemResponse)
+def search_serial_item(
+    serial_number: str = Query(..., min_length=1, description="Serial a buscar"),
+    db: Session = Depends(get_db),
+):
+    """Buscar un SerialItem por su número de serie (para reconciliación)."""
+    serial_item = (
+        db.query(SerialItem)
+        .filter(SerialItem.serial_number == serial_number.strip())
+        .first()
+    )
+    if not serial_item:
+        raise HTTPException(status_code=404, detail="Serial no encontrado")
+
+    return SerialItemResponse(
+        **serial_item.__dict__,
+        product_name=serial_item.product.name if serial_item.product else None,
+        product_sku=serial_item.product.sku if serial_item.product else None,
+        warehouse_name=serial_item.warehouse.name if serial_item.warehouse else None,
+    )
+
+
+@router.post("/serial-items/{serial_item_id}/reconcile", response_model=SerialItemResponse)
+def reconcile_serial_item(
+    serial_item_id: int,
+    payload: SerialItemReconcileRequest,
+    db: Session = Depends(get_db),
+):
+    """Reconciliar un SerialItem (status/warehouse/connection) con motivo obligatorio."""
+    serial_item = db.get(SerialItem, serial_item_id)
+    if not serial_item:
+        raise HTTPException(status_code=404, detail="Serial item no encontrado")
+
+    if not (payload.status or payload.warehouse_id or payload.connection_id or payload.clear_connection):
+        raise HTTPException(
+            status_code=400,
+            detail="Indicá al menos un cambio (status, warehouse o connection)",
+        )
+
+    user_id = _get_user_id_from_request()
+    previous_status = serial_item.status
+    previous_warehouse_id = serial_item.warehouse_id
+    previous_connection_id = serial_item.connection_id
+
+    if payload.status is not None:
+        serial_item.status = payload.status
+    if payload.warehouse_id is not None:
+        warehouse = db.get(Warehouse, payload.warehouse_id)
+        if not warehouse:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Warehouse {payload.warehouse_id} no encontrado",
+            )
+        serial_item.warehouse_id = payload.warehouse_id
+    if payload.clear_connection:
+        serial_item.connection_id = None
+    elif payload.connection_id is not None:
+        serial_item.connection_id = payload.connection_id
+
+    movement = StockMovement(
+        product_id=serial_item.product_id,
+        from_warehouse_id=previous_warehouse_id,
+        to_warehouse_id=(
+            serial_item.warehouse_id
+            if serial_item.warehouse_id != previous_warehouse_id
+            else None
+        ),
+        quantity=None,
+        serial_item_id=serial_item.id,
+        movement_type=MovementType.ADJUSTMENT,
+        reference=payload.reference or f"Reconciliación serial {serial_item.serial_number}",
+        notes=payload.motive,
+        user_id=user_id,
+    )
+    db.add(movement)
+
+    db.commit()
+    db.refresh(serial_item, attribute_names=["product", "warehouse"])
+
+    try:
+        log_update(
+            db=db,
+            user_id=user_id,
+            entity_name="serial_items",
+            entity_id=serial_item.id,
+            old_values={
+                "status": previous_status.value if hasattr(previous_status, "value") else str(previous_status),
+                "warehouse_id": previous_warehouse_id,
+                "connection_id": previous_connection_id,
+            },
+            new_values={
+                "status": serial_item.status.value if hasattr(serial_item.status, "value") else str(serial_item.status),
+                "warehouse_id": serial_item.warehouse_id,
+                "connection_id": serial_item.connection_id,
+                "motive": payload.motive,
+            },
+        )
+    except Exception as audit_error:
+        logger.error(f"Error al auditar reconciliación de serial {serial_item.id}: {audit_error}")
+
+    return SerialItemResponse(
+        **serial_item.__dict__,
+        product_name=serial_item.product.name if serial_item.product else None,
+        product_sku=serial_item.product.sku if serial_item.product else None,
+        warehouse_name=serial_item.warehouse.name if serial_item.warehouse else None,
+    )
+
+
 # ============================================
 # STOCK TRANSFER ENDPOINT (CRÍTICO)
 # ============================================
@@ -1501,24 +1919,16 @@ def create_stock_adjustment(
             detail="Solo se permiten movement_type PURCHASE o ADJUSTMENT para ajustes de stock"
         )
     
-    # Flujo de serialización propia para compuestos (Tracked Units)
-    if payload.generate_barcodes:
-        if not product.is_composite:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="generate_barcodes solo aplica a productos compuestos"
-            )
-
-        if payload.movement_type != MovementType.PURCHASE:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="generate_barcodes requiere movement_type PURCHASE"
-            )
-
+    # Flujo de serialización propia para compuestos (Tracked Units).
+    # Regla: TODO compuesto comprado tiene identidad individual (SerialItem),
+    # independientemente de si se imprimen etiquetas en el momento.
+    # `generate_barcodes` se conserva por compatibilidad pero ya no decide
+    # la creación de identidad.
+    if product.is_composite and payload.movement_type == MovementType.PURCHASE:
         if float(payload.quantity).is_integer() is False:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Para generar códigos, la cantidad debe ser un entero de unidades"
+                detail="Para productos compuestos, la cantidad debe ser un entero de unidades"
             )
 
         count = int(payload.quantity)
@@ -1566,7 +1976,7 @@ def create_stock_adjustment(
             generated_serial_item_ids=[s.id for s in serial_items],
             generated_barcodes=[s.serial_number for s in serial_items],
             message=(
-                f"Compra serializada exitosa: {len(serial_items)} unidad(es) trazable(s) "
+                f"Compra registrada: {len(serial_items)} unidad(es) trazable(s) "
                 f"generada(s) para '{product.name}'"
             ),
         )
@@ -1629,6 +2039,171 @@ def create_stock_adjustment(
         generated_barcodes=[],
         message=f"Stock ajustado exitosamente. {previous_quantity} → {new_quantity} (+{payload.quantity})"
     )
+
+
+@router.post("/stock-bulk/reconcile", response_model=StockAdjustmentResponse)
+def reconcile_stock_bulk(
+    payload: StockBulkReconcileRequest,
+    db: Session = Depends(get_db),
+):
+    """Corregir stock BULK con delta con signo y motivo obligatorio (P1)."""
+    product = db.get(Product, payload.product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail=f"Producto {payload.product_id} no encontrado")
+    if product.type != ProductType.BULK:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El producto '{product.sku}' no es tipo BULK",
+        )
+
+    warehouse = db.get(Warehouse, payload.warehouse_id)
+    if not warehouse:
+        raise HTTPException(status_code=404, detail=f"Warehouse {payload.warehouse_id} no encontrado")
+
+    stock_entry = (
+        db.query(StockBulk)
+        .filter(
+            StockBulk.warehouse_id == payload.warehouse_id,
+            StockBulk.product_id == payload.product_id,
+        )
+        .first()
+    )
+
+    previous_quantity = stock_entry.quantity if stock_entry else 0.0
+    new_quantity = round(previous_quantity + payload.quantity_delta, 6)
+    if new_quantity < 0:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Stock resultante negativo ({new_quantity}). Corrección rechazada.",
+        )
+
+    if stock_entry:
+        stock_entry.quantity = new_quantity
+    else:
+        if payload.quantity_delta <= 0:
+            raise HTTPException(status_code=422, detail="No existe stock para descontar")
+        stock_entry = StockBulk(
+            warehouse_id=payload.warehouse_id,
+            product_id=payload.product_id,
+            quantity=new_quantity,
+        )
+        db.add(stock_entry)
+
+    user_id = _get_user_id_from_request()
+    quantity_abs = abs(payload.quantity_delta)
+    movement = StockMovement(
+        product_id=payload.product_id,
+        from_warehouse_id=payload.warehouse_id if payload.quantity_delta < 0 else None,
+        to_warehouse_id=None if payload.quantity_delta < 0 else payload.warehouse_id,
+        quantity=quantity_abs,
+        serial_item_id=None,
+        movement_type=MovementType.ADJUSTMENT,
+        reference=payload.reference or f"Reconciliación stock {product.sku}",
+        notes=payload.motive,
+        user_id=user_id,
+    )
+    db.add(movement)
+
+    db.commit()
+    db.refresh(movement)
+
+    try:
+        log_update(
+            db=db,
+            user_id=user_id,
+            entity_name="stock_bulk",
+            entity_id=stock_entry.id,
+            old_values={"quantity": previous_quantity},
+            new_values={"quantity": new_quantity, "motive": payload.motive},
+        )
+    except Exception as audit_error:
+        logger.error(f"Error al auditar corrección de stock bulk: {audit_error}")
+
+    sign = "+" if payload.quantity_delta >= 0 else ""
+    return StockAdjustmentResponse(
+        success=True,
+        movement_id=movement.id,
+        stock_bulk_id=stock_entry.id,
+        previous_quantity=previous_quantity,
+        new_quantity=new_quantity,
+        message=f"Stock corregido: {previous_quantity} → {new_quantity} ({sign}{payload.quantity_delta})",
+    )
+
+
+@router.get("/discrepancies", response_model=List[DiscrepancyItem])
+def get_inventory_discrepancies(db: Session = Depends(get_db)):
+    """Detectar inconsistencias de inventario (P4 - detección temprana)."""
+    items: List[DiscrepancyItem] = []
+
+    # 1. Serial con conexión pero sin estado INSTALLED.
+    for s in (
+        db.query(SerialItem)
+        .filter(
+            SerialItem.connection_id.isnot(None),
+            SerialItem.status != SerialItemStatus.INSTALLED,
+        )
+        .all()
+    ):
+        items.append(
+            DiscrepancyItem(
+                type="serial_with_connection_not_installed",
+                severity="warning",
+                message=f"Serial {s.serial_number} tiene conexión #{s.connection_id} pero estado {s.status.value}",
+                serial_item_id=s.id,
+                serial_number=s.serial_number,
+                connection_id=s.connection_id,
+            )
+        )
+
+    # 2. Serial INSTALLED sin ConnectionAsset (huérfano).
+    for s in (
+        db.query(SerialItem)
+        .filter(SerialItem.status == SerialItemStatus.INSTALLED)
+        .filter(~exists().where(ConnectionAsset.serial_item_id == SerialItem.id))
+        .all()
+    ):
+        items.append(
+            DiscrepancyItem(
+                type="installed_serial_without_asset",
+                severity="warning",
+                message=f"Serial {s.serial_number} está INSTALLED pero no tiene activo registrado",
+                serial_item_id=s.id,
+                serial_number=s.serial_number,
+                connection_id=s.connection_id,
+            )
+        )
+
+    # 3. ConnectionAsset INSTALLED cuyo serial no está INSTALLED.
+    for a in (
+        db.query(ConnectionAsset)
+        .filter(ConnectionAsset.status == ConnectionAssetStatus.INSTALLED.value)
+        .all()
+    ):
+        si = db.get(SerialItem, a.serial_item_id)
+        if si and si.status != SerialItemStatus.INSTALLED:
+            items.append(
+                DiscrepancyItem(
+                    type="asset_installed_serial_mismatch",
+                    severity="critical",
+                    message=f"Activo {a.serial_number} figura instalado pero el serial está {si.status.value}",
+                    serial_item_id=si.id,
+                    serial_number=si.serial_number,
+                    connection_id=a.connection_id,
+                )
+            )
+
+    # 4. StockBulk negativo.
+    for sb in db.query(StockBulk).filter(StockBulk.quantity < 0).all():
+        items.append(
+            DiscrepancyItem(
+                type="negative_bulk_stock",
+                severity="critical",
+                message=f"Stock negativo: producto #{sb.product_id} depósito #{sb.warehouse_id} → {sb.quantity}",
+                warehouse_id=sb.warehouse_id,
+            )
+        )
+
+    return items
 
 
 # ============================================

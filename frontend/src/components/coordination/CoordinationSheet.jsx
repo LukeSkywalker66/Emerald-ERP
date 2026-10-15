@@ -41,6 +41,7 @@ import {
   FileSearch,
 } from 'lucide-react';
 import api from '@/api/client';
+import workOrdersService from '@/services/workOrders.service';
 import CloseWorkOrderDialog from '@/components/work-orders/CloseWorkOrderDialog';
 import UpdateLocationModal from '@/components/ui/UpdateLocationModal';
 import {
@@ -101,6 +102,9 @@ export default function CoordinationSheet({
   const [isLoadingWorkOrder, setIsLoadingWorkOrder] = useState(false);
   const [isRescuing, setIsRescuing] = useState(false);
   const [rescueError, setRescueError] = useState(null);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelMotive, setCancelMotive] = useState('');
+  const [isCancelling, setIsCancelling] = useState(false);
 
   // ========== HELPER FUNCTIONS ==========
 
@@ -383,6 +387,28 @@ export default function CoordinationSheet({
       alert('Error al marcar como incompleta');
     } finally {
       setIsMarkingIncomplete(false);
+    }
+  };
+
+  const handleCancelWorkOrder = async () => {
+    if (!cancelMotive.trim()) {
+      alert('⚠️ Ingresá el motivo de la cancelación');
+      return;
+    }
+    try {
+      setIsCancelling(true);
+      await workOrdersService.cancelWorkOrder(workOrder.id, cancelMotive.trim());
+      setShowCancelModal(false);
+      setCancelMotive('');
+      if (typeof onWorkOrderUpdated === 'function') {
+        onWorkOrderUpdated();
+      }
+      onClose?.();
+    } catch (err) {
+      console.error('Error cancelling work order:', err);
+      alert(err?.response?.data?.detail || 'Error al cancelar la OT');
+    } finally {
+      setIsCancelling(false);
     }
   };
 
@@ -1062,6 +1088,21 @@ export default function CoordinationSheet({
           </div>
         )}
 
+        {/* BOTÓN CANCELAR OT - Solo para OTs aún no coordinadas (período de gracia) */}
+        {!isHistoricalView && workOrder.status === 'pending_planning' && (
+          <div className="border-t border-zinc-800 py-4 mt-6 space-y-3">
+            <p className="text-xs text-zinc-400 font-medium">
+              ¿OT errónea o que ya no aplica? Cancelala (queda en historial).
+            </p>
+            <Button
+              onClick={() => setShowCancelModal(true)}
+              className="w-full bg-rose-700 hover:bg-rose-600 text-white"
+            >
+              🚫 Cancelar OT
+            </Button>
+          </div>
+        )}
+
         <CloseWorkOrderDialog
           workOrder={workOrder}
           isOpen={showCloseDialog}
@@ -1162,6 +1203,58 @@ export default function CoordinationSheet({
                   <Send size={16} className="mr-2" />
                   Confirmar Incompleta
                 </>
+              )}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* ========== MODAL: CANCELAR OT ========== */}
+      <Sheet open={showCancelModal} onOpenChange={setShowCancelModal}>
+        <SheetContent side="right" className="w-full sm:w-96 bg-zinc-900 border-l border-zinc-800">
+          <SheetHeader className="border-b border-zinc-800 pb-4 -mx-6 px-6 pt-4">
+            <SheetTitle className="text-lg text-white flex items-center gap-2">
+              <AlertTriangle size={20} className="text-rose-500" />
+              Cancelar OT #{workOrder?.id}
+            </SheetTitle>
+            <SheetDescription className="text-xs text-zinc-400">
+              La OT se anula (soft-cancel) y queda en historial para auditoría. No se borra.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="space-y-4 py-6">
+            <div>
+              <label className="text-sm font-medium text-white mb-2 block">Motivo:</label>
+              <textarea
+                value={cancelMotive}
+                onChange={(e) => setCancelMotive(e.target.value)}
+                disabled={isCancelling}
+                placeholder="Ej: OT duplicada, error de carga, trabajo ya no aplica..."
+                className="w-full h-24 rounded-lg bg-zinc-800 border border-zinc-700 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 disabled:opacity-50"
+              />
+            </div>
+          </div>
+
+          <SheetFooter className="border-t border-zinc-800 pt-4">
+            <Button
+              onClick={() => setShowCancelModal(false)}
+              disabled={isCancelling}
+              variant="outline"
+              className="flex-1 border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+            >
+              Volver
+            </Button>
+            <Button
+              onClick={handleCancelWorkOrder}
+              disabled={isCancelling || !cancelMotive.trim()}
+              className="flex-1 bg-rose-700 hover:bg-rose-600 text-white disabled:opacity-50"
+            >
+              {isCancelling ? (
+                <>
+                  <span className="animate-spin mr-2">⏳</span>Cancelando...
+                </>
+              ) : (
+                'Confirmar cancelación'
               )}
             </Button>
           </SheetFooter>

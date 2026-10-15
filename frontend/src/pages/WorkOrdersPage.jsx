@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
@@ -32,6 +32,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import CloseWorkOrderDialog from '@/components/work-orders/CloseWorkOrderDialog';
+import PendingWorkOrderUpdates from '@/components/work-orders/PendingWorkOrderUpdates';
 import VehicleInspectionDialog from '@/components/fleet/VehicleInspectionDialog';
 import {
   Table,
@@ -64,9 +65,13 @@ const STATUS_CONFIG = {
     label: 'Completada', 
     variant: 'bg-zinc-700/40 border-zinc-600 text-zinc-300',
   },
-  failed: { 
-    label: 'Fallida', 
+  failed: {
+    label: 'Fallida',
     variant: 'bg-rose-500/10 border-rose-500/30 text-rose-300',
+  },
+  cancelled: {
+    label: 'Cancelada',
+    variant: 'bg-zinc-700/40 border-zinc-600 text-zinc-400',
   },
 };
 
@@ -122,7 +127,8 @@ const WORK_ORDERS_GRID_DEFAULTS = {
   type: '',
   team: '',
   sortKey: 'date',
-  sortDir: 'asc',
+  sortDir: 'desc',
+  pageSize: 50,
 };
 
 export default function WorkOrdersPage() {
@@ -132,13 +138,13 @@ export default function WorkOrdersPage() {
 
   // Roles que ven columnas adicionales (Programada, Creada, Asignada)
   const canSeeAdminColumns = useMemo(
-    () => ['admin', 'coordinator', 'operator'].includes(role),
+    () => ['admin', 'coordinator', 'operator', 'tecnico_encargado'].includes(role),
     [role]
   );
 
-  // Roles que pueden filtrar por cuadrilla (solo admin y operator)
+  // Roles que pueden filtrar por cuadrilla (admin, operator y técnico encargado)
   const canFilterByTeam = useMemo(
-    () => ['admin', 'operator'].includes(role),
+    () => ['admin', 'operator', 'tecnico_encargado'].includes(role),
     [role]
   );
 
@@ -150,7 +156,14 @@ export default function WorkOrdersPage() {
   const [teamVehicle, setTeamVehicle] = useState(null);
 
   // State
-  const [workOrders, setWorkOrders] = useState([]);
+  // Lista completa (sin filtrar) cargada desde el backend. Los filtros se aplican
+  // de forma derivada (useMemo) para no refetchear en cada cambio de filtro.
+  const [allWorkOrders, setAllWorkOrders] = useState([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  // Guard contra respuestas "viejas" (evita que una fetch sin filtros pise a una filtrada).
+  const loadRequestIdRef = useRef(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -167,13 +180,14 @@ export default function WorkOrdersPage() {
   const [otTypes, setOtTypes] = useState([]);
 
   // Vista persistida por usuario (filtros + orden).
-  const [view, setView] = usePersistedViewState('work_orders.grid', WORK_ORDERS_GRID_DEFAULTS);
+  const [view, setView, hydrated] = usePersistedViewState('work_orders.grid', WORK_ORDERS_GRID_DEFAULTS);
   const searchQuery = view.search;
   const statusFilter = view.status;
   const typeFilter = view.type;
   const teamFilter = view.team;
   const sortKey = view.sortKey;
   const sortDir = view.sortDir;
+  const pageSize = view.pageSize;
 
   // Setters que escriben en la vista persistida (soportan updater funcional).
   const applyViewUpdate = (key) => (updater) =>
@@ -187,9 +201,15 @@ export default function WorkOrdersPage() {
   const setTeamFilter = applyViewUpdate('team');
   const setSortKey = applyViewUpdate('sortKey');
   const setSortDir = applyViewUpdate('sortDir');
+  const setPageSize = (v) => {
+    setView((prev) => ({ ...prev, pageSize: v }));
+    setCurrentPage(1);
+  };
 
   // Load data - BIFURCACIÓN POR ROL (NASA-GRADE)
   const loadWorkOrders = async () => {
+    const requestId = ++loadRequestIdRef.current;
+    const isStale = () => requestId !== loadRequestIdRef.current;
     try {
       setError(null);
 
@@ -216,7 +236,8 @@ export default function WorkOrdersPage() {
             setNeedsInspection(false);
             setTeamInfo(null);
             setTeamVehicle(null);
-            setWorkOrders(items);
+            if (isStale()) return;
+            setAllWorkOrders(items);
             return;
           }
 
@@ -269,70 +290,111 @@ export default function WorkOrdersPage() {
           setTeamVehicle(null);
         }
       } else {
-        // ========== ADMIN/COORDINADOR: Vista global ==========
-        const data = await workOrdersService.listWorkOrders({ limit: 100 });
-        items = data.items || [];
+        // ========== ADMIN/COORDINADOR: Vista global (paginada, filtros server-side) ==========
+        const offset = (currentPage - 1) * pageSize;
+        const params = {
+          limit: pageSize,
+          offset,
+          order_by: 'created_at',
+          order_dir: 'desc',
+        };
+        if (statusFilter) params.status = statusFilter;
+        if (typeFilter) params.ot_type = typeFilter;
+        if (debouncedSearchQuery.trim()) params.search = debouncedSearchQuery.trim();
+        if (teamFilter === 'unassigned') {
+          params.unassigned = true;
+        } else if (teamFilter === 'assigned') {
+          params.assigned = true;
+        } else if (teamFilter) {
+          params.team_id = Number(teamFilter);
+        }
 
-        // Extraer cuadrillas únicas (para el combo de filtro)
-        const uniqueTeams = Array.from(
-          new Set(items.filter((wo) => wo.team_name).map((wo) => wo.team_name))
-        ).sort();
-        setTeams(uniqueTeams);
+        const data = await workOrdersService.listWorkOrders(params);
+        if (isStale()) return;
+        items = Array.isArray(data?.items) ? data.items : [];
+        setTotalCount(Number(data?.total ?? 0));
 
         setPendingClosureOrders([]);
         setNeedsInspection(false);
         setAssignedVehicleId(null);
       }
 
-      // ========== Filtros cliente-side (consistentes para técnico y admin) ==========
-      let filtered = items;
-
-      if (searchQuery.trim()) {
-        const q = searchQuery.trim().toLowerCase();
-        filtered = filtered.filter(
-          (wo) =>
-            String(wo.id).includes(q) ||
-            (wo.client_name || '').toLowerCase().includes(q) ||
-            (wo.address || '').toLowerCase().includes(q)
-        );
-      }
-
-      if (statusFilter) {
-        filtered = filtered.filter((wo) => wo.status === statusFilter);
-      }
-
-      if (typeFilter) {
-        filtered = filtered.filter((wo) => wo.ot_type === typeFilter);
-      }
-
-      if (teamFilter === 'unassigned') {
-        filtered = filtered.filter((wo) => !wo.team_name && !wo.technician_name);
-      } else if (teamFilter === 'assigned') {
-        filtered = filtered.filter((wo) => !!wo.team_name || !!wo.technician_name);
-      } else if (teamFilter) {
-        filtered = filtered.filter((wo) => wo.team_name === teamFilter);
-      }
-
-      setWorkOrders(filtered);
+      if (isStale()) return;
+      setAllWorkOrders(items);
     } catch (err) {
+      if (isStale()) return;
       setError(err?.response?.data?.detail || err.message || 'Error al cargar OTs');
       console.error('Error loading work orders:', err);
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      if (!isStale()) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     }
   };
 
-  // Cargar tipos de OT desde la DB
+  // Derivación de filtros. Para técnicos se filtra client-side sobre la agenda del día
+  // (sin paginar). Para admin/coordinator los filtros ya vienen aplicados server-side.
+  const workOrders = useMemo(() => {
+    let filtered = allWorkOrders;
+
+    if (!isTechnician) return filtered;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      filtered = filtered.filter(
+        (wo) =>
+          String(wo.id).includes(q) ||
+          (wo.client_name || '').toLowerCase().includes(q) ||
+          (wo.address || '').toLowerCase().includes(q)
+      );
+    }
+
+    if (statusFilter) {
+      filtered = filtered.filter((wo) => wo.status === statusFilter);
+    }
+
+    if (typeFilter) {
+      filtered = filtered.filter((wo) => wo.ot_type === typeFilter);
+    }
+
+    if (teamFilter === 'unassigned') {
+      filtered = filtered.filter((wo) => !wo.team_name && !wo.technician_name);
+    } else if (teamFilter === 'assigned') {
+      filtered = filtered.filter((wo) => !!wo.team_name || !!wo.technician_name);
+    } else if (teamFilter) {
+      filtered = filtered.filter((wo) => wo.team_name === teamFilter);
+    }
+
+    return filtered;
+  }, [allWorkOrders, isTechnician, searchQuery, statusFilter, typeFilter, teamFilter]);
+
+  // Cargar tipos de OT y cuadrillas desde la DB
   useEffect(() => {
     workOrderTypesService.getWorkOrderTypes(false).then(setOtTypes).catch(() => {});
+    coordinationService
+      .getTeams({ active_only: true })
+      .then((data) => setTeams(Array.isArray(data) ? data : []))
+      .catch(() => {});
   }, []);
 
+  // Debounce de búsqueda (evita refetch en cada tecla).
   useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearchQuery(searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (!hydrated) return;
     setIsLoading(true);
     loadWorkOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isTechnician, statusFilter, typeFilter, searchQuery, teamFilter]);
+  }, [hydrated, isTechnician, user?.id, currentPage, pageSize, debouncedSearchQuery, statusFilter, typeFilter, teamFilter]);
+
+  // Al cambiar un filtro, volver a la primera página.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearchQuery, statusFilter, typeFilter, teamFilter]);
 
   // Formatear fecha
   const formatScheduledDate = (dateStr) => {
@@ -366,7 +428,7 @@ export default function WorkOrdersPage() {
       if (!ad && !bd) return 0;
       if (!ad) return 1;
       if (!bd) return -1;
-      return new Date(ad).getTime() - new Date(bd).getTime();
+      return new Date(bd).getTime() - new Date(ad).getTime();
     });
 
     const groups = [];
@@ -467,18 +529,21 @@ export default function WorkOrdersPage() {
           </p>
         </div>
 
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={() => {
-            setIsRefreshing(true);
-            loadWorkOrders();
-          }}
-          disabled={isRefreshing}
-          className="border-zinc-700 text-zinc-200 hover:bg-zinc-800"
-        >
-          <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
-        </Button>
+        <div className="flex items-center gap-2">
+          {canSeeAdminColumns && <PendingWorkOrderUpdates />}
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => {
+              setIsRefreshing(true);
+              loadWorkOrders();
+            }}
+            disabled={isRefreshing}
+            className="border-zinc-700 text-zinc-200 hover:bg-zinc-800"
+          >
+            <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
+          </Button>
+        </div>
       </div>
 
       {/* Team Info Card - Solo para técnicos */}
@@ -637,7 +702,7 @@ export default function WorkOrdersPage() {
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar por ID, cliente o dirección..."
+              placeholder="Buscar por ID o asunto..."
               className="pl-9 bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500 h-9"
             />
           </div>
@@ -655,6 +720,7 @@ export default function WorkOrdersPage() {
             <option value="pending_closure">Pendiente Cierre</option>
             <option value="completed">Completada</option>
             <option value="failed">Fallida</option>
+            <option value="cancelled">Cancelada</option>
           </select>
 
           {/* Tipo */}
@@ -681,8 +747,8 @@ export default function WorkOrdersPage() {
               <option value="assigned">Asignada</option>
               {teams.length > 0 && <option disabled>─────────────</option>}
               {teams.map((team) => (
-                <option key={team} value={team}>
-                  {team}
+                <option key={team.id} value={String(team.id)}>
+                  {team.name}
                 </option>
               ))}
             </select>
@@ -690,8 +756,47 @@ export default function WorkOrdersPage() {
 
         </div>
 
-        <div className="flex items-center justify-between text-xs text-zinc-500 pt-2 border-t border-zinc-800">
-          <span>{workOrders.length} órdenes encontradas</span>
+        <div className="flex items-center justify-between text-xs text-zinc-500 pt-2 border-t border-zinc-800 gap-3 flex-wrap">
+          <span>
+            {isTechnician
+              ? `${workOrders.length} órdenes`
+              : `Mostrando ${totalCount === 0 ? 0 : (currentPage - 1) * pageSize + 1}-${Math.min(currentPage * pageSize, totalCount)} de ${totalCount} órdenes`}
+          </span>
+
+          {!isTechnician && (
+            <div className="flex items-center gap-2">
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-200"
+              >
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-2 py-1 rounded border border-zinc-700 text-zinc-300 hover:text-white disabled:opacity-30"
+              >
+                Anterior
+              </button>
+              <span>
+                Página {currentPage} de {Math.max(1, Math.ceil(totalCount / pageSize))}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(Math.ceil(totalCount / pageSize), p + 1))}
+                disabled={currentPage >= Math.ceil(totalCount / pageSize)}
+                className="px-2 py-1 rounded border border-zinc-700 text-zinc-300 hover:text-white disabled:opacity-30"
+              >
+                Siguiente
+              </button>
+            </div>
+          )}
+
           <span>Click en una fila para abrir</span>
         </div>
 

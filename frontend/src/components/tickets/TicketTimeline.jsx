@@ -49,6 +49,7 @@ function TimelineEventCard({ event }) {
     'in_progress': 'bg-amber-600 text-amber-100',
     'completed': 'bg-emerald-600 text-emerald-100',
     'failed': 'bg-red-600 text-red-100',
+    'cancelled': 'bg-zinc-700 text-zinc-300',
     'backlog': 'bg-zinc-700 text-zinc-200',
     'testing': 'bg-gold-700 text-gold-100',
     'rejected': 'bg-ruby-700 text-ruby-100',
@@ -61,6 +62,7 @@ function TimelineEventCard({ event }) {
       'in_progress': 'En progreso',
       'completed': 'Completada',
       'failed': 'Fallida',
+      'cancelled': 'Cancelada',
       'backlog': 'Backlog',
       'testing': 'Testing',
       'rejected': 'Rechazada',
@@ -113,7 +115,7 @@ function TimelineEventCard({ event }) {
   // Si es evento de OT, renderizar como Card clickeable con status dinámico
   if ((event.event_type || '').toLowerCase() === 'ot_event' && event.meta_data?.work_order_id) {
     // Usar el status ACTUAL si está disponible (desde backend), sino fallback al contenido
-    const currentStatus = event.meta_data?.current_status || 'pending_planning';
+    const currentStatus = event.meta_data?.current_status || event.meta_data?.status || event.meta_data?.new_status || 'pending_planning';
     const statusColor = statusColorMap[currentStatus] || 'bg-zinc-600 text-zinc-100';
     const teamInfo = event.meta_data?.team_name ? ` · ${event.meta_data.team_name}` : '';
     const scheduleInfo = event.meta_data?.scheduled_start

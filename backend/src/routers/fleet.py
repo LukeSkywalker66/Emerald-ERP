@@ -115,6 +115,7 @@ def create_vehicle(
         status=vehicle.status,
         warehouse_id=vehicle.warehouse_id,
         warehouse_name=warehouse.name,
+        team_name=vehicle.team_name,
         created_at=vehicle.created_at,
         updated_at=vehicle.updated_at,
     )
@@ -296,6 +297,7 @@ def update_vehicle(
         status=vehicle.status,
         warehouse_id=vehicle.warehouse_id,
         warehouse_name=vehicle.warehouse.name,
+        team_name=vehicle.team_name,
         created_at=vehicle.created_at,
         updated_at=vehicle.updated_at,
     )

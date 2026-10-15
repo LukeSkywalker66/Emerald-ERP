@@ -22,8 +22,18 @@ class BarcodeGeneratorService:
     """Genera códigos CODE128 y crea SerialItem para unidades trazables."""
 
     def _infer_prefix(self, product: Product) -> str:
-        haystack = f"{product.name or ''} {product.sku or ''}".upper()
+        # 1. Prefijo explícito configurado en el producto (toma precedencia).
+        if product.barcode_prefix and product.barcode_prefix.strip():
+            return product.barcode_prefix.strip().upper()[:4]
 
+        # 2. Derivación coherente desde grupo/nombre/SKU.
+        group_name = (product.group.name if product.group else "") or ""
+        haystack = f"{group_name} {product.name or ''} {product.sku or ''}".upper()
+
+        if "ONT" in haystack or "ONU" in haystack:
+            return "ONT"
+        if "ROUTER" in haystack:
+            return "RTR"
         if "DROP" in haystack:
             return "DRP"
         if "FIBRA" in haystack or "FIBER" in haystack:
@@ -33,7 +43,9 @@ class BarcodeGeneratorService:
         if "CONECTOR" in haystack:
             return "CNT"
 
-        return "TRK"
+        # 3. Fallback: primeras letras del SKU (nunca un TRK fijo).
+        sku_clean = "".join(ch for ch in (product.sku or "") if ch.isalnum()).upper()
+        return (sku_clean[:3] or "TRK").ljust(3, "X")
 
     def _reserve_codes(self, prefix: str, year: int, count: int, db: Session) -> List[str]:
         # Bloqueo explícito por fila para secuencia prefix+year sin depender de joins ORM.

@@ -14,6 +14,7 @@ import {
   SerialScanner,
   ScannedSerialsList,
 } from '@/components/barcode-reader';
+import ProductPicker from '@/components/inventory/ProductPicker';
 import { useDeliveryScanner } from '@/hooks/useDeliveryScanner';
 
 const STEPS = [
@@ -966,6 +967,28 @@ export default function MaterialDeliveryWizard() {
                 <CheckCircle className="w-4 h-4 mr-1" /> Completo
               </span>
             )}
+          </div>
+
+          {/* Ingreso manual: buscar item disponible */}
+          <div className="bg-zinc-800/30 rounded-lg p-4">
+            <p className="text-sm font-medium text-zinc-300 mb-2">
+              Ingreso manual
+            </p>
+            <ProductPicker
+              warehouseId={selectedFromWarehouse || null}
+              onSelect={(item) => {
+                if (item?.kind === 'serial' && item.serial_number) {
+                  deliveryScanner.resolveScan(item.serial_number);
+                } else if (item?.product_sku) {
+                  deliveryScanner.resolveScan(item.product_sku);
+                }
+              }}
+              placeholder="Buscar item (SN, nombre, grupo o SKU)..."
+            />
+            <p className="text-xs text-zinc-500 mt-2">
+              Seleccioná el item puntual a cargar. Si es serializado, se agregará ese serial;
+              si es a granel, se agregará una unidad.
+            </p>
           </div>
 
           {/* Proposal items tracking — con conteo X de Y */}

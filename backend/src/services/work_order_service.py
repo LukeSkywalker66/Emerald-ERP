@@ -47,7 +47,7 @@ def _resolve_operational_instruction(
         if isinstance(candidate, str) and candidate.strip():
             return candidate.strip()
 
-    raise ValueError("La instruccion operativa de la OT es obligatoria")
+    return ""
 
 
 def create_work_order_for_ticket(
@@ -78,6 +78,12 @@ def create_work_order_for_ticket(
         description=description,
         notes=notes,
     )
+    if not instruction:
+        instruction = (
+            (ticket.description or "").strip()
+            or (getattr(ticket, "subject", "") or "").strip()
+            or f"Trabajo sobre el ticket #{ticket.id}"
+        )
 
     ticket_custom_data = dict(getattr(ticket, "custom_data", {}) or {})
 

@@ -189,6 +189,7 @@ function WorkOrderCard({ workOrder }) {
     in_progress: { icon: Loader, color: 'text-emerald-400', bg: 'bg-emerald-950/30', label: 'En curso' },
     completed: { icon: CheckCircle, color: 'text-emerald-400', bg: 'bg-emerald-950/30', label: 'Completada' },
     failed: { icon: AlertTriangle, color: 'text-ruby-400', bg: 'bg-ruby-950/30', label: 'Fallida' },
+    cancelled: { icon: AlertCircle, color: 'text-zinc-400', bg: 'bg-zinc-900/40', label: 'Cancelada' },
   };
 
   const statusInfo = statusIcons[workOrder.status] || statusIcons.pending_planning;
@@ -264,13 +265,14 @@ function TimelineItem({ event, index }) {
     const id = isNoc ? event.meta_data.engineering_task_id : event.meta_data.work_order_id;
     const status = isNoc
       ? (event.meta_data.engineering_task_status || 'backlog')
-      : (event.meta_data.status || event.meta_data.current_status || event.meta_data.work_order_status || 'pending_planning');
+      : (event.meta_data.status || event.meta_data.current_status || event.meta_data.work_order_status || event.meta_data.new_status || 'pending_planning');
     const statusColorMap = {
       'pending_planning': 'bg-zinc-600 text-zinc-100',
       'assigned': 'bg-blue-600 text-blue-100',
       'in_progress': 'bg-amber-600 text-amber-100',
       'completed': 'bg-emerald-600 text-emerald-100',
       'failed': 'bg-red-600 text-red-100',
+      'cancelled': 'bg-zinc-700 text-zinc-300',
       'backlog': 'bg-zinc-700 text-zinc-200',
       'testing': 'bg-gold-700 text-gold-100',
       'rejected': 'bg-ruby-700 text-ruby-100',
@@ -283,6 +285,7 @@ function TimelineItem({ event, index }) {
         'in_progress': 'En progreso',
         'completed': 'Completada',
         'failed': 'Fallida',
+        'cancelled': 'Cancelada',
         'backlog': 'Backlog',
         'testing': 'Testing',
         'rejected': 'Rechazada',
@@ -984,8 +987,14 @@ export default function TicketDetailPage() {
       setParseSuccess('');
       await loadTicket();
     } catch (err) {
-      setError(err.message || 'Error al crear OT');
-      console.error('Error creating work order:', err);
+      const detail = err.response?.data?.detail;
+      const msg = typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail)
+          ? detail.map((e) => e.msg || String(e)).join('; ')
+          : (err.message || 'Error al crear OT');
+      setError(msg);
+      console.error('Error creating work order:', err, detail);
     } finally {
       setIsSubmittingWO(false);
     }

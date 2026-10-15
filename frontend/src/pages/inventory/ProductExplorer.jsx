@@ -8,8 +8,10 @@ import {
   ChevronLeft,
   ChevronRight,
   ArrowUpDown,
+  X,
 } from 'lucide-react';
 import {
+  getProductDetail,
   getProductsAnalytics,
   getProductGroups,
   getWarehouses,
@@ -32,6 +34,27 @@ const TYPE_OPTIONS = [
   { value: 'BULK', label: 'BULK' },
   { value: 'SERIALIZED', label: 'SERIALIZED' },
 ];
+
+// Traducciones para el detalle de producto (la UI no debe mostrar inglés).
+const SERIAL_STATUS_LABELS = {
+  NEW: 'Disponible',
+  IN_VEHICLE: 'En móvil',
+  INSTALLED: 'Instalado',
+  DEFECTIVE: 'Defectuoso',
+  DAMAGED: 'Dañado',
+  DECOMMISSIONED: 'Baja',
+  SOLD: 'Vendido',
+};
+
+const MOVEMENT_TYPE_LABELS = {
+  PURCHASE: 'Compra',
+  TRANSFER: 'Transferencia',
+  CONSUMPTION: 'Consumo',
+  RECOVERY: 'Recupero',
+  ADJUSTMENT: 'Ajuste',
+  SALE: 'Venta',
+  SALE_RETURN: 'Devolución de venta',
+};
 
 const LIMIT = 50;
 
@@ -70,6 +93,31 @@ export default function ProductExplorer() {
   const [orderBy, setOrderBy] = useState('name');
   const [orderDir, setOrderDir] = useState('asc');
   const [page, setPage] = useState(0);
+
+  // Detalle de producto (drawer/modal)
+  const [detail, setDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState(null);
+
+  const openDetail = async (productId) => {
+    setDetailLoading(true);
+    setDetailError(null);
+    setDetail(null);
+    try {
+      const data = await getProductDetail(productId);
+      setDetail(data);
+    } catch (err) {
+      console.error('Error loading product detail:', err);
+      setDetailError('No se pudo cargar el detalle del producto.');
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const closeDetail = () => {
+    setDetail(null);
+    setDetailError(null);
+  };
 
   const loadOptions = useCallback(async () => {
     try {
@@ -304,7 +352,11 @@ export default function ProductExplorer() {
                 {items.map((p) => {
                   const available = p.bulk_in_stock + p.serial_new + p.serial_in_vehicle;
                   return (
-                    <tr key={p.id} className="hover:bg-zinc-800/40 transition-colors">
+                    <tr
+                      key={p.id}
+                      onClick={() => openDetail(p.id)}
+                      className="hover:bg-zinc-800/40 transition-colors cursor-pointer"
+                    >
                       <td className="px-3 py-2.5">
                         <p className="text-white font-medium">{p.name}</p>
                         <p className="text-xs text-zinc-500 font-mono">{p.sku}</p>
@@ -361,6 +413,150 @@ export default function ProductExplorer() {
           </div>
         )}
       </div>
+
+      {/* Detalle de producto (modal) */}
+      {(detail || detailLoading) && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-lg max-w-3xl w-full my-8 shadow-2xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-zinc-800 flex-shrink-0">
+              <h2 className="text-xl font-bold text-emerald-400">
+                {detailLoading ? 'Cargando detalle...' : detail?.product?.name || 'Detalle del producto'}
+              </h2>
+              <button onClick={closeDetail} className="text-zinc-400 hover:text-white transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-5 space-y-5">
+              {detailError && (
+                <div className="p-3 rounded border border-rose-700/50 bg-rose-950/30 text-rose-300 text-sm flex gap-2">
+                  <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+                  <span>{detailError}</span>
+                </div>
+              )}
+
+              {detailLoading && (
+                <div className="flex items-center justify-center py-16">
+                  <Loader size={20} className="animate-spin text-emerald-400" />
+                </div>
+              )}
+
+              {detail && !detailLoading && (
+                <>
+                  <section className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                    <div><span className="text-zinc-500">SKU:</span> <code className="text-zinc-200">{detail.product.sku}</code></div>
+                    <div>
+                      <span className="text-zinc-500">Tipo:</span>{' '}
+                      <span className="text-zinc-200">
+                        {detail.product.type === 'SERIALIZED'
+                          ? 'Serializado'
+                          : detail.product.type === 'BULK'
+                          ? 'A granel'
+                          : detail.product.type}
+                      </span>
+                    </div>
+                    <div><span className="text-zinc-500">Grupo:</span> <span className="text-zinc-200">{detail.product.group_name || '—'}</span></div>
+                    <div><span className="text-zinc-500">Categoría:</span> <span className="text-zinc-200">{detail.product.category || '—'}</span></div>
+                    {detail.product.is_composite && (
+                      <>
+                        <div><span className="text-zinc-500">Unidad compuesta:</span> <span className="text-zinc-200">{detail.product.composite_unit_label || '—'}</span></div>
+                        <div><span className="text-zinc-500">Tamaño:</span> <span className="text-zinc-200">{detail.product.unit_size} {detail.product.unit_measure}</span></div>
+                      </>
+                    )}
+                    {detail.product.barcode_prefix && (
+                      <div><span className="text-zinc-500">Prefijo código:</span> <span className="text-zinc-200 font-mono">{detail.product.barcode_prefix}</span></div>
+                    )}
+                    {detail.product.type === 'BULK' && !detail.product.is_composite && (
+                      <div><span className="text-zinc-500">Stock a granel:</span> <span className="text-zinc-200">{detail.bulk_in_stock}</span></div>
+                    )}
+                    <div>
+                      <span className="text-zinc-500">Fecha de compra:</span>{' '}
+                      <span className="text-zinc-200">
+                        {detail.purchase_date ? new Date(detail.purchase_date).toLocaleDateString('es-AR') : '—'}
+                      </span>
+                    </div>
+                  </section>
+
+                  <section>
+                    <h3 className="text-sm font-semibold text-zinc-300 mb-2">Seriales por estado</h3>
+                    {Object.keys(detail.serial_summary || {}).length === 0 ? (
+                      <p className="text-xs text-zinc-500">Sin seriales registrados.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {Object.entries(detail.serial_summary).map(([status, count]) => (
+                          <span key={status} className="text-xs px-2 py-1 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">
+                            {SERIAL_STATUS_LABELS[status] || status}: {count}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+
+                  {Array.isArray(detail.serial_items) && detail.serial_items.length > 0 && (
+                    <section>
+                      <h3 className="text-sm font-semibold text-zinc-300 mb-2">Seriales ({detail.serial_items.length})</h3>
+                      <div className="overflow-x-auto rounded border border-zinc-800">
+                        <table className="w-full text-xs">
+                          <thead className="bg-zinc-900 text-zinc-400 uppercase">
+                            <tr>
+                              <th className="px-3 py-2 text-left">Serial</th>
+                              <th className="px-3 py-2 text-left">Estado</th>
+                              <th className="px-3 py-2 text-left">Ubicación</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-zinc-800/70">
+                            {detail.serial_items.map((s) => (
+                              <tr key={s.id}>
+                                <td className="px-3 py-2 font-mono text-emerald-300">{s.serial_number}</td>
+                                <td className="px-3 py-2 text-zinc-300">{SERIAL_STATUS_LABELS[s.status] || s.status}</td>
+                                <td className="px-3 py-2 text-zinc-400">{s.warehouse_name || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                  )}
+
+                  {Array.isArray(detail.movements) && detail.movements.length > 0 && (
+                    <section>
+                      <h3 className="text-sm font-semibold text-zinc-300 mb-2">Historial de movimientos</h3>
+                      <div className="overflow-x-auto rounded border border-zinc-800">
+                        <table className="w-full text-xs">
+                          <thead className="bg-zinc-900 text-zinc-400 uppercase">
+                            <tr>
+                              <th className="px-3 py-2 text-left">Fecha</th>
+                              <th className="px-3 py-2 text-left">Tipo</th>
+                              <th className="px-3 py-2 text-left">Origen → Destino</th>
+                              <th className="px-3 py-2 text-left">Cant.</th>
+                              <th className="px-3 py-2 text-left">Serial</th>
+                              <th className="px-3 py-2 text-left">Ref.</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-zinc-800/70">
+                            {detail.movements.map((m) => (
+                              <tr key={m.id}>
+                                <td className="px-3 py-2 text-zinc-400">{m.date ? new Date(m.date).toLocaleString('es-AR') : '—'}</td>
+                                <td className="px-3 py-2 text-zinc-300">{MOVEMENT_TYPE_LABELS[m.movement_type] || m.movement_type}</td>
+                                <td className="px-3 py-2 text-zinc-400">
+                                  {m.from_warehouse_name || '—'} → {m.to_warehouse_name || '—'}
+                                </td>
+                                <td className="px-3 py-2 text-zinc-300">{m.quantity}</td>
+                                <td className="px-3 py-2 font-mono text-emerald-300">{m.serial_number || '—'}</td>
+                                <td className="px-3 py-2 text-zinc-500">{m.reference || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -63,6 +63,23 @@ class Sale(Base):
         nullable=True,
         comment="Texto libre: nombre/DNI del comprador, comprobante externo, etc."
     )
+    customer_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("clientes.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Cliente vinculado (clientes) si el comprador está registrado"
+    )
+    customer_dni: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True,
+        comment="Snapshot del DNI/CUIT del comprador"
+    )
+    customer_name: Mapped[Optional[str]] = mapped_column(
+        String(200),
+        nullable=True,
+        comment="Snapshot del nombre del comprador"
+    )
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     seller_user_id: Mapped[Optional[int]] = mapped_column(
         Integer,

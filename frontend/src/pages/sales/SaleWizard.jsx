@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader, Plus, ShoppingCart, Trash2 } from 'lucide-react';
+import { ArrowLeft, Loader, Plus, ShoppingCart, Trash2, X } from 'lucide-react';
 import api from '@/api/client';
 import BarcodeScanner from '@/components/barcode-reader/BarcodeScanner';
+import ProductPicker from '@/components/inventory/ProductPicker';
 import * as inventoryService from '@/services/inventory.service';
-import { confirmSale, createSale } from '@/services/sales.service';
+import { confirmSale, createSale, searchCustomers } from '@/services/sales.service';
 
 const PRODUCT_TYPES = {
   SERIALIZED: { label: 'Serializado', cls: 'text-purple-300' },
@@ -24,6 +25,13 @@ export default function SaleWizard() {
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState([]);
+
+  // Cliente / DNI dinámico
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [customerResults, setCustomerResults] = useState([]);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [customerLoading, setCustomerLoading] = useState(false);
+  const [customerOpen, setCustomerOpen] = useState(false);
 
   // Formulario de línea
   const [lineProductId, setLineProductId] = useState('');
@@ -57,6 +65,43 @@ export default function SaleWizard() {
     load();
   }, []);
 
+  // Búsqueda dinámica de cliente por DNI/nombre (debounce 300ms).
+  useEffect(() => {
+    const q = customerQuery.trim();
+    if (q.length < 2) {
+      setCustomerResults([]);
+      setCustomerOpen(false);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setCustomerLoading(true);
+      try {
+        const data = await searchCustomers(q);
+        setCustomerResults(Array.isArray(data) ? data : []);
+        setCustomerOpen(true);
+      } catch {
+        setCustomerResults([]);
+      } finally {
+        setCustomerLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [customerQuery]);
+
+  const selectCustomer = (c) => {
+    setSelectedCustomer(c);
+    setCustomerQuery(c.doc_number || c.name || '');
+    setCustomerResults([]);
+    setCustomerOpen(false);
+  };
+
+  const clearCustomer = () => {
+    setSelectedCustomer(null);
+    setCustomerQuery('');
+    setCustomerResults([]);
+    setCustomerOpen(false);
+  };
+
   const selectedLineProduct = useMemo(
     () => products.find((p) => String(p.id) === String(lineProductId)),
     [products, lineProductId]
@@ -87,6 +132,33 @@ export default function SaleWizard() {
     setLineProductId('');
     setLineQuantity('1');
     setLineSerial('');
+    setError(null);
+  };
+
+  // Selección de item vía ProductPicker (serial individual o producto bulk).
+  const handleProductSelect = (item) => {
+    if (!item) return;
+    const product = {
+      id: item.product_id,
+      name: item.product_name,
+      sku: item.product_sku,
+      type: item.product_type || (item.kind === 'serial' ? 'SERIALIZED' : 'BULK'),
+      is_composite: item.is_composite,
+      unit_measure: item.unit_measure,
+      composite_unit_label: item.composite_unit_label,
+      unit_size: item.unit_size,
+    };
+    setProducts((prev) => {
+      const exists = prev.some((p) => String(p.id) === String(product.id));
+      return exists ? prev : [...prev, product];
+    });
+    setLineProductId(String(product.id));
+    if (item.kind === 'serial' && item.serial_number) {
+      setLineSerial(item.serial_number);
+    } else {
+      setLineSerial('');
+    }
+    setLineQuantity('1');
     setError(null);
   };
 
@@ -146,6 +218,7 @@ export default function SaleWizard() {
       const draft = await createSale({
         warehouse_id: Number(warehouseId),
         reference: reference.trim() || null,
+        customer_id: selectedCustomer?.id ?? null,
         notes: notes.trim() || null,
         items: items.map((it) => ({
           product_id: it.product_id,
@@ -205,12 +278,74 @@ export default function SaleWizard() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-zinc-300 mb-2">Referencia (comprador, comprobante externo)</label>
+                <label className="block text-sm font-medium text-zinc-300 mb-2">
+                  DNI/CUIT del comprador
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={customerQuery}
+                    onChange={(e) => {
+                      setCustomerQuery(e.target.value);
+                      setSelectedCustomer(null);
+                    }}
+                    onFocus={() => customerQuery.trim().length >= 2 && customerResults.length > 0 && setCustomerOpen(true)}
+                    placeholder="Buscar cliente por DNI o nombre (opcional)..."
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm pr-8"
+                  />
+                  {customerLoading && (
+                    <Loader size={14} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-emerald-400" />
+                  )}
+                  {selectedCustomer && !customerLoading && (
+                    <button
+                      type="button"
+                      onClick={clearCustomer}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
+                      title="Quitar cliente"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+
+                {customerOpen && customerResults.length > 0 && (
+                  <div className="mt-1 bg-zinc-900 border border-zinc-700 rounded-lg max-h-48 overflow-y-auto z-10">
+                    {customerResults.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => selectCustomer(c)}
+                        className="w-full text-left px-3 py-2 hover:bg-zinc-800 text-sm border-b border-zinc-800/50 last:border-b-0"
+                      >
+                        <p className="text-white font-medium">{c.name}</p>
+                        <p className="text-xs text-zinc-400">
+                          {c.doc_number ? `DNI: ${c.doc_number}` : 'Sin DNI'}
+                          {c.address ? ` · ${c.address}` : ''}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {selectedCustomer ? (
+                  <p className="mt-1 text-xs text-emerald-300">
+                    Cliente identificado: {selectedCustomer.name}
+                    {selectedCustomer.doc_number ? ` (${selectedCustomer.doc_number})` : ''}
+                  </p>
+                ) : customerQuery.trim().length >= 2 ? (
+                  <p className="mt-1 text-xs text-amber-300">
+                    Consumidor final / no registrado. Verificá los dígitos si creés que el cliente ya existe.
+                  </p>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-2">Referencia (comprobante externo)</label>
                 <input
                   type="text"
                   value={reference}
                   onChange={(e) => setReference(e.target.value)}
-                  placeholder="Ej: Consumidor final - DNI 30123456"
+                  placeholder="Ej: Factura B 0001-12345678"
                   className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
                 />
               </div>
@@ -239,18 +374,13 @@ export default function SaleWizard() {
               />
 
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-3 mt-3">
-                <select
-                  value={lineProductId}
-                  onChange={(e) => setLineProductId(e.target.value)}
-                  className="sm:col-span-2 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
-                >
-                  <option value="">Producto...</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.sku})
-                    </option>
-                  ))}
-                </select>
+                <div className="sm:col-span-2">
+                  <ProductPicker
+                    warehouseId={warehouseId || null}
+                    onSelect={handleProductSelect}
+                    placeholder="Buscar producto (nombre, grupo, SN o SKU)..."
+                  />
+                </div>
 
                 {selectedLineProduct?.type !== 'SERIALIZED' ? (
                   <input

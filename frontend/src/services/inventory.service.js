@@ -83,6 +83,7 @@ export const getMyWarehouse = async (userId) => {
 export const createWarehouse = async (payload) => {
   try {
     const { data } = await api.post(`${BASE_URL}/warehouses`, payload);
+    _invalidateCaches();
     return data;
   } catch (error) {
     console.error('❌ Error creating warehouse:', error);
@@ -99,6 +100,7 @@ export const createWarehouse = async (payload) => {
 export const updateWarehouse = async (warehouseId, payload) => {
   try {
     const { data } = await api.put(`${BASE_URL}/warehouses/${warehouseId}`, payload);
+    _invalidateCaches();
     return data;
   } catch (error) {
     console.error(`❌ Error updating warehouse ${warehouseId}:`, error);
@@ -115,6 +117,7 @@ export const updateWarehouse = async (warehouseId, payload) => {
 export const deleteWarehouse = async (warehouseId) => {
   try {
     await api.delete(`${BASE_URL}/warehouses/${warehouseId}`);
+    _invalidateCaches();
   } catch (error) {
     console.error(`❌ Error deleting warehouse ${warehouseId}:`, error);
     throw error;
@@ -170,6 +173,24 @@ export const getProducts = async (filters = {}) => {
 };
 
 /**
+ * Búsqueda liviana de productos para pickers/combo.
+ * Matchea por nombre, grupo, SN o SKU y, opcionalmente, devuelve
+ * disponibilidad en un depósito (CENTRAL/AUXILIAR).
+ *
+ * @param {Object} filters - { q, warehouse_id?, type?, limit? }
+ * @returns {Promise<Array>} Array de productos con barcode_label y has_serial
+ */
+export const searchProducts = async (filters = {}) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/products/search`, { params: filters });
+    return data || [];
+  } catch (error) {
+    console.error('❌ Error searching products:', error);
+    throw error;
+  }
+};
+
+/**
  * Analítica de productos para el Product Explorer.
  * Devuelve métricas agregadas de stock y flujo (en stock, comprado, consumido,
  * transferido, instalados, defectuosos) con filtros server-side.
@@ -178,6 +199,26 @@ export const getProducts = async (filters = {}) => {
  *                             flow, below_min_stock, order_by, order_dir, limit, offset }
  * @returns {Promise<Array>} Array de productos con métricas agregadas
  */
+export const getProductDetail = async (productId) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/products/${productId}/detail`);
+    return data;
+  } catch (error) {
+    console.error(`❌ Error fetching product detail ${productId}:`, error);
+    throw error;
+  }
+};
+
+export const searchAvailableStock = async (filters = {}) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/stock/available-search`, { params: filters });
+    return data || [];
+  } catch (error) {
+    console.error('❌ Error searching available stock:', error);
+    throw error;
+  }
+};
+
 export const getProductsAnalytics = async (filters = {}) => {
   try {
     const { data } = await api.get(`${BASE_URL}/products/analytics`, { params: filters });
@@ -213,6 +254,7 @@ export const getProductCategories = async (activeOnly = true) => {
 export const createProduct = async (payload) => {
   try {
     const { data } = await api.post(`${BASE_URL}/products`, payload);
+    _invalidateCaches();
     return data;
   } catch (error) {
     console.error('❌ Error creating product:', error);
@@ -230,6 +272,7 @@ export const createProduct = async (payload) => {
 export const updateProduct = async (productId, payload) => {
   try {
     const { data } = await api.put(`${BASE_URL}/products/${productId}`, payload);
+    _invalidateCaches();
     return data;
   } catch (error) {
     console.error(`❌ Error updating product ${productId}:`, error);
@@ -246,6 +289,7 @@ export const updateProduct = async (productId, payload) => {
 export const deleteProduct = async (productId) => {
   try {
     await api.delete(`${BASE_URL}/products/${productId}`);
+    _invalidateCaches();
   } catch (error) {
     console.error(`❌ Error deleting product ${productId}:`, error);
     throw error;
@@ -302,6 +346,72 @@ export const adjustStock = async (payload) => {
     return data;
   } catch (error) {
     console.error('❌ Error adjusting stock:', error);
+    throw error;
+  }
+};
+
+// ============================================
+// RECONCILIACIÓN (P1)
+// ============================================
+
+/**
+ * Buscar un SerialItem por su número de serie.
+ * @param {string} serialNumber
+ * @returns {Promise<Object>} SerialItem con product_name/warehouse_name
+ */
+export const searchSerialItem = async (serialNumber) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/serial-items/search`, {
+      params: { serial_number: serialNumber },
+    });
+    return data;
+  } catch (error) {
+    console.error('❌ Error searching serial item:', error);
+    throw error;
+  }
+};
+
+/**
+ * Reconciliar un SerialItem (status/warehouse/connection) con motivo obligatorio.
+ * @param {number} serialItemId
+ * @param {Object} payload - { status?, warehouse_id?, connection_id?, clear_connection?, motive, reference? }
+ * @returns {Promise<Object>} SerialItem actualizado
+ */
+export const reconcileSerialItem = async (serialItemId, payload) => {
+  try {
+    const { data } = await api.post(`${BASE_URL}/serial-items/${serialItemId}/reconcile`, payload);
+    return data;
+  } catch (error) {
+    console.error('❌ Error reconciling serial item:', error);
+    throw error;
+  }
+};
+
+/**
+ * Corregir stock BULK con delta con signo y motivo obligatorio.
+ * @param {Object} payload - { product_id, warehouse_id, quantity_delta, motive, reference? }
+ * @returns {Promise<Object>} { success, previous_quantity, new_quantity, message }
+ */
+export const reconcileStockBulk = async (payload) => {
+  try {
+    const { data } = await api.post(`${BASE_URL}/stock-bulk/reconcile`, payload);
+    return data;
+  } catch (error) {
+    console.error('❌ Error reconciling bulk stock:', error);
+    throw error;
+  }
+};
+
+/**
+ * Obtener discrepancias de inventario (P4 - detección temprana).
+ * @returns {Promise<Array>} [{ type, severity, message, serial_item_id?, serial_number?, connection_id?, warehouse_id? }]
+ */
+export const getInventoryDiscrepancies = async () => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/discrepancies`);
+    return data || [];
+  } catch (error) {
+    console.error('❌ Error fetching inventory discrepancies:', error);
     throw error;
   }
 };
@@ -411,6 +521,7 @@ export const getProductGroups = async (activeOnly = true) => {
 export const createProductGroup = async (payload) => {
   try {
     const { data } = await api.post(`${BASE_URL}/product-groups`, payload);
+    _invalidateCaches();
     return data;
   } catch (error) {
     console.error('❌ Error creating product group:', error);
@@ -427,6 +538,7 @@ export const createProductGroup = async (payload) => {
 export const updateProductGroup = async (groupId, payload) => {
   try {
     const { data } = await api.put(`${BASE_URL}/product-groups/${groupId}`, payload);
+    _invalidateCaches();
     return data;
   } catch (error) {
     console.error(`❌ Error updating product group ${groupId}:`, error);
@@ -441,6 +553,7 @@ export const updateProductGroup = async (groupId, payload) => {
 export const deleteProductGroup = async (groupId) => {
   try {
     await api.delete(`${BASE_URL}/product-groups/${groupId}`);
+    _invalidateCaches();
   } catch (error) {
     console.error(`❌ Error deleting product group ${groupId}:`, error);
     throw error;
@@ -572,6 +685,9 @@ export default {
   
   // Products
   getProducts,
+  searchProducts,
+  searchAvailableStock,
+  getProductDetail,
   createProduct,
   
   // Serial Items
@@ -580,6 +696,12 @@ export default {
   // Operations
   transferStock,
   adjustStock,
+
+  // Reconciliación (P1)
+  searchSerialItem,
+  reconcileSerialItem,
+  reconcileStockBulk,
+  getInventoryDiscrepancies,
   
   // Movements
   getMovements,

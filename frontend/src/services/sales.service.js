@@ -9,6 +9,20 @@ const BASE_URL = '/v2/sales';
  * Listar ventas.
  * @param {Object} filters - { status?, limit?, offset? }
  */
+export const searchCustomers = async (q, limit = 10) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/customer-search`, { params: { q, limit } });
+    return data || [];
+  } catch (error) {
+    console.error('❌ Error searching customers:', error);
+    throw error;
+  }
+};
+
+/**
+ * Listar ventas.
+ * @param {Object} filters - { status?, limit?, offset? }
+ */
 export const listSales = async (filters = {}) => {
   try {
     const { data } = await api.get(`${BASE_URL}`, { params: filters });
@@ -76,6 +90,7 @@ export const cancelSale = async (saleId) => {
 };
 
 export default {
+  searchCustomers,
   listSales,
   getSale,
   createSale,

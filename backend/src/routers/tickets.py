@@ -675,6 +675,13 @@ def create_ticket(
                 detail="Instalación Mesh requiere connection_id de la conexión existente"
             )
     
+    elif payload.ticket_type == TicketType.tv:
+        if not payload.connection_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Instalación TV requiere connection_id de la conexión existente"
+            )
+    
     elif payload.ticket_type == TicketType.administrative:
         # Para tickets administrativos, aceptar tanto administrative_subtype (legacy) como ticket_reason_id (nuevo sistema)
         if not payload.administrative_subtype and not payload.ticket_reason_id:
@@ -806,7 +813,7 @@ def create_ticket(
         db.add(audit_event)
     
     # Auto-crear OT según tipo
-    if payload.ticket_type in [TicketType.installation, TicketType.withdrawal, TicketType.relocation, TicketType.fiber_migration, TicketType.mesh]:
+    if payload.ticket_type in [TicketType.installation, TicketType.withdrawal, TicketType.relocation, TicketType.fiber_migration, TicketType.mesh, TicketType.tv]:
         # WorkOrderType ya no tiene el valor genérico 'install': la migración
         # 2026_06_07_002 lo dividió en 'install_ftth' e 'install_aire'. Resolver
         # el tipo de OT según la tecnología declarada; por defecto FTTH.
@@ -819,6 +826,7 @@ def create_ticket(
                 TicketType.relocation: WorkOrderType.install_ftth,
                 TicketType.fiber_migration: WorkOrderType.install_ftth,
                 TicketType.mesh: WorkOrderType.install_aire,
+                TicketType.tv: WorkOrderType.install,
             }
             resolved_ot_type = ot_type_map[payload.ticket_type]
         
@@ -838,6 +846,11 @@ def create_ticket(
             if ont_sn:
                 vendor_label = f"{ont_vendor} " if ont_vendor else ""
                 wo_note += f" | ONT origen: {vendor_label}(SN {ont_sn})"
+        elif payload.ticket_type == TicketType.tv:
+            wo_note = payload.description or (
+                f"Instalación del servicio de TV en la conexión {payload.connection_id}. "
+                f"Instalar la app y configurar el usuario de TV."
+            )
         else:
             wo_note = payload.description or (
                 f"Traslado desde conexión {payload.origin_connection_id} hacia "

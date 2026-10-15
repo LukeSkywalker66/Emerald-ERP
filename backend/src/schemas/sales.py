@@ -27,6 +27,9 @@ class SaleCreate(BaseModel):
     reference: Optional[str] = Field(
         None, max_length=200, description="Texto libre: comprador, comprobante externo, etc."
     )
+    customer_id: Optional[int] = Field(
+        None, description="Cliente vinculado (clientes.id). Null = consumidor final / no registrado"
+    )
     notes: Optional[str] = None
     items: List[SaleItemCreate] = Field(..., min_length=1, description="Líneas de la venta")
 
@@ -49,6 +52,9 @@ class SaleResponse(BaseModel):
     warehouse_name: Optional[str] = None
     status: SaleStatus
     reference: Optional[str] = None
+    customer_id: Optional[int] = None
+    customer_dni: Optional[str] = None
+    customer_name: Optional[str] = None
     notes: Optional[str] = None
     seller_user_id: Optional[int] = None
     created_at: datetime

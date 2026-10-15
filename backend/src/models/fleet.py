@@ -145,6 +145,11 @@ class Vehicle(Base):
             return f"{self.name} ({self.license_plate})"
         return self.name
 
+    @property
+    def team_name(self) -> Optional[str]:
+        """Cuadrilla a la que pertenece este vehículo. Dinámico y nullable."""
+        return self.team.name if self.team else None
+
 
 class VehicleInspection(Base):
     """
