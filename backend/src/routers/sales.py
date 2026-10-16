@@ -56,6 +56,9 @@ def _sale_to_response(sale: Sale) -> SaleResponse:
         warehouse_name=sale.warehouse.name if sale.warehouse else None,
         status=sale.status,
         reference=sale.reference,
+        customer_id=sale.customer_id,
+        customer_dni=sale.customer_dni,
+        customer_name=sale.customer_name,
         notes=sale.notes,
         seller_user_id=sale.seller_user_id,
         created_at=sale.created_at,
@@ -77,6 +80,44 @@ def list_sales(
         stmt = stmt.where(Sale.status == sale_status)
     sales = db.execute(stmt).scalars().all()
     return [_sale_to_response(s) for s in sales]
+
+
+@router.get("/customer-search", response_model=List[dict])
+def search_customers(
+    q: str = Query(..., min_length=2, description="Nombre o DNI del cliente"),
+    limit: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    """
+    Busca clientes locales (tabla `clientes`) por nombre o DNI usando el mismo
+    patrón ILIKE que `search-connections`. Permite ligar una venta a un cliente
+    registrado o dejar `customer_id` null para consumidor final.
+    """
+    from sqlalchemy import text
+
+    pattern = f"%{q.strip()}%"
+    rows = db.execute(
+        text(
+            """
+            SELECT id, name, doc_number, address
+            FROM clientes
+            WHERE name ILIKE :p OR doc_number ILIKE :p
+            ORDER BY name
+            LIMIT :lim
+            """
+        ),
+        {"p": pattern, "lim": limit},
+    ).fetchall()
+
+    return [
+        {
+            "id": row[0],
+            "name": row[1],
+            "doc_number": row[2],
+            "address": row[3],
+        }
+        for row in rows
+    ]
 
 
 @router.get("/{sale_id}", response_model=SaleResponse)

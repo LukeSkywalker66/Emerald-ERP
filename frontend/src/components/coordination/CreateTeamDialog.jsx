@@ -113,6 +113,9 @@ const CreateTeamDialog = ({
                 if (vehicle.vehicle_model) {
                   label += ` - ${vehicle.vehicle_model}`;
                 }
+                if (vehicle.team_name) {
+                  label += ` · ${vehicle.team_name}`;
+                }
                 return (
                   <option key={vehicle.id} value={vehicle.id}>
                     {label}

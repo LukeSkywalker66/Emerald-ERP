@@ -25,7 +25,7 @@ from src.routers.v1 import admin  # Administración y desbloqueo
 from src.routers.v2 import users as users_v2
 from src.routers.v2 import roles as roles_v2
 from src.routers.v2 import preferences as preferences_v2
-from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet, installation_types, audit, work_order_types, utils, dashboard as dashboard_router, error_logs
+from src.routers import tickets, search, tags, work_orders, inventory, engineering, coordination, fleet, installation_types, tv_accounts, audit, work_order_types, utils, dashboard as dashboard_router, error_logs
 from src.routers import logistics as logistics_router
 from src.routers import sales as sales_router
 from src.routers.tickets_v2_attachment import router as attachment_router
@@ -130,6 +130,11 @@ app.include_router(
     work_order_types.router,
     prefix="/api/v2/work-order-types",
     tags=["Work Order Types"]
+)
+app.include_router(
+    tv_accounts.router,
+    prefix="/api/v2/tv-accounts",
+    tags=["TV Accounts"]
 )
 # NOTE: search router uses absolute paths (/v2/search, /v2/users, /external/customer-lookup)
 # so prefix stays at /api to avoid path doubling

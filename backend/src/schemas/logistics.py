@@ -186,6 +186,19 @@ class TrackedUnitLabelResponse(BaseModel):
     barcode_height_px: int
 
 
+class TrackedUnitListItem(BaseModel):
+    """Ítem de listado de unidades trazables (para reimpresión múltiple)."""
+    serial_item_id: int
+    serial_number: str
+    product_id: Optional[int] = None
+    product_name: Optional[str] = None
+    product_sku: Optional[str] = None
+    status: Optional[str] = None
+    warehouse_id: Optional[int] = None
+    warehouse_name: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
 # ============================================
 # MATERIAL RECEIPT SCHEMAS
 # ============================================

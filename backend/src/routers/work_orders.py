@@ -2,6 +2,7 @@
 import logging
 from decimal import Decimal
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -14,6 +15,7 @@ from src.utils.audit import log_create, log_update, get_entity_dict
 from src.models.tickets import (
     WorkOrder,
     WorkOrderItem,
+    WorkOrderUpdate as WorkOrderUpdateModel,
     Ticket,
     TicketTimeline,
     TicketTimelineEventType,
@@ -30,6 +32,7 @@ from src.schemas.tickets import (
     WorkOrderDetailResponse,
     WorkOrderUpdate,
     WorkOrderCompleteRequest,
+    WorkOrderCancelRequest,
     WorkOrderItemCreate,
     WorkOrderItemResponse,
     WorkOrderListResponse,
@@ -38,6 +41,14 @@ from src.schemas.tickets import (
     ConnectionAssetResponse,
     ConnectionAssetsListResponse,
     ConnectionNotesListResponse,
+    WorkOrderRecoveryRequest,
+    WorkOrderRecoveryResponse,
+    WorkOrderUpdateCreate,
+    WorkOrderUpdateResponse,
+    WorkOrderUpdatesListResponse,
+    WorkOrderUpdateStatusRequest,
+    WorkOrderUpdatePendingResponse,
+    WorkOrderUpdatePendingListResponse,
 )
 from src.schemas.contact_attempts import (
     ContactAttemptCreate,
@@ -49,12 +60,20 @@ from src.services.work_order_service import create_work_order_for_ticket
 from src.services.wo_completion_service import (
     complete_work_order_with_inventory,
     CompletionError,
+    _get_work_order_warehouse_id,
+    _process_item,
+    reverse_material_item,
 )
 from src.models.inventory import (
     ConnectionAsset,
     ConnectionNote,
     ConnectionAssetStatus,
     Product,
+    SerialItem,
+    SerialItemStatus,
+    StockBulk,
+    StockMovement,
+    MovementType,
 )
 
 logger = logging.getLogger(__name__)
@@ -123,6 +142,11 @@ def list_work_orders(
     mobile_unit_id: Optional[int] = Query(None, description="Técnico/Móvil asignado"),
     ot_type: Optional[str] = Query(None, description="Tipo de OT"),
     search: Optional[str] = Query(None, description="Buscar por ID o asunto"),
+    team_id: Optional[int] = Query(None, description="Filtrar por cuadrilla"),
+    unassigned: Optional[bool] = Query(None, description="Solo OTs sin cuadrilla ni técnico"),
+    assigned: Optional[bool] = Query(None, description="Solo OTs con cuadrilla o técnico"),
+    order_by: str = Query("created_at", description="Campo de orden: created_at | scheduled_at | id"),
+    order_dir: str = Query("desc", description="asc | desc"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -135,11 +159,21 @@ def list_work_orders(
 
     # Filtro automático por capability (backend authority):
     # - `work_orders.view_all` (o `*`) → ve todas.
-    # - si no → técnico de campo: solo las propias.
+    # - si no → técnico de campo: sus propias OT + las de sus cuadrillas
+    #   (conserva la agenda del día y su historial en un solo listado paginado).
     from src.core.security import build_capabilities
     caps = build_capabilities(current_user)
     if "work_orders.view_all" not in caps and "*" not in caps:
-        base_query = base_query.filter(WorkOrder.technician_id == current_user.id)
+        team_ids_stmt = (
+            select(TeamMember.team_id)
+            .where(TeamMember.user_id == current_user.id)
+            .distinct()
+        )
+        team_ids = list(db.scalars(team_ids_stmt).all())
+        scope_conditions = [WorkOrder.technician_id == current_user.id]
+        if team_ids:
+            scope_conditions.append(WorkOrder.team_id.in_(team_ids))
+        base_query = base_query.filter(or_(*scope_conditions))
 
     # Filtros opcionales
     if status:
@@ -172,6 +206,23 @@ def list_work_orders(
     if mobile_unit_id:
         base_query = base_query.filter(WorkOrder.technician_id == mobile_unit_id)
 
+    if team_id:
+        base_query = base_query.filter(WorkOrder.team_id == team_id)
+
+    if unassigned is True:
+        base_query = base_query.filter(
+            WorkOrder.team_id.is_(None),
+            WorkOrder.technician_id.is_(None),
+        )
+
+    if assigned is True:
+        base_query = base_query.filter(
+            or_(
+                WorkOrder.team_id.is_not(None),
+                WorkOrder.technician_id.is_not(None),
+            )
+        )
+
     if search:
         pattern = f"%{search}%"
         base_query = (
@@ -195,8 +246,21 @@ def list_work_orders(
         selectinload(WorkOrder.team),
     )
 
+    # Orden por defecto: fecha de creación descendente (lo más nuevo arriba).
+    order_columns = {
+        "created_at": WorkOrder.created_at,
+        "scheduled_at": WorkOrder.scheduled_at,
+        "id": WorkOrder.id,
+    }
+    order_col = order_columns.get(order_by, WorkOrder.created_at)
+    order_expr = (
+        order_col.asc().nulls_last()
+        if order_dir.lower() == "asc"
+        else order_col.desc().nulls_last()
+    )
+
     work_orders = (
-        data_query.order_by(WorkOrder.scheduled_at.asc().nulls_last(), WorkOrder.id.desc())
+        data_query.order_by(order_expr, WorkOrder.id.desc())
         .limit(limit)
         .offset(offset)
         .all()
@@ -570,6 +634,7 @@ def get_work_order_detail(
         scheduled_at=wo.scheduled_at,
         started_at=wo.started_at,
         completed_at=wo.completed_at,
+        cancelled_at=wo.cancelled_at,
         resolution_type=wo.resolution_type,
         resolution_notes=wo.resolution_notes,
         resolution_category=wo.resolution_category,
@@ -588,6 +653,7 @@ def get_work_order_detail(
                 quantity=item.quantity,
                 serial_number=item.serial_number,
                 notes=item.notes,
+                warehouse_id=item.warehouse_id,
                 created_at=item.created_at
             ) for item in wo.work_order_items
         ],
@@ -627,15 +693,22 @@ def update_work_order(
     # Guardar estado anterior para logging
     old_status = wo.status
     
-    # ===== VALIDACIÓN: BLOQUEAR EDICIONES DE OTs COMPLETADAS =====
+    # ===== VALIDACIÓN: BLOQUEAR EDICIONES DE OTs FINALIZADAS / CANCELADAS =====
     # Exception: permitir operación "reopen" (marcar como incompleta) - eso es via endpoint separado
     # Solo mostrar acceso si es técnico intentando reopens dentro de ventana de gracia
-    if wo.status == WorkOrderStatus.completed or wo.status == WorkOrderStatus.failed:
+    if wo.status in (WorkOrderStatus.completed, WorkOrderStatus.failed, WorkOrderStatus.cancelled):
+        is_cancelled = wo.status == WorkOrderStatus.cancelled
+        detail = (
+            f"Orden de trabajo no puede ser modificada. Estado: {wo.status.value} (inmutable)."
+            + (" La OT fue cancelada y no se puede reactivar."
+               if is_cancelled
+               else f" Use PUT /work-orders/{work_order_id}/reopen para marcar como incompleta.")
+        )
         raise HTTPException(
             status_code=status.HTTP_423_LOCKED,
-            detail=f"Orden de trabajo no puede ser modificada. Estado: {wo.status.value} (inmutable). Use PUT /work-orders/{work_order_id}/reopen para marcar como incompleta.",
+            detail=detail,
             headers={
-                "X-Locked-Reason": "LOCKED_COMPLETED",
+                "X-Locked-Reason": "LOCKED_CANCELLED" if is_cancelled else "LOCKED_COMPLETED",
                 "X-Work-Order-Status": wo.status.value,
             }
         )
@@ -743,19 +816,31 @@ def update_work_order(
     ):
         team_id_for_check = payload.team_id if payload.team_id is not None else wo.team_id
         if team_id_for_check:
-            active_in_progress = (
+            blocking = (
                 db.query(WorkOrder)
                 .filter(
                     WorkOrder.team_id == team_id_for_check,
                     WorkOrder.status == WorkOrderStatus.in_progress,
                     WorkOrder.id != work_order_id,
                 )
-                .count()
+                .order_by(WorkOrder.started_at.asc().nulls_last(), WorkOrder.id.asc())
+                .all()
             )
-            if active_in_progress > 0:
+            if blocking:
+                # Incluir la(s) OT que bloquea(n) para que el técnico sepa cuál cerrar.
+                labels = []
+                for blocker in blocking[:3]:
+                    subject = blocker.ticket.subject if blocker.ticket else ""
+                    labels.append(f"OT #{blocker.id}" + (f" ({subject})" if subject else ""))
+                extra = f" (+{len(blocking) - 3} más)" if len(blocking) > 3 else ""
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="La cuadrilla ya tiene una tarea en curso. Cerrá la anterior antes de iniciar una nueva.",
+                    detail=(
+                        "No podés iniciar esta tarea hasta completar/cerrar: "
+                        + ", ".join(labels)
+                        + extra
+                        + "."
+                    ),
                 )
 
     # Actualizar campos
@@ -943,29 +1028,62 @@ def add_work_order_item(
                 status_code=422,
                 detail="Los serializados no compuestos deben consumirse con cantidad 1",
             )
+        # Anti-duplicados: un activo serializado no puede cargarse dos veces en la
+        # misma OT (evita el fallo "ya está instalado en otra conexión" al cerrar).
+        duplicate = (
+            db.query(WorkOrderItem)
+            .filter(
+                WorkOrderItem.work_order_id == work_order_id,
+                WorkOrderItem.serial_number == payload.serial_number,
+            )
+            .first()
+        )
+        if duplicate:
+            raise HTTPException(
+                status_code=422,
+                detail=f"El serial {payload.serial_number} ya está cargado en esta OT",
+            )
     elif product.type == "BULK":
         if payload.quantity <= 0:
             raise HTTPException(status_code=422, detail="La cantidad debe ser mayor a 0")
-    
+
+    # Resolver el depósito canónico en backend con la MISMA función que usa el cierre.
+    # Así el item queda atado al depósito exacto desde el que se descontará stock,
+    # eliminando la deriva entre la validación en alta y el descuento en el cierre.
+    canonical_warehouse_id = _get_work_order_warehouse_id(db, wo, current_user.id)
+
+    # Si el frontend declaró un depósito distinto, visibilizamos la deriva en lugar de
+    # descartarla silenciosamente (422 explícito para corregir la resolución del frontend).
+    if payload.warehouse_id is not None and payload.warehouse_id != canonical_warehouse_id:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"El depósito declarado ({payload.warehouse_id}) no coincide con el depósito "
+                f"de la cuadrilla de la OT ({canonical_warehouse_id}). Recargá la OT y volvé a intentar."
+            ),
+        )
+
     item = WorkOrderItem(
         work_order_id=work_order_id,
         product_id=payload.product_id,
         quantity=payload.quantity,
         serial_number=payload.serial_number,
         notes=payload.notes,
+        warehouse_id=canonical_warehouse_id,
     )
     db.add(item)
-    
+
     db.commit()
     db.refresh(item)
-    
+
     return WorkOrderItemResponse(
         id=item.id,
         product_id=item.product_id,
         quantity=item.quantity,
         serial_number=item.serial_number,
         notes=item.notes,
-        created_at=item.created_at
+        warehouse_id=item.warehouse_id,
+        created_at=item.created_at,
     )
 
 
@@ -993,6 +1111,908 @@ def remove_work_order_item(
     db.commit()
     
     return None
+
+
+@router.post("/{work_order_id}/recovery", response_model=WorkOrderRecoveryResponse)
+def recover_work_order_equipment(
+    work_order_id: int,
+    payload: WorkOrderRecoveryRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Registrar equipos de la empresa recuperados del domicilio.
+
+    Estados: funciona | no_funciona | revisar. Idempotente: activos ya retirados se
+    omiten y seriales ya existentes se reutilizan (no duplica SerialItem).
+    """
+    wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
+    if not wo:
+        raise HTTPException(status_code=404, detail="WorkOrder no encontrada")
+
+    ticket = db.query(Ticket).filter(Ticket.id == wo.ticket_id).first()
+    connection_id = (
+        (ticket.connection_id if ticket else None)
+        or (ticket.destination_connection_id if ticket else None)
+        or (ticket.origin_connection_id if ticket else None)
+    )
+
+    technician_warehouse_id = _get_work_order_warehouse_id(db, wo, current_user.id)
+    if not technician_warehouse_id:
+        raise HTTPException(
+            status_code=422,
+            detail="No se pudo determinar el depósito móvil de la cuadrilla para recibir los equipos",
+        )
+
+    STATE_TO_STATUS = {
+        "funciona": SerialItemStatus.IN_VEHICLE,
+        "no_funciona": SerialItemStatus.DEFECTIVE,
+        "revisar": SerialItemStatus.DEFECTIVE,
+    }
+
+    recovered = 0
+    for item in payload.items:
+        state = (item.state or "").strip().lower()
+        if state not in STATE_TO_STATUS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Estado de recuperación inválido: {item.state}",
+            )
+        new_status = STATE_TO_STATUS[state]
+
+        if item.connection_asset_id:
+            # Equipo ya registrado como instalado en la conexión. Se acota a la
+            # conexión efectiva de la OT para no retirar activos de otro domicilio.
+            asset_query = db.query(ConnectionAsset).filter(
+                ConnectionAsset.id == item.connection_asset_id
+            )
+            if connection_id:
+                asset_query = asset_query.filter(
+                    ConnectionAsset.connection_id == connection_id
+                )
+            asset = asset_query.first()
+            if not asset:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Activo {item.connection_asset_id} no encontrado en esta conexión",
+                )
+            if asset.status == ConnectionAssetStatus.REMOVED.value:
+                continue  # idempotente: ya fue retirado
+
+            serial_item = (
+                db.query(SerialItem).filter(SerialItem.id == asset.serial_item_id).first()
+            )
+
+            asset.status = ConnectionAssetStatus.REMOVED.value
+            asset.removed_at = datetime.now(timezone.utc)
+            asset.removed_by_wo_id = work_order_id
+            asset.notes = (asset.notes + " | " if asset.notes else "") + f"Recuperado: {state}"
+
+            if serial_item:
+                origin_warehouse_id = serial_item.warehouse_id
+                serial_item.status = new_status
+                serial_item.warehouse_id = technician_warehouse_id
+                serial_item.connection_id = None
+
+                movement = StockMovement(
+                    product_id=serial_item.product_id,
+                    from_warehouse_id=origin_warehouse_id,
+                    to_warehouse_id=technician_warehouse_id,
+                    serial_item_id=serial_item.id,
+                    movement_type=MovementType.RECOVERY,
+                    reference=f"OT #{work_order_id}",
+                    user_id=current_user.id,
+                    notes=f"Recuperado del domicilio: {serial_item.serial_number} ({state})",
+                )
+                db.add(movement)
+        else:
+            # Equipo no registrado: alta best-effort como candidato a baja/stock.
+            if not item.product_id or not item.serial_number:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Equipo no registrado requiere product_id y serial_number",
+                )
+
+            serial_item = (
+                db.query(SerialItem)
+                .filter(SerialItem.serial_number == item.serial_number)
+                .first()
+            )
+            if serial_item:
+                serial_item.status = new_status
+                serial_item.warehouse_id = technician_warehouse_id
+                serial_item.connection_id = None
+            else:
+                serial_item = SerialItem(
+                    serial_number=item.serial_number,
+                    product_id=item.product_id,
+                    warehouse_id=technician_warehouse_id,
+                    status=new_status,
+                    is_generated_barcode=False,
+                )
+                db.add(serial_item)
+                db.flush()
+
+            movement = StockMovement(
+                product_id=item.product_id,
+                from_warehouse_id=None,
+                to_warehouse_id=technician_warehouse_id,
+                serial_item_id=serial_item.id,
+                movement_type=MovementType.RECOVERY,
+                reference=f"OT #{work_order_id}",
+                user_id=current_user.id,
+                notes=f"Equipo no registrado recuperado: {item.serial_number} ({state})",
+            )
+            db.add(movement)
+
+        recovered += 1
+
+    db.commit()
+    return WorkOrderRecoveryResponse(recovered=recovered)
+
+
+# ============================================================
+# ENDPOINTS: Bitácora post-cierre (P2)
+# ============================================================
+
+ALLOWED_WO_UPDATE_TYPES = {
+    "MATERIALS_ADDED",
+    "MATERIALS_REMOVED",
+    "MATERIALS_REPLACED",
+    "MATERIALS_QTY_UPDATED",
+    "INFO_CORRECTION",
+    "CLOSE_CORRECTION",
+    "NOTE",
+}
+
+# Ventana de gracia de la bitácora: el técnico corrige su propia OT durante el
+# mismo día calendario local (America/Argentina/Buenos_Aires). Fuera de la ventana
+# la corrección queda PROPOSED y requiere aprobación.
+_WO_UPDATE_LOCAL_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+
+
+def _resolve_wo_connection_id(db: Session, wo: WorkOrder) -> Optional[int]:
+    """Resuelve la conexión efectiva asociada al ticket de la OT."""
+    ticket = db.query(Ticket).filter(Ticket.id == wo.ticket_id).first()
+    if not ticket:
+        return None
+    return (
+        ticket.connection_id
+        or ticket.destination_connection_id
+        or ticket.origin_connection_id
+    )
+
+
+def _apply_material_removed_effect(
+    db: Session,
+    wo: WorkOrder,
+    user: User,
+    material: dict,
+) -> None:
+    """Revoca el consumo de un item y lo elimina de la OT (MATERIALS_REMOVED)."""
+    item_id = material.get("work_order_item_id")
+    if not item_id:
+        raise HTTPException(
+            status_code=422,
+            detail="MATERIALS_REMOVED requiere work_order_item_id en payload",
+        )
+
+    item = (
+        db.query(WorkOrderItem)
+        .filter(
+            WorkOrderItem.id == item_id,
+            WorkOrderItem.work_order_id == wo.id,
+        )
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Item de la OT no encontrado")
+
+    try:
+        reverse_material_item(db, item, user.id, reference_suffix=" (bitácora)")
+    except CompletionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    db.delete(item)
+
+
+def _apply_material_qty_updated_effect(
+    db: Session,
+    wo: WorkOrder,
+    user: User,
+    material: dict,
+) -> None:
+    """Corrige la cantidad de un item BULK (MATERIALS_QTY_UPDATED)."""
+    item_id = material.get("work_order_item_id")
+    new_quantity = material.get("new_quantity")
+    if not item_id or new_quantity is None:
+        raise HTTPException(
+            status_code=422,
+            detail="MATERIALS_QTY_UPDATED requiere work_order_item_id y new_quantity en payload",
+        )
+
+    try:
+        new_quantity_f = float(new_quantity)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=422,
+            detail="new_quantity debe ser un número",
+        )
+    if new_quantity_f <= 0:
+        raise HTTPException(status_code=422, detail="new_quantity debe ser mayor a 0")
+
+    item = (
+        db.query(WorkOrderItem)
+        .filter(
+            WorkOrderItem.id == item_id,
+            WorkOrderItem.work_order_id == wo.id,
+        )
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Item de la OT no encontrado")
+
+    product = db.query(Product).filter(Product.id == item.product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    if product.type == "SERIALIZED":
+        raise HTTPException(
+            status_code=422,
+            detail="No se puede corregir cantidad de un item serializado; usar MATERIALS_REPLACED",
+        )
+
+    connection_id = _resolve_wo_connection_id(db, wo)
+
+    # 1) Revertir el consumo anterior (devuelve saldo/stock al estado pre-cierre).
+    try:
+        reverse_material_item(db, item, user.id, reference_suffix=" (bitácora)")
+    except CompletionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    # 2) Re-procesar con la cantidad corregida (limpia el snapshot para re-capturarlo).
+    item.quantity = new_quantity_f
+    item.previous_serial_status = None
+    item.previous_warehouse_id = None
+    item.previous_remaining_quantity = None
+    try:
+        _process_item(db, item, connection_id, user.id, wo.id, item.warehouse_id)
+    except CompletionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+def _apply_material_replaced_effect(
+    db: Session,
+    wo: WorkOrder,
+    user: User,
+    material: dict,
+) -> None:
+    """Quita un item erróneo y agrega el correcto (MATERIALS_REPLACED)."""
+    remove_item_id = material.get("remove_work_order_item_id")
+    if not remove_item_id:
+        raise HTTPException(
+            status_code=422,
+            detail="MATERIALS_REPLACED requiere remove_work_order_item_id en payload",
+        )
+
+    # 1) Quitar el item erróneo (reversa + borrado).
+    _apply_material_removed_effect(
+        db, wo, user, {"work_order_item_id": remove_item_id}
+    )
+
+    # 2) Agregar el material correcto (mismo contrato que MATERIALS_ADDED).
+    _apply_material_added_effect(db, wo, user, material)
+
+
+def _apply_work_order_update_effect(
+    db: Session,
+    wo: WorkOrder,
+    user: User,
+    update_type: str,
+    material: dict,
+) -> None:
+    """Despacha el efecto de inventario según el tipo de actualización."""
+    if update_type == "MATERIALS_ADDED":
+        _apply_material_added_effect(db, wo, user, material)
+    elif update_type == "MATERIALS_REMOVED":
+        _apply_material_removed_effect(db, wo, user, material)
+    elif update_type == "MATERIALS_QTY_UPDATED":
+        _apply_material_qty_updated_effect(db, wo, user, material)
+    elif update_type == "MATERIALS_REPLACED":
+        _apply_material_replaced_effect(db, wo, user, material)
+
+
+def _validate_material_added(
+    db: Session,
+    wo: WorkOrder,
+    user: User,
+    material: dict,
+) -> None:
+    """Dry-run: valida que el material a agregar sea factible sin mutar inventario."""
+    product_id = material.get("product_id")
+    quantity = material.get("quantity")
+    if not product_id or quantity is None:
+        raise HTTPException(
+            status_code=422,
+            detail="MATERIALS_ADDED requiere product_id y quantity en payload",
+        )
+    try:
+        quantity_f = float(quantity)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="quantity debe ser un número")
+    if quantity_f <= 0:
+        raise HTTPException(status_code=422, detail="quantity debe ser mayor a 0")
+
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    connection_id = _resolve_wo_connection_id(db, wo)
+    serial_number = material.get("serial_number")
+
+    if product.type == "SERIALIZED":
+        if not connection_id:
+            raise HTTPException(
+                status_code=422,
+                detail="No se puede agregar un serial sin conexión asociada al ticket",
+            )
+        if not serial_number:
+            raise HTTPException(status_code=422, detail="El producto serializado requiere número de serie")
+        si = db.query(SerialItem).filter(SerialItem.serial_number == serial_number).first()
+        if not si:
+            raise HTTPException(status_code=422, detail=f"Serial {serial_number} no encontrado en inventario")
+        if si.status == SerialItemStatus.INSTALLED:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Serial {serial_number} ya está instalado en otra conexión",
+            )
+        return
+
+    if product.type == "BULK":
+        # Unidad compuesta trazable (ej: bobina de drop por metros)
+        if product.is_composite and serial_number:
+            si = db.query(SerialItem).filter(SerialItem.serial_number == serial_number).first()
+            if not si:
+                raise HTTPException(status_code=422, detail=f"Serial {serial_number} no encontrado en inventario")
+            remaining = si.remaining_quantity
+            if remaining is None:
+                remaining = product.unit_size
+            if remaining is None or remaining + 1e-9 < quantity_f:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Stock insuficiente de {product.name}: "
+                        f"disponible {remaining or 0}, requerido {quantity_f}"
+                    ),
+                )
+            return
+
+        # BULK agregado (conectores, cable, etc.)
+        warehouse_id = _get_work_order_warehouse_id(db, wo, user.id)
+        if not warehouse_id:
+            raise HTTPException(
+                status_code=422,
+                detail="No se pudo determinar el depósito móvil para validar stock",
+            )
+        qty_to_check = quantity_f
+        if product.is_composite:
+            if not product.unit_size or product.unit_size <= 0:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"El producto compuesto {product.name} no tiene unit_size válido",
+                )
+            qty_to_check = round(quantity_f / product.unit_size, 6)
+        stock_entry = (
+            db.query(StockBulk)
+            .filter(
+                StockBulk.product_id == product_id,
+                StockBulk.warehouse_id == warehouse_id,
+            )
+            .first()
+        )
+        available = stock_entry.quantity if stock_entry else 0
+        if available + 1e-9 < qty_to_check:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Stock insuficiente de {product.name}: "
+                    f"disponible {available}, requerido {qty_to_check}"
+                ),
+            )
+        return
+
+
+def _validate_update_effect(
+    db: Session,
+    wo: WorkOrder,
+    user: User,
+    update_type: str,
+    material: dict,
+) -> None:
+    """Valida la factibilidad de una actualización de materiales sin mutar (dry-run)."""
+    if update_type == "MATERIALS_ADDED":
+        _validate_material_added(db, wo, user, material)
+        return
+
+    if update_type == "MATERIALS_REMOVED":
+        item_id = material.get("work_order_item_id")
+        if not item_id:
+            raise HTTPException(
+                status_code=422,
+                detail="MATERIALS_REMOVED requiere work_order_item_id en payload",
+            )
+        item = (
+            db.query(WorkOrderItem)
+            .filter(WorkOrderItem.id == item_id, WorkOrderItem.work_order_id == wo.id)
+            .first()
+        )
+        if not item:
+            raise HTTPException(status_code=404, detail="Item de la OT no encontrado")
+        return
+
+    if update_type == "MATERIALS_QTY_UPDATED":
+        item_id = material.get("work_order_item_id")
+        new_quantity = material.get("new_quantity")
+        if not item_id or new_quantity is None:
+            raise HTTPException(
+                status_code=422,
+                detail="MATERIALS_QTY_UPDATED requiere work_order_item_id y new_quantity en payload",
+            )
+        try:
+            new_quantity_f = float(new_quantity)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="new_quantity debe ser un número")
+        if new_quantity_f <= 0:
+            raise HTTPException(status_code=422, detail="new_quantity debe ser mayor a 0")
+        item = (
+            db.query(WorkOrderItem)
+            .filter(WorkOrderItem.id == item_id, WorkOrderItem.work_order_id == wo.id)
+            .first()
+        )
+        if not item:
+            raise HTTPException(status_code=404, detail="Item de la OT no encontrado")
+        product = db.query(Product).filter(Product.id == item.product_id).first()
+        if product and product.type == "SERIALIZED":
+            raise HTTPException(
+                status_code=422,
+                detail="No se puede corregir cantidad de un item serializado; usar MATERIALS_REPLACED",
+            )
+        return
+
+    if update_type == "MATERIALS_REPLACED":
+        remove_item_id = material.get("remove_work_order_item_id")
+        if not remove_item_id:
+            raise HTTPException(
+                status_code=422,
+                detail="MATERIALS_REPLACED requiere remove_work_order_item_id en payload",
+            )
+        item = (
+            db.query(WorkOrderItem)
+            .filter(WorkOrderItem.id == remove_item_id, WorkOrderItem.work_order_id == wo.id)
+            .first()
+        )
+        if not item:
+            raise HTTPException(status_code=404, detail="Item a reemplazar no encontrado en la OT")
+        _validate_material_added(db, wo, user, material)
+        return
+
+
+def _apply_material_added_effect(
+    db: Session,
+    wo: WorkOrder,
+    user: User,
+    material: dict,
+) -> WorkOrderItem:
+    """Crea y procesa un WorkOrderItem para MATERIALS_ADDED (post-cierre)."""
+    product_id = material.get("product_id")
+    quantity = material.get("quantity")
+    if not product_id or not quantity:
+        raise HTTPException(
+            status_code=422,
+            detail="MATERIALS_ADDED requiere product_id y quantity en payload",
+        )
+
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    ticket = db.query(Ticket).filter(Ticket.id == wo.ticket_id).first()
+    connection_id = (
+        (ticket.connection_id if ticket else None)
+        or (ticket.destination_connection_id if ticket else None)
+        or (ticket.origin_connection_id if ticket else None)
+    )
+    if product.type == "SERIALIZED" and not connection_id:
+        raise HTTPException(
+            status_code=422,
+            detail="No se puede agregar un serial sin conexión asociada al ticket",
+        )
+
+    serial_number = material.get("serial_number")
+
+    # Unificación: si es BULK compuesto trazable (ej: bobina de drop) y la OT ya
+    # tiene un consumo con el mismo serial, se suma a esa línea en lugar de duplicarla
+    # (equivalente a corregir la cantidad). Evita líneas duplicadas del mismo serial.
+    if product.type == "BULK" and product.is_composite and serial_number:
+        existing = (
+            db.query(WorkOrderItem)
+            .filter(
+                WorkOrderItem.work_order_id == wo.id,
+                WorkOrderItem.serial_number == serial_number,
+            )
+            .first()
+        )
+        if existing:
+            try:
+                reverse_material_item(db, existing, user.id, reference_suffix=" (bitácora)")
+            except CompletionError as exc:
+                db.rollback()
+                raise HTTPException(status_code=422, detail=str(exc))
+
+            existing.quantity = round(existing.quantity + float(quantity), 6)
+            existing.previous_serial_status = None
+            existing.previous_warehouse_id = None
+            existing.previous_remaining_quantity = None
+            try:
+                _process_item(db, existing, connection_id, user.id, wo.id, existing.warehouse_id)
+            except CompletionError as exc:
+                db.rollback()
+                raise HTTPException(status_code=422, detail=str(exc))
+            return existing
+
+    canonical_warehouse_id = _get_work_order_warehouse_id(db, wo, user.id)
+    item = WorkOrderItem(
+        work_order_id=wo.id,
+        product_id=int(product_id),
+        quantity=float(quantity),
+        serial_number=material.get("serial_number"),
+        notes=material.get("notes"),
+        warehouse_id=canonical_warehouse_id,
+    )
+    db.add(item)
+    db.flush()
+
+    try:
+        _process_item(db, item, connection_id, user.id, wo.id, canonical_warehouse_id)
+    except CompletionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    return item
+
+
+def _build_update_contexts(db: Session, updates: list) -> dict:
+    """
+    Resuelve el contexto mínimo para decidir una aprobación: técnico que la
+    solicitó, cuadrilla, móvil, y cliente/conexión del ticket de la OT.
+    Devuelve {update_id: {campo: valor}} con cargas bulk (sin N+1).
+    """
+    from src.models.fleet import Vehicle
+    from src.models.beholder import Connection, Cliente
+
+    if not updates:
+        return {}
+
+    wo_ids = {u.work_order_id for u in updates}
+    wos = {
+        wo.id: wo
+        for wo in db.query(WorkOrder).filter(WorkOrder.id.in_(wo_ids)).all()
+    }
+
+    user_ids = {u.author_id for u in updates if u.author_id}
+    user_ids |= {wo.technician_id for wo in wos.values() if wo.technician_id}
+    users = (
+        {u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()}
+        if user_ids
+        else {}
+    )
+
+    team_ids = {wo.team_id for wo in wos.values() if wo.team_id}
+    teams = (
+        {t.id: t for t in db.query(Team).filter(Team.id.in_(team_ids)).all()}
+        if team_ids
+        else {}
+    )
+
+    vehicle_ids = {t.vehicle_id for t in teams.values() if t.vehicle_id}
+    vehicles = (
+        {v.id: v for v in db.query(Vehicle).filter(Vehicle.id.in_(vehicle_ids)).all()}
+        if vehicle_ids
+        else {}
+    )
+
+    ticket_ids = {wo.ticket_id for wo in wos.values()}
+    tickets = (
+        {t.id: t for t in db.query(Ticket).filter(Ticket.id.in_(ticket_ids)).all()}
+        if ticket_ids
+        else {}
+    )
+
+    conn_ids = set()
+    for t in tickets.values():
+        for cid in (t.connection_id, t.destination_connection_id, t.origin_connection_id):
+            if cid:
+                conn_ids.add(cid)
+    connections = (
+        {
+            c.connection_id: c
+            for c in db.query(Connection)
+            .filter(Connection.connection_id.in_(conn_ids))
+            .all()
+        }
+        if conn_ids
+        else {}
+    )
+
+    customer_ids = {c.customer_id for c in connections.values() if c.customer_id}
+    clientes = (
+        {cl.id: cl for cl in db.query(Cliente).filter(Cliente.id.in_(customer_ids)).all()}
+        if customer_ids
+        else {}
+    )
+
+    result: dict = {}
+    for u in updates:
+        wo = wos.get(u.work_order_id)
+        ctx: dict = {}
+
+        author = users.get(u.author_id) if u.author_id else None
+        if author and getattr(author, "full_name", None):
+            ctx["technician_name"] = author.full_name
+
+        team = teams.get(wo.team_id) if wo and wo.team_id else None
+        if team:
+            ctx["team_name"] = team.name
+            vehicle = vehicles.get(team.vehicle_id) if team.vehicle_id else None
+            if vehicle:
+                ctx["vehicle_label"] = vehicle.full_name
+
+        ticket = tickets.get(wo.ticket_id) if wo else None
+        conn = None
+        if ticket:
+            conn = (
+                connections.get(ticket.connection_id)
+                or connections.get(ticket.destination_connection_id)
+                or connections.get(ticket.origin_connection_id)
+            )
+        if conn:
+            ctx["connection_label"] = conn.pppoe_username or f"Conexión #{conn.connection_id}"
+            cliente = clientes.get(conn.customer_id) if conn.customer_id else None
+            if cliente and getattr(cliente, "name", None):
+                ctx["client_name"] = cliente.name
+
+        result[u.id] = ctx
+
+    return result
+
+
+@router.get("/updates/pending", response_model=WorkOrderUpdatePendingListResponse)
+def list_pending_work_order_updates(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Listar entradas PROPOSED pendientes de aprobación (para coordinadores)."""
+    updates = (
+        db.query(WorkOrderUpdateModel)
+        .filter(WorkOrderUpdateModel.status == "PROPOSED")
+        .order_by(WorkOrderUpdateModel.created_at.asc())
+        .all()
+    )
+    contexts = _build_update_contexts(db, updates)
+    return WorkOrderUpdatePendingListResponse(
+        updates=[
+            WorkOrderUpdatePendingResponse(
+                id=u.id,
+                work_order_id=u.work_order_id,
+                author_id=u.author_id,
+                update_type=u.update_type,
+                status=u.status,
+                motive=u.motive,
+                payload=u.payload,
+                created_at=u.created_at,
+                **contexts.get(u.id, {}),
+            )
+            for u in updates
+        ]
+    )
+
+
+@router.get("/{work_order_id}/updates", response_model=WorkOrderUpdatesListResponse)
+def list_work_order_updates(
+    work_order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Listar la bitácora post-cierre de una OT."""
+    updates = (
+        db.query(WorkOrderUpdateModel)
+        .filter(WorkOrderUpdateModel.work_order_id == work_order_id)
+        .order_by(WorkOrderUpdateModel.created_at.desc())
+        .all()
+    )
+    return WorkOrderUpdatesListResponse(
+        updates=[WorkOrderUpdateResponse.model_validate(u) for u in updates]
+    )
+
+
+@router.post(
+    "/{work_order_id}/updates",
+    response_model=WorkOrderUpdateResponse,
+    status_code=201,
+)
+def create_work_order_update(
+    work_order_id: int,
+    payload: WorkOrderUpdateCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Registrar una actualización post-cierre en la bitácora (append-only)."""
+    wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
+    if not wo:
+        raise HTTPException(status_code=404, detail="WorkOrder no encontrada")
+
+    if wo.status not in (WorkOrderStatus.completed, WorkOrderStatus.failed):
+        raise HTTPException(
+            status_code=409,
+            detail="La bitácora post-cierre solo se habilita para OTs completadas o no realizadas",
+        )
+
+    if payload.update_type not in ALLOWED_WO_UPDATE_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"update_type inválido: {payload.update_type}",
+        )
+
+    # Validación dry-run de materiales: da feedback inmediato al técnico (aunque
+    # la entrada quede PROPOSED), evitando correcciones inviables que fallarían
+    # recién al aprobar.
+    if payload.update_type in (
+        "MATERIALS_ADDED",
+        "MATERIALS_REMOVED",
+        "MATERIALS_QTY_UPDATED",
+        "MATERIALS_REPLACED",
+    ):
+        _validate_update_effect(db, wo, current_user, payload.update_type, payload.payload or {})
+
+    # Determinación de status según responsabilidad (ventana de gracia = mismo día local).
+    role_name = current_user.role.name if current_user.role else None
+    is_approver = (
+        role_name in ("admin", "coordinator", "tecnico_encargado")
+        or current_user.is_superuser
+    )
+    is_own_technician = wo.technician_id is not None and wo.technician_id == current_user.id
+
+    window_ok = False
+    if wo.completed_at:
+        completed = wo.completed_at
+        if completed.tzinfo is None:
+            completed = completed.replace(tzinfo=timezone.utc)
+        local_completed = completed.astimezone(_WO_UPDATE_LOCAL_TZ)
+        local_now = datetime.now(timezone.utc).astimezone(_WO_UPDATE_LOCAL_TZ)
+        window_ok = local_completed.date() == local_now.date()
+
+    status_value = "APPLIED" if (is_approver or (is_own_technician and window_ok)) else "PROPOSED"
+
+    entry = WorkOrderUpdateModel(
+        work_order_id=work_order_id,
+        author_id=current_user.id,
+        update_type=payload.update_type,
+        status=status_value,
+        motive=payload.motive,
+        payload=payload.payload,
+    )
+    db.add(entry)
+    db.flush()
+
+    # Efecto de inventario (solo si se aplica de inmediato).
+    if status_value == "APPLIED":
+        try:
+            _apply_work_order_update_effect(
+                db, wo, current_user, payload.update_type, payload.payload or {}
+            )
+        except HTTPException:
+            db.rollback()
+            raise
+        except CompletionError as exc:
+            db.rollback()
+            raise HTTPException(status_code=422, detail=str(exc))
+
+    timeline_event = TicketTimeline(
+        ticket_id=wo.ticket_id,
+        author_id=current_user.id,
+        event_type=TicketTimelineEventType.ot_event,
+        content=f"📝 Bitácora OT #{work_order_id}: {payload.update_type} — {payload.motive[:200]}",
+        meta_data={
+            "update_type": payload.update_type,
+            "status": status_value,
+            "update_id": entry.id,
+        },
+    )
+    db.add(timeline_event)
+
+    db.commit()
+    db.refresh(entry)
+
+    try:
+        log_create(
+            db=db,
+            user_id=current_user.id,
+            entity_name="work_order_updates",
+            entity_id=entry.id,
+            new_values={
+                "work_order_id": work_order_id,
+                "update_type": payload.update_type,
+                "status": status_value,
+                "motive": payload.motive,
+            },
+        )
+    except Exception as audit_error:
+        logger.error(f"Error al auditar bitácora OT #{work_order_id}: {audit_error}")
+
+    return WorkOrderUpdateResponse.model_validate(entry)
+
+
+@router.patch("/updates/{update_id}/status", response_model=WorkOrderUpdateResponse)
+def set_work_order_update_status(
+    update_id: int,
+    payload: WorkOrderUpdateStatusRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Aprobar o rechazar una entrada PROPOSED de la bitácora."""
+    entry = db.query(WorkOrderUpdateModel).filter(WorkOrderUpdateModel.id == update_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entrada de bitácora no encontrada")
+
+    role_name = current_user.role.name if current_user.role else None
+    is_approver = (
+        role_name in ("admin", "coordinator", "tecnico_encargado")
+        or current_user.is_superuser
+    )
+    if not is_approver:
+        raise HTTPException(status_code=403, detail="Solo coordinadores/admin pueden aprobar")
+
+    if payload.status not in ("APPROVED", "REJECTED"):
+        raise HTTPException(status_code=422, detail="status debe ser APPROVED o REJECTED")
+
+    previous_status = entry.status
+    was_proposed = previous_status == "PROPOSED"
+    entry.status = payload.status
+
+    # Al aprobar una entrada PROPOSED, se aplica el efecto de inventario.
+    if payload.status == "APPROVED" and was_proposed:
+        wo = db.get(WorkOrder, entry.work_order_id)
+        if not wo:
+            raise HTTPException(status_code=404, detail="WorkOrder no encontrada")
+        try:
+            _apply_work_order_update_effect(
+                db, wo, current_user, entry.update_type, entry.payload or {}
+            )
+        except HTTPException:
+            db.rollback()
+            raise
+        except CompletionError as exc:
+            db.rollback()
+            raise HTTPException(status_code=422, detail=str(exc))
+
+    db.commit()
+    db.refresh(entry)
+
+    try:
+        log_update(
+            db=db,
+            user_id=current_user.id,
+            entity_name="work_order_updates",
+            entity_id=entry.id,
+            old_values={"status": previous_status},
+            new_values={"status": payload.status},
+        )
+    except Exception as audit_error:
+        logger.error(f"Error al auditar aprobación de bitácora {entry.id}: {audit_error}")
+
+    return WorkOrderUpdateResponse.model_validate(entry)
 
 
 @router.put("/{work_order_id}/reopen", response_model=WorkOrderDetailResponse)
@@ -1106,6 +2126,105 @@ def reopen_work_order(
     
     # Retornar detalle actualizado
     return get_work_order_detail(work_order_id, db, user_id)
+
+
+@router.post("/{work_order_id}/cancel", response_model=WorkOrderDetailResponse)
+def cancel_work_order(
+    work_order_id: int,
+    payload: WorkOrderCancelRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Cancelar (anular) una OT que aún no fue coordinada.
+
+    Carrier-class: NO se borra la OT. Pasa a estado `cancelled` con timestamp y
+    queda en historial para auditoría. Solo operadores y solo sobre OTs en
+    `pending_planning` (período de gracia para corregir errores o regenerar).
+
+    Errores:
+    - 404: OT no existe
+    - 403: sin permisos de operador
+    - 409: ya cancelada o finalizada (inmutable)
+    - 422: la OT ya fue coordinada (no se puede cancelar)
+    """
+    wo = db.query(WorkOrder).filter(WorkOrder.id == work_order_id).first()
+    if not wo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Orden de Trabajo no encontrada",
+        )
+
+    role_name = current_user.role.name if current_user.role else None
+    is_operator = (
+        role_name in ("admin", "coordinator", "tecnico_encargado")
+        or current_user.is_superuser
+    )
+    if not is_operator:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo operadores (coordinador/admin) pueden cancelar una OT",
+        )
+
+    if wo.status == WorkOrderStatus.cancelled:
+        raise HTTPException(status_code=409, detail="La OT ya está cancelada")
+
+    if wo.status in (WorkOrderStatus.completed, WorkOrderStatus.failed):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La OT ya está finalizada y no se puede cancelar",
+        )
+
+    if wo.status != WorkOrderStatus.pending_planning:
+        raise HTTPException(
+            status_code=422,
+            detail="Solo se pueden cancelar OTs que aún no fueron coordinadas (pendiente de planificación)",
+        )
+
+    old_status = wo.status
+    wo.status = WorkOrderStatus.cancelled
+    wo.cancelled_at = datetime.now(timezone.utc)
+
+    timeline_event = TicketTimeline(
+        ticket_id=wo.ticket_id,
+        author_id=current_user.id,
+        event_type=TicketTimelineEventType.ot_event,
+        content=f"🚫 OT #{wo.id} cancelada por operador: {payload.motive[:200]}",
+        meta_data={
+            "work_order_id": wo.id,
+            "action": "cancel",
+            "old_status": old_status.value,
+            "new_status": WorkOrderStatus.cancelled.value,
+            "status": WorkOrderStatus.cancelled.value,
+            "current_status": WorkOrderStatus.cancelled.value,
+            "work_order_status": WorkOrderStatus.cancelled.value,
+            "motive": payload.motive,
+            "cancelled_by": current_user.full_name or current_user.email,
+            "cancelled_by_role": role_name,
+        },
+    )
+    db.add(timeline_event)
+
+    db.commit()
+    db.refresh(wo)
+
+    try:
+        log_update(
+            db=db,
+            user_id=current_user.id,
+            entity_name="work_orders",
+            entity_id=wo.id,
+            old_values={"status": old_status.value},
+            new_values={
+                "status": WorkOrderStatus.cancelled.value,
+                "cancelled_at": wo.cancelled_at.isoformat() if wo.cancelled_at else None,
+                "motive": payload.motive,
+            },
+        )
+    except Exception as audit_error:
+        logger.error(f"Error al auditar cancelación de OT {wo.id}: {audit_error}")
+
+    return get_work_order_detail(work_order_id, db, current_user)
 
 
 @router.post("/{work_order_id}/cancel-start", response_model=WorkOrderDetailResponse)
@@ -2114,6 +3233,22 @@ def complete_work_order(
                 detail="No tienes permisos para completar esta OT",
             )
 
+    # Idempotencia del cierre: si la clave ya fue usada en una OT cerrada, se
+    # devuelve el resultado sin reprocesar (evita doble consumo ante reintentos).
+    if payload.idempotency_key:
+        existing = (
+            db.query(WorkOrder)
+            .filter(WorkOrder.close_idempotency_key == payload.idempotency_key)
+            .first()
+        )
+        if existing and existing.status in (WorkOrderStatus.completed, WorkOrderStatus.failed):
+            return get_work_order_detail(existing.id, db, current_user)
+
+        wo.close_idempotency_key = payload.idempotency_key
+
+    if payload.installation_connection_id:
+        wo.installation_connection_id = payload.installation_connection_id
+
     try:
         wo = complete_work_order_with_inventory(
             db=db,
@@ -2124,6 +3259,7 @@ def complete_work_order(
             photo_urls=payload.photo_urls,
             connection_note=payload.connection_note,
             installation_signal_dbm=payload.installation_signal_dbm,
+            installation_connection_id=payload.installation_connection_id,
         )
     except CompletionError as e:
         # Registrar el detalle exacto del error para diagnóstico: el log HTTP
@@ -2176,18 +3312,23 @@ def get_work_order_connection_assets(
         raise HTTPException(status_code=404, detail="WorkOrder no encontrada")
 
     ticket = db.query(Ticket).filter(Ticket.id == wo.ticket_id).first()
-    if not ticket or not ticket.connection_id:
+    connection_id = (
+        (ticket.connection_id if ticket else None)
+        or (ticket.destination_connection_id if ticket else None)
+        or (ticket.origin_connection_id if ticket else None)
+    )
+    if not connection_id:
         return ConnectionAssetsListResponse(connection_id=0, assets=[])
 
     assets = (
         db.query(ConnectionAsset)
-        .filter(ConnectionAsset.connection_id == ticket.connection_id)
+        .filter(ConnectionAsset.connection_id == connection_id)
         .order_by(ConnectionAsset.installed_at.desc())
         .all()
     )
 
     return ConnectionAssetsListResponse(
-        connection_id=ticket.connection_id,
+        connection_id=connection_id,
         assets=[ConnectionAssetResponse.model_validate(a) for a in assets],
     )
 

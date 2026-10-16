@@ -10,7 +10,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, or_, func
 
 from src.database import get_db
 from src.models.inventory import (
@@ -33,6 +33,7 @@ from src.schemas.logistics import (
     BarcodeScanRequest, BarcodeScanResponse,
     SerialScanRequest, SerialScanResponse,
     TrackedUnitLabelResponse,
+    TrackedUnitListItem,
     MaterialReceiptCreate, MaterialReceiptResponse,
     MaterialReceiptItemCreate, MaterialReceiptItemResponse,
 )
@@ -1041,6 +1042,77 @@ def confirm_receipt(
     ).scalar_one()
 
     return _receipt_to_response(receipt)
+
+
+@router.get("/tracked-units")
+def list_tracked_units(
+    q: Optional[str] = Query(None, description="Buscar por serial o nombre/SKU de producto"),
+    product_id: Optional[int] = Query(None, description="Filtrar por producto"),
+    warehouse_id: Optional[int] = Query(None, description="Filtrar por depósito"),
+    serial_status: Optional[SerialItemStatus] = Query(None, alias="status", description="Filtrar por estado"),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    """
+    Lista paginada de unidades trazables (códigos generados por Emerald) para
+    reimpresión múltiple. Devuelve `{ items, total }` para paginar en la UI.
+    """
+    conditions = [SerialItem.is_generated_barcode.is_(True)]
+
+    if q:
+        pattern = f"%{q.strip()}%"
+        conditions.append(
+            or_(
+                SerialItem.serial_number.ilike(pattern),
+                Product.name.ilike(pattern),
+                Product.sku.ilike(pattern),
+            )
+        )
+    if product_id:
+        conditions.append(SerialItem.product_id == product_id)
+    if warehouse_id:
+        conditions.append(SerialItem.warehouse_id == warehouse_id)
+    if serial_status is not None:
+        conditions.append(SerialItem.status == serial_status)
+
+    total = db.execute(
+        select(func.count())
+        .select_from(SerialItem)
+        .join(Product, SerialItem.product_id == Product.id)
+        .where(*conditions)
+    ).scalar() or 0
+
+    stmt = (
+        select(SerialItem)
+        .join(Product, SerialItem.product_id == Product.id)
+        .options(
+            joinedload(SerialItem.product),
+            joinedload(SerialItem.warehouse),
+        )
+        .where(*conditions)
+        .order_by(SerialItem.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    serials = db.execute(stmt).scalars().all()
+
+    items = [
+        TrackedUnitListItem(
+            serial_item_id=s.id,
+            serial_number=s.serial_number,
+            product_id=s.product_id,
+            product_name=s.product.name if s.product else None,
+            product_sku=s.product.sku if s.product else None,
+            status=s.status.value if s.status else None,
+            warehouse_id=s.warehouse_id,
+            warehouse_name=s.warehouse.name if s.warehouse else None,
+            created_at=s.created_at,
+        )
+        for s in serials
+    ]
+
+    return {"items": items, "total": int(total)}
 
 
 @router.get("/tracked-units/labels", response_model=List[TrackedUnitLabelResponse])

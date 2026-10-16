@@ -26,6 +26,7 @@ import { reportClientError } from '@/api/client';
 export default function useMaterialSelector(workOrderId, context = {}) {
   const { user } = useAuth();
   const teamIdFromWorkOrder = context?.teamId ?? null;
+  const technicianIdFromWorkOrder = context?.technicianId ?? null;
 
   // Catálogo de productos
   const [products, setProducts] = useState([]);
@@ -114,15 +115,8 @@ export default function useMaterialSelector(workOrderId, context = {}) {
     }
   }, []);
 
-  const resolveWarehouse = useCallback(async (userId, teamId) => {
-    // 0. Prioridad arquitectónica para cierre desde coordinación:
-    // tomar el warehouse MOBILE del vehículo de la cuadrilla asignada a la OT.
-    if (teamId) {
-      const teamWarehouse = await resolveWarehouseFromTeam(teamId);
-      if (teamWarehouse) return teamWarehouse;
-    }
-
-    // 1. Buscar por team → vehicle → warehouse (relación correcta)
+  // Resuelve el warehouse MOBILE desde los equipos de un usuario (team → vehicle → warehouse).
+  const resolveWarehouseFromUserTeams = useCallback(async (userId) => {
     try {
       const teams = await coordinationService.getUserTeams(userId);
       const teamWithVehicle = (teams || []).find((t) => !!t.vehicle_id);
@@ -134,10 +128,31 @@ export default function useMaterialSelector(workOrderId, context = {}) {
         if (vehicleWh) return vehicleWh;
       }
     } catch (e) {
-      console.warn('[useMaterialSelector] Team lookup failed:', e);
+      console.warn('[useMaterialSelector] User teams lookup failed:', e);
+    }
+    return null;
+  }, []);
+
+  const resolveWarehouse = useCallback(async (userId, teamId, technicianId) => {
+    // 0. Prioridad arquitectónica: warehouse MOBILE del vehículo de la cuadrilla
+    // asignada a la OT (team_id).
+    if (teamId) {
+      const teamWarehouse = await resolveWarehouseFromTeam(teamId);
+      if (teamWarehouse) return teamWarehouse;
     }
 
-    // 2. Fallback: buscar por user_id directo (deprecated)
+    // 0b. Si no hay team_id pero sí técnico asignado a la OT, resolver por el team
+    // del TÉCNICO de la OT (espeja _get_work_order_warehouse_id del backend).
+    if (technicianId && technicianId !== userId) {
+      const technicianWarehouse = await resolveWarehouseFromUserTeams(technicianId);
+      if (technicianWarehouse) return technicianWarehouse;
+    }
+
+    // 1. Fallback: team del usuario logueado → vehicle → warehouse.
+    const userWarehouse = await resolveWarehouseFromUserTeams(userId);
+    if (userWarehouse) return userWarehouse;
+
+    // 2. Fallback: warehouse MOBILE directo del usuario (deprecated).
     try {
       const direct = await inventoryService.getMyWarehouse(userId);
       if (direct) return direct;
@@ -146,7 +161,7 @@ export default function useMaterialSelector(workOrderId, context = {}) {
     }
 
     return null;
-  }, [resolveWarehouseFromTeam]);
+  }, [resolveWarehouseFromTeam, resolveWarehouseFromUserTeams]);
 
   const loadInventory = useCallback(async () => {
     if (!user?.id) return;
@@ -157,7 +172,11 @@ export default function useMaterialSelector(workOrderId, context = {}) {
       setIsLoading(true);
       setError(null);
 
-      const myWarehouse = await resolveWarehouse(user.id, teamIdFromWorkOrder);
+      const myWarehouse = await resolveWarehouse(
+        user.id,
+        teamIdFromWorkOrder,
+        technicianIdFromWorkOrder
+      );
 
       if (cancelled) return;
       setCurrentWarehouse(myWarehouse || null);
@@ -195,7 +214,7 @@ export default function useMaterialSelector(workOrderId, context = {}) {
     }
 
     return () => { cancelled = true; };
-  }, [user?.id, resolveWarehouse, teamIdFromWorkOrder, workOrderId]);
+  }, [user?.id, resolveWarehouse, teamIdFromWorkOrder, technicianIdFromWorkOrder, workOrderId]);
 
   /**
    * Refrescar stock del warehouse actual

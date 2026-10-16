@@ -59,6 +59,7 @@ export default function ProductCatalog() {
   const [formData, setFormData] = useState({
     name: '',
     sku: '',
+    barcode_prefix: '',
     type: 'BULK',
     category: 'Cableado',
     description: '',
@@ -77,6 +78,7 @@ export default function ProductCatalog() {
   const resetFormData = () => setFormData({
     name: '',
     sku: '',
+    barcode_prefix: '',
     type: 'BULK',
     category: 'Cableado',
     description: '',
@@ -186,6 +188,9 @@ export default function ProductCatalog() {
       const payload = {
         name: formData.name.trim(),
         sku: formData.sku.trim().toUpperCase(),
+        barcode_prefix: formData.barcode_prefix
+          ? formData.barcode_prefix.trim().toUpperCase()
+          : null,
         type: formData.type,
         category: formData.category || null,
         description: formData.description.trim() || null,
@@ -268,6 +273,9 @@ export default function ProductCatalog() {
       const payload = {
         name: formData.name.trim(),
         sku: formData.sku.trim().toUpperCase(),
+        barcode_prefix: formData.barcode_prefix
+          ? formData.barcode_prefix.trim().toUpperCase()
+          : null,
         // type is intentionally omitted - immutable field handled by backend
         category: formData.category || null,
         description: formData.description.trim() || null,
@@ -351,6 +359,7 @@ export default function ProductCatalog() {
     setFormData({
       name: product.name,
       sku: product.sku,
+      barcode_prefix: product.barcode_prefix || '',
       type: product.type,
       category: product.category || 'Cableado',
       description: product.description || '',
@@ -672,6 +681,24 @@ export default function ProductCatalog() {
                   className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors font-mono"
                   required
                 />
+              </div>
+
+              {/* Barcode prefix */}
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-2">
+                  Prefijo de código de barras
+                </label>
+                <input
+                  type="text"
+                  value={formData.barcode_prefix}
+                  onChange={(e) => setFormData({ ...formData, barcode_prefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })}
+                  placeholder="Ej: ONT, RTR, CBL (vacío = auto)"
+                  maxLength={4}
+                  className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-colors font-mono"
+                />
+                <p className="text-xs text-zinc-500 mt-1">
+                  De 1 a 4 caracteres. Si queda vacío se deriva del grupo/nombre/SKU.
+                </p>
               </div>
 
               {/* Type */}
@@ -1109,6 +1136,24 @@ export default function ProductCatalog() {
                     className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors font-mono"
                     required
                   />
+                </div>
+
+                {/* Barcode prefix */}
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Prefijo de código de barras
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.barcode_prefix}
+                    onChange={(e) => setFormData({ ...formData, barcode_prefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })}
+                    placeholder="Ej: ONT, RTR, CBL (vacío = auto)"
+                    maxLength={4}
+                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors font-mono"
+                  />
+                  <p className="text-xs text-zinc-500 mt-1">
+                    De 1 a 4 caracteres. Si queda vacío se deriva del grupo/nombre/SKU.
+                  </p>
                 </div>
 
                 {/* Type - DISABLED (immutable) */}

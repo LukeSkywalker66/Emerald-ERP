@@ -35,6 +35,11 @@ export const listWorkOrders = async (filters = {}) => {
       ...(filters.mobile_unit_id && { mobile_unit_id: filters.mobile_unit_id }),
       ...(filters.ot_type && { ot_type: filters.ot_type }),
       ...(filters.search && { search: filters.search }),
+      ...(filters.team_id && { team_id: filters.team_id }),
+      ...(filters.unassigned && { unassigned: true }),
+      ...(filters.assigned && { assigned: true }),
+      ...(filters.order_by && { order_by: filters.order_by }),
+      ...(filters.order_dir && { order_dir: filters.order_dir }),
     };
 
     const { data } = await api.get(`${BASE_URL}`, { params });
@@ -159,6 +164,22 @@ export const cancelWorkOrderStart = async (workOrderId) => {
 };
 
 /**
+ * Cancelar (anular) una OT aún no coordinada. Soft-cancel carrier-class.
+ * @param {number} workOrderId - ID de la OT
+ * @param {string} motive - Motivo de la cancelación (obligatorio)
+ * @returns {Promise<Object>} OT actualizada (status=cancelled)
+ */
+export const cancelWorkOrder = async (workOrderId, motive) => {
+  try {
+    const { data } = await api.post(`${BASE_URL}/${workOrderId}/cancel`, { motive });
+    return data;
+  } catch (error) {
+    console.error(`❌ Error cancelling work order ${workOrderId}:`, error);
+    throw error;
+  }
+};
+
+/**
  * Obtener OTs vencidas que bloquean agenda del técnico
  * @returns {Promise<Array>} OTs en pending_closure
  */
@@ -186,6 +207,99 @@ export const getPendingClosureStats = async () => {
   }
 };
 
+/**
+ * Obtener los activos instalados/retirados en la conexión de la OT
+ * (para el paso de recuperación de equipos del domicilio).
+ * @param {number} workOrderId - ID de la OT
+ * @returns {Promise<Object>} { connection_id, assets }
+ */
+export const getWorkOrderConnectionAssets = async (workOrderId) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/${workOrderId}/connection-assets`);
+    return data;
+  } catch (error) {
+    console.error(`❌ Error fetching connection assets for WO ${workOrderId}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Registrar equipos de la empresa recuperados del domicilio.
+ * @param {number} workOrderId - ID de la OT
+ * @param {Array} items - [{ connection_asset_id?, product_id?, serial_number?, state }]
+ * @returns {Promise<Object>} { recovered }
+ */
+export const recoverWorkOrderEquipment = async (workOrderId, items = []) => {
+  try {
+    const { data } = await api.post(`${BASE_URL}/${workOrderId}/recovery`, { items });
+    return data;
+  } catch (error) {
+    console.error(`❌ Error recovering equipment for WO ${workOrderId}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Obtener la bitácora post-cierre de una OT.
+ * @param {number} workOrderId - ID de la OT
+ * @returns {Promise<Object>} { updates }
+ */
+export const getWorkOrderUpdates = async (workOrderId) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/${workOrderId}/updates`);
+    return data;
+  } catch (error) {
+    console.error(`❌ Error fetching WO updates ${workOrderId}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Registrar una actualización post-cierre en la bitácora (append-only).
+ * @param {number} workOrderId - ID de la OT
+ * @param {Object} payload - { update_type, motive, payload? }
+ * @returns {Promise<Object>} entrada creada
+ */
+export const createWorkOrderUpdate = async (workOrderId, payload) => {
+  try {
+    const { data } = await api.post(`${BASE_URL}/${workOrderId}/updates`, payload);
+    return data;
+  } catch (error) {
+    console.error(`❌ Error creating WO update ${workOrderId}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Aprobar/rechazar una entrada de bitácora PROPOSED.
+ * @param {number} updateId - ID de la entrada
+ * @param {string} status - 'APPROVED' | 'REJECTED'
+ * @returns {Promise<Object>} entrada actualizada
+ */
+export const setWorkOrderUpdateStatus = async (updateId, status) => {
+  try {
+    const { data } = await api.patch(`${BASE_URL}/updates/${updateId}/status`, { status });
+    return data;
+  } catch (error) {
+    console.error(`❌ Error setting WO update status ${updateId}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Obtener entradas de bitácora PROPOSED pendientes de aprobación.
+ * @returns {Promise<Object>} { updates }
+ */
+export const getPendingWorkOrderUpdates = async () => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/updates/pending`);
+    return data;
+  } catch (error) {
+    console.error('❌ Error fetching pending WO updates:', error);
+    throw error;
+  }
+};
+
 export default {
   createWorkOrder,
   listWorkOrders,
@@ -196,6 +310,13 @@ export default {
   runQuickDiagnostic,
   reopenWorkOrder,
   cancelWorkOrderStart,
+  cancelWorkOrder,
   getMyPendingClosure,
   getPendingClosureStats,
+  getWorkOrderConnectionAssets,
+  recoverWorkOrderEquipment,
+  getWorkOrderUpdates,
+  createWorkOrderUpdate,
+  setWorkOrderUpdateStatus,
+  getPendingWorkOrderUpdates,
 };

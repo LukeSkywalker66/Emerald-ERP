@@ -12,7 +12,7 @@ import {
   Box,
   Calendar
 } from 'lucide-react';
-import { getWarehouseStock, getMovements } from '@/services/inventory.service';
+import { getWarehouseStock, getMovements, getMyWarehouse } from '@/services/inventory.service';
 import StockTable from '@/components/inventory/StockTable';
 import { useAuth } from '@/context/AuthContext';
 import Can from '@/components/auth/Can';
@@ -37,13 +37,17 @@ export default function WarehouseDetail() {
     setError(null);
 
     try {
-      const [stockData, movementsData] = await Promise.all([
+      const [stockData, movementsData, myWarehouse] = await Promise.all([
         getWarehouseStock(parseInt(id)),
-        getMovements({ warehouse_id: parseInt(id), limit: 20 })
+        getMovements({ warehouse_id: parseInt(id), limit: 20 }),
+        isTechnician ? getMyWarehouse(user?.id) : Promise.resolve(null),
       ]);
 
       // Aislamiento obligatorio: tecnico solo puede ver su warehouse movil.
-      if (isTechnician && Number(stockData?.user_id) !== Number(user?.id)) {
+      // La relación real de asignación es User → Team → Vehicle → Warehouse (MOBILE),
+      // no el campo deprecado Warehouse.user_id (hoy NULL en toda la tabla). Por eso
+      // se valida contra el warehouse resuelto por el backend para el técnico.
+      if (isTechnician && (!myWarehouse || Number(myWarehouse.id) !== Number(id))) {
         setError('Acceso denegado: este almacén no pertenece al técnico autenticado');
         setWarehouse(null);
         setMovements([]);
@@ -189,7 +193,13 @@ export default function WarehouseDetail() {
         {warehouse.warehouse_type === 'MOBILE' && (
           <div className="mt-4 p-3 bg-emerald-900/10 border border-emerald-800/30 rounded-lg flex items-center space-x-2">
             <User className="w-4 h-4 text-emerald-400" />
-            <span className="text-emerald-300 text-sm">Técnico asignado: ID #{warehouse.user_id || 'N/A'}</span>
+            <span className="text-emerald-300 text-sm">
+              {warehouse.user_id
+                ? `Técnico asignado: ID #${warehouse.user_id}`
+                : warehouse.team_name
+                  ? `Cuadrilla: ${warehouse.team_name}`
+                  : 'Móvil sin cuadrilla asignada'}
+            </span>
           </div>
         )}
       </div>

@@ -67,6 +67,7 @@ const WO_STATUS_LABELS = {
   pending_closure: 'Pendiente cierre',
   completed: 'Completadas',
   failed: 'Fallidas',
+  cancelled: 'Canceladas',
 };
 
 const WO_STATUS_COLORS = {
@@ -78,6 +79,7 @@ const WO_STATUS_COLORS = {
   pending_closure: 'bg-ruby-500',
   completed: 'bg-emerald-500',
   failed: 'bg-rose-600',
+  cancelled: 'bg-zinc-600',
 };
 
 // ── Skeleton Loading ────────────────────────────────────────────────────

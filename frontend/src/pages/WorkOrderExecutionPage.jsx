@@ -40,6 +40,7 @@ import { useAuth } from '@/context/AuthContext';
 import { normalizeRole } from '@/utils/permissions';
 import CloseWorkOrderDialog from '@/components/work-orders/CloseWorkOrderDialog';
 import WorkOrderCompletedSummary from '@/components/work-orders/WorkOrderCompletedSummary';
+import WorkOrderUpdatesPanel from '@/components/work-orders/WorkOrderUpdatesPanel';
 import UpdateLocationModal from '@/components/ui/UpdateLocationModal';
 
 // Mapeo de tipos de OT
@@ -149,6 +150,7 @@ export default function WorkOrderExecutionPage() {
   // Material selector compartido (hook unificado)
   const materialState = useMaterialSelector(id, {
     teamId: workOrder?.team_id ?? null,
+    technicianId: workOrder?.technician_id ?? null,
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -207,11 +209,20 @@ export default function WorkOrderExecutionPage() {
           alert('⛔ OT vencida. No se puede iniciar.\n\nUse el botón "Cerrar OT" para completarla o marcarla como no realizada.');
         } else if (reason === 'LOCKED_COMPLETED') {
           alert('🔒 OT ya completada. No se puede modificar.');
+        } else if (reason === 'LOCKED_CANCELLED') {
+          alert('🚫 OT cancelada. No se puede iniciar.');
         } else {
           alert('🔒 OT bloqueada: ' + (err.response?.data?.detail || err.message));
         }
+      } else if (err.response?.status === 409) {
+        const detail = err.response?.data?.detail;
+        alert(
+          typeof detail === 'string'
+            ? detail
+            : 'No podés iniciar esta tarea: la cuadrilla ya tiene otra tarea en curso.'
+        );
       } else {
-        alert('Error al iniciar trabajo: ' + err.message);
+        alert('Error al iniciar trabajo: ' + (err.response?.data?.detail || err.message));
       }
     } finally {
       setIsSubmitting(false);
@@ -338,11 +349,12 @@ export default function WorkOrderExecutionPage() {
 
   const isActive = workOrder?.started_at && !workOrder?.completed_at;
   const isCompleted = !!workOrder?.completed_at;
+  const isCancelled = workOrder?.status === 'cancelled';
 
   // OT vencida: scheduled_start superó el grace period de 5 minutos
   const isExpired = (() => {
     if (!workOrder?.scheduled_start) return false;
-    if (isActive || isCompleted) return false;
+    if (isActive || isCompleted || isCancelled) return false;
     const scheduledDate = new Date(workOrder.scheduled_start);
     const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
     return scheduledDate < fiveMinAgo;
@@ -415,8 +427,15 @@ export default function WorkOrderExecutionPage() {
               </Badge>
             )}
 
+            {isCancelled && (
+              <Badge variant="outline" className="bg-zinc-700/40 border-zinc-600 text-zinc-400 h-9 px-3 gap-1.5">
+                <AlertCircle size={14} />
+                Cancelada
+              </Badge>
+            )}
+
             {/* OT no iniciada ni completada: botón Iniciar + Cerrar OT si vencida */}
-            {!isActive && !isCompleted && (
+            {!isCancelled && !isActive && !isCompleted && (
               <>
                 <Button
                   size="sm"
@@ -876,7 +895,7 @@ export default function WorkOrderExecutionPage() {
                 size="sm"
                 variant="outline"
                 onClick={handleCheckBeholder}
-                disabled={isCompleted || beholderLoading}
+                disabled={isCompleted || isCancelled || beholderLoading}
                 className="w-full border-zinc-700 text-zinc-300 hover:bg-zinc-800 h-9"
               >
                 {beholderLoading ? (
@@ -913,7 +932,7 @@ export default function WorkOrderExecutionPage() {
                     key={item.id}
                     item={item}
                     onRemove={handleRemoveMaterial}
-                    disabled={workOrder?.status === 'completed' || workOrder?.status === 'failed'}
+                    disabled={workOrder?.status === 'completed' || workOrder?.status === 'failed' || workOrder?.status === 'cancelled'}
                   />
                 ))}
               </div>
@@ -927,13 +946,16 @@ export default function WorkOrderExecutionPage() {
               size="sm"
               variant="outline"
               onClick={() => setShowMaterialDialog(true)}
-              disabled={isCompleted}
+              disabled={isCompleted || isCancelled}
               className="w-full border-zinc-700 text-zinc-300 hover:bg-zinc-800 h-9"
             >
               <Plus size={14} className="mr-1" />
               Agregar Material
             </Button>
           </div>
+
+          {/* Bitácora post-cierre (P2) */}
+          <WorkOrderUpdatesPanel workOrderId={workOrder?.id} workOrderStatus={workOrder?.status} />
 
           {/* Resumen de OT Completada */}
           {isCompleted && workOrder && (

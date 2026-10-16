@@ -33,6 +33,7 @@ const ProductCatalog = lazy(() => import('./pages/inventory/ProductCatalog'));
 const ProductExplorer = lazy(() => import('./pages/inventory/ProductExplorer'));
 const StockTransferWizard = lazy(() => import('./pages/inventory/StockTransferWizard'));
 const StockAdjustments = lazy(() => import('./pages/inventory/StockAdjustments'));
+const InventoryReconciliation = lazy(() => import('./pages/inventory/InventoryReconciliation'));
 const MovementsHistory = lazy(() => import('./pages/inventory/MovementsHistory'));
 const StockAlerts = lazy(() => import('./pages/inventory/StockAlerts'));
 const FleetPage = lazy(() => import('./pages/fleet/FleetPage'));
@@ -48,6 +49,7 @@ const MaterialDeliveryDashboard = lazy(() => import('./pages/logistics/MaterialD
 const MaterialDeliveryWizard = lazy(() => import('./pages/logistics/MaterialDeliveryWizard'));
 const MaterialReceiptWizard = lazy(() => import('./pages/logistics/MaterialReceiptWizard'));
 const BarcodeLabelPrinter = lazy(() => import('./pages/logistics/BarcodeLabelPrinter'));
+const TrackedUnitsReprint = lazy(() => import('./pages/logistics/TrackedUnitsReprint'));
 
 // Sales Module Pages
 const SalesPage = lazy(() => import('./pages/sales/SalesPage'));
@@ -101,6 +103,7 @@ const AppRoutes = () => (
         <Route path="inventory/explorer" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><ProductExplorer /></RoleGuard>} />
         <Route path="inventory/transfer" element={<RoleGuard resource="inventory" action="transfer" fallbackPath="/app/inventory/warehouses"><StockTransferWizard /></RoleGuard>} />
         <Route path="inventory/adjustments" element={<RoleGuard resource="inventory" action="adjust" fallbackPath="/app/inventory/warehouses"><StockAdjustments /></RoleGuard>} />
+        <Route path="inventory/reconciliation" element={<RoleGuard resource="inventory_admin" fallbackPath="/app/inventory/adjustments"><InventoryReconciliation /></RoleGuard>} />
         <Route path="inventory/movements" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><MovementsHistory /></RoleGuard>} />
         <Route path="inventory/alerts" element={<RoleGuard resource="inventory" action="view_all" fallbackPath="/app/inventory/warehouses"><StockAlerts /></RoleGuard>} />
 
@@ -111,6 +114,7 @@ const AppRoutes = () => (
         <Route path="logistics/receipts/new" element={<RoleGuard resource="inventory_admin"><MaterialReceiptWizard /></RoleGuard>} />
         <Route path="logistics/receipts/:id" element={<RoleGuard resource="inventory_admin"><MaterialReceiptWizard /></RoleGuard>} />
         <Route path="logistics/print-labels" element={<RoleGuard resource="inventory" action="adjust" fallbackPath="/app/inventory/adjustments"><BarcodeLabelPrinter /></RoleGuard>} />
+        <Route path="logistics/reprint-labels" element={<RoleGuard resource="inventory" action="adjust" fallbackPath="/app/inventory/adjustments"><TrackedUnitsReprint /></RoleGuard>} />
 
         {/* Sales Module Routes */}
         <Route path="sales" element={<RoleGuard resource="sales"><SalesPage /></RoleGuard>} />

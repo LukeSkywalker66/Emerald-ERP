@@ -115,10 +115,12 @@ class WorkOrderStatus(StrEnum):
     
     completed = "completed"  # Trabajo completado
     failed = "failed"  # Fallo en ejecución
+    cancelled = "cancelled"  # Cancelada por operador antes de coordinarse (anulada, no borrada)
 
 
 class WorkOrderType(StrEnum):
     """Tipos de órdenes de trabajo."""
+    install = "install"            # Instalación neutra (TV, mesh y otros servicios sobre conexión existente)
     install_ftth = "install_ftth"  # Instalación Fibra Óptica (FTTH)
     install_aire = "install_aire"  # Instalación Aire/Antena
     repair = "repair"              # Reclamo/Soporte técnico
@@ -138,6 +140,7 @@ class TicketType(StrEnum):
     administrative = "administrative"    # Gestión administrativa
     fiber_migration = "fiber_migration"  # Pase a fibra (misma conexión, retiro de aire)
     mesh = "mesh"                        # Instalación de sistema mesh (red inalámbrica sobre conexión existente)
+    tv = "tv"                            # Instalación de TV (servicio sobre conexión existente)
 
 
 class AdministrativeSubtype(StrEnum):
@@ -426,6 +429,14 @@ class Ticket(Base, TimestampMixin):
         nullable=True,
         index=True,
         comment="FK soft a conexión de destino (para RELOCATION, INSTALLATION)"
+    )
+
+    parent_ticket_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("tickets.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Ticket hermanado del que nació (ej. reemplazo de equipo creado en campo)"
     )
 
     # Tecnología de instalación (NUEVO - para INSTALLATION)
@@ -741,6 +752,27 @@ class WorkOrder(Base, TimestampMixin):
         comment="Fecha/hora de finalización real del trabajo"
     )
 
+    cancelled_at: Mapped[Optional[DateTime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Fecha/hora de cancelación por operador (soft-cancel, solo OTs no coordinadas)"
+    )
+
+    close_idempotency_key: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+        index=True,
+        comment="Clave de idempotencia del cierre (evita doble consumo ante reintentos)"
+    )
+
+    installation_connection_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("connections.connection_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Conexión física donde se aplicó el trabajo (explícita, separa servicio de activo)"
+    )
+
     # Resolución
     resolution_type: Mapped[Optional[WorkOrderResolutionType]] = mapped_column(
         Enum(WorkOrderResolutionType, name="work_order_resolution_type_enum", native_enum=False),
@@ -945,6 +977,35 @@ class WorkOrderItem(Base, TimestampMixin):
         comment="Conexión asociada (para consultar materiales BULK usados en una conexión)"
     )
 
+    # Depósito MOBILE de origen (fuente autoritativa del descuento en el cierre)
+    warehouse_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("warehouses.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Depósito MOBILE desde el que se validó y descontará este material"
+    )
+
+    # Snapshot del estado previo al cierre (para reversa exacta desde la bitácora).
+    previous_serial_status: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="Estado del SerialItem antes de quedar INSTALLED (reversa de quitar/reemplazar)"
+    )
+
+    previous_warehouse_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("warehouses.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Depósito real del serial/stock antes del consumo (reversa de quitar/reemplazar/corregir)"
+    )
+
+    previous_remaining_quantity: Mapped[Optional[float]] = mapped_column(
+        Float,
+        nullable=True,
+        comment="Saldo de la unidad trazable antes del consumo (reversa de corregir cantidad)"
+    )
+
     # Relationships
     work_order: Mapped[WorkOrder] = relationship(
         "WorkOrder",
@@ -960,3 +1021,45 @@ class WorkOrderItem(Base, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<WorkOrderItem(id={self.id}, wo_id={self.work_order_id}, qty={self.quantity})>"
+
+
+class WorkOrderUpdate(Base, TimestampMixin):
+    """
+    Bitácora append-only de actualizaciones post-cierre de una OT (P2).
+
+    La OT cerrada no se edita: cada corrección (materiales, info, cierre) se
+    registra como una entrada auditada con motivo obligatorio.
+    """
+    __tablename__ = "work_order_updates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    work_order_id: Mapped[int] = mapped_column(
+        ForeignKey("work_orders.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="OT sobre la que se registra la actualización",
+    )
+    author_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Usuario que registró la actualización",
+    )
+    update_type: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        comment="MATERIALS_ADDED | MATERIALS_REMOVED | MATERIALS_REPLACED | MATERIALS_QTY_UPDATED | INFO_CORRECTION | CLOSE_CORRECTION | NOTE",
+    )
+    status: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="APPLIED",
+        comment="APPLIED | PROPOSED | APPROVED | REJECTED",
+    )
+    motive: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+
+    def __repr__(self) -> str:
+        return (
+            f"<WorkOrderUpdate(id={self.id}, wo={self.work_order_id}, "
+            f"type={self.update_type}, status={self.status})>"
+        )

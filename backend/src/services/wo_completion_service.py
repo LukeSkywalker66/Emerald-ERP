@@ -64,6 +64,7 @@ def complete_work_order_with_inventory(
     photo_urls: Optional[list[str]] = None,
     connection_note: Optional[str] = None,
     installation_signal_dbm: Optional[float] = None,
+    installation_connection_id: Optional[int] = None,
 ) -> WorkOrder:
     """
     Completar una OT procesando todo el inventario asociado.
@@ -92,6 +93,9 @@ def complete_work_order_with_inventory(
     if work_order.status == WorkOrderStatus.failed:
         raise CompletionError("La OT está marcada como fallida")
 
+    if work_order.status == WorkOrderStatus.cancelled:
+        raise CompletionError("La OT está cancelada y no se puede completar")
+
     # Obtener connection_id desde el ticket asociado
     ticket = db.query(Ticket).filter(Ticket.id == work_order.ticket_id).first()
     if not ticket:
@@ -101,7 +105,8 @@ def complete_work_order_with_inventory(
     # destination_connection_id y los de traslado origin_connection_id,
     # pudiendo quedar connection_id en NULL.
     connection_id = (
-        ticket.connection_id
+        installation_connection_id
+        or ticket.connection_id
         or ticket.destination_connection_id
         or ticket.origin_connection_id
     )
@@ -145,6 +150,10 @@ def complete_work_order_with_inventory(
     is_no_realizada = resolution_category in ('no_realizada', 'incomplete')
     work_order.status = WorkOrderStatus.failed if is_no_realizada else WorkOrderStatus.completed
     work_order.completed_at = now
+    # Registrar quién completó la OT cuando no hay técnico asignado: habilita que la
+    # bitácora de gracia ("mismo día, propia OT") auto-aplique para quien la cerró.
+    if work_order.technician_id is None:
+        work_order.technician_id = current_user.id
     work_order.resolution_category = resolution_category
     work_order.resolution_notes = resolution_notes
     if photo_urls:
@@ -164,6 +173,7 @@ def complete_work_order_with_inventory(
         "work_order_status": final_status.value, # ← legado
         "resolution_category": resolution_category,
         "item_count": item_count,
+        "closed_without_materials": item_count == 0,
         "action_code": "no_realizada" if is_no_realizada else "realizada",
     }
     
@@ -282,13 +292,21 @@ def _process_bulk_item(
     warehouse_id: Optional[int] = None,
 ) -> None:
     """Descarga stock BULK del warehouse del técnico."""
-    # Warehouse a descontar: el resuelto desde el equipo de la OT; si no se pudo
-    # resolver, se cae al warehouse MOBILE del usuario que ejecuta el cierre.
-    resolved_warehouse_id = warehouse_id or _get_technician_warehouse_id(db, user_id)
+    # Warehouse a descontar: el persistido en el item (fuente autoritativa resuelta
+    # en el alta); si es legacy (NULL), se re-resuelve desde el equipo de la OT y,
+    # como último recurso, el MOBILE del usuario que ejecuta el cierre.
+    resolved_warehouse_id = (
+        item.warehouse_id
+        or warehouse_id
+        or _get_technician_warehouse_id(db, user_id)
+    )
     if not resolved_warehouse_id:
         raise CompletionError(
             f"No se pudo determinar el depósito móvil del técnico para descontar {product.name}"
         )
+
+    # Snapshot del depósito efectivo para reversa exacta desde la bitácora (P2).
+    item.previous_warehouse_id = resolved_warehouse_id
 
     stock_entry = (
         db.query(StockBulk)
@@ -375,6 +393,33 @@ def _process_serialized_item(
             f"Serial {item.serial_number} ya está instalado en otra conexión"
         )
 
+    # Swap blando (§10.9): si la conexión ya tiene un activo INSTALLED del mismo
+    # producto, se retira el anterior (REMOVED + devuelto al móvil) antes de
+    # instalar el nuevo. Reemplazo atómico dentro del mismo cierre.
+    existing_asset = (
+        db.query(ConnectionAsset)
+        .filter(
+            ConnectionAsset.connection_id == connection_id,
+            ConnectionAsset.product_id == item.product_id,
+            ConnectionAsset.status == ConnectionAssetStatus.INSTALLED.value,
+            ConnectionAsset.serial_item_id != serial_item.id,
+        )
+        .first()
+    )
+    if existing_asset:
+        old_serial = db.get(SerialItem, existing_asset.serial_item_id)
+        existing_asset.status = ConnectionAssetStatus.REMOVED.value
+        existing_asset.removed_at = datetime.now(timezone.utc)
+        existing_asset.removed_by_wo_id = work_order_id
+        existing_asset.notes = (
+            (existing_asset.notes + " | " if existing_asset.notes else "")
+            + f"Reemplazado por {item.serial_number}"
+        )
+        if old_serial:
+            old_serial.status = SerialItemStatus.IN_VEHICLE
+            old_serial.warehouse_id = serial_item.warehouse_id  # vuelve al móvil
+            old_serial.connection_id = None
+
     if product.is_composite and serial_item.is_generated_barcode:
         _process_composite_tracked_serial_item(
             db=db,
@@ -386,6 +431,12 @@ def _process_serialized_item(
             work_order_id=work_order_id,
         )
         return
+
+    # Snapshot para reversa exacta desde la bitácora (P2).
+    item.previous_serial_status = (
+        serial_item.status.value if serial_item.status else None
+    )
+    item.previous_warehouse_id = serial_item.warehouse_id
 
     warehouse_id = serial_item.warehouse_id
     virtual_wh_id = _get_virtual_warehouse_id(db)
@@ -447,6 +498,13 @@ def _process_composite_tracked_serial_item(
         raise CompletionError(
             f"Serial {item.serial_number} no tiene saldo disponible para consumo"
         )
+
+    # Snapshot para reversa exacta desde la bitácora (P2).
+    item.previous_serial_status = (
+        serial_item.status.value if serial_item.status else None
+    )
+    item.previous_warehouse_id = origin_warehouse_id
+    item.previous_remaining_quantity = current_remaining
 
     consume_qty = float(item.quantity)
     if consume_qty <= 0:
@@ -594,3 +652,240 @@ def _get_virtual_warehouse_id(db: Session) -> int:
             "Debe existir un depósito de tipo VIRTUAL para registrar equipos instalados en cliente."
         )
     return warehouse.id
+
+
+# ============================================================
+# Reversa de materiales post-cierre (P2 — corrección real)
+# ============================================================
+
+def reverse_material_item(
+    db: Session,
+    item: WorkOrderItem,
+    user_id: int,
+    reference_suffix: str = "",
+) -> None:
+    """
+    Revierte el efecto de inventario de un WorkOrderItem ya procesado en el
+    cierre, devolviendo el estado pre-cierre usando el snapshot guardado.
+
+    Es el "camino de vuelta exacto": el serial vuelve al móvil (o a su estado
+    previo), el stock BULK se reacredita y la unidad trazable recupera su saldo.
+    No elimina la fila WorkOrderItem; esa decisión queda en el llamador.
+    """
+    from src.models.inventory import Product
+
+    product = db.get(Product, item.product_id)
+    if not product:
+        raise CompletionError(f"Producto ID {item.product_id} no encontrado en catálogo")
+
+    if product.type == "SERIALIZED":
+        _reverse_serialized_item(db, item, product, user_id, reference_suffix)
+    elif product.type == "BULK" and product.is_composite and item.serial_number:
+        _reverse_composite_tracked_item(db, item, product, user_id, reference_suffix)
+    elif product.type == "BULK":
+        _reverse_bulk_item(db, item, product, user_id, reference_suffix)
+    else:
+        raise CompletionError(
+            f"No se puede revertir el producto {product.name} (tipo {product.type})"
+        )
+
+
+def _resolve_reversal_warehouse(db: Session, item: WorkOrderItem, user_id: int) -> int:
+    """Depósito al que debe devolverse el material revertido."""
+    warehouse_id = item.previous_warehouse_id or item.warehouse_id
+    if not warehouse_id:
+        warehouse_id = _get_technician_warehouse_id(db, user_id)
+    if not warehouse_id:
+        raise CompletionError(
+            f"No se pudo determinar el depósito de origen para revertir el item #{item.id}"
+        )
+    return warehouse_id
+
+
+def _coerce_serial_status(value: Optional[str]) -> SerialItemStatus:
+    """Convierte el snapshot de estado a SerialItemStatus (fallback IN_VEHICLE)."""
+    if value:
+        try:
+            return SerialItemStatus(value)
+        except ValueError:
+            pass
+    return SerialItemStatus.IN_VEHICLE
+
+
+def _reverse_bulk_item(
+    db: Session,
+    item: WorkOrderItem,
+    product,
+    user_id: int,
+    reference_suffix: str = "",
+) -> None:
+    """Reacredita el stock BULK descontado en el cierre."""
+    warehouse_id = _resolve_reversal_warehouse(db, item, user_id)
+
+    quantity_to_restore = item.quantity
+    if product.is_composite:
+        if not product.unit_size or product.unit_size <= 0:
+            raise CompletionError(
+                f"El producto compuesto {product.name} no tiene unit_size válido"
+            )
+        quantity_to_restore = round(item.quantity / product.unit_size, 6)
+
+    stock_entry = (
+        db.query(StockBulk)
+        .filter(
+            StockBulk.product_id == item.product_id,
+            StockBulk.warehouse_id == warehouse_id,
+        )
+        .first()
+    )
+    if not stock_entry:
+        stock_entry = StockBulk(
+            product_id=item.product_id,
+            warehouse_id=warehouse_id,
+            quantity=0.0,
+        )
+        db.add(stock_entry)
+        db.flush()
+
+    stock_entry.quantity = round(stock_entry.quantity + quantity_to_restore, 6)
+
+    movement = StockMovement(
+        product_id=item.product_id,
+        from_warehouse_id=None,
+        to_warehouse_id=warehouse_id,
+        quantity=quantity_to_restore,
+        movement_type=MovementType.RECOVERY,
+        reference=f"Corrección OT #{item.work_order_id}{reference_suffix}",
+        user_id=user_id,
+        notes=f"Reversa bitácora: {product.name} x{quantity_to_restore}",
+    )
+    db.add(movement)
+
+
+def _reverse_serialized_item(
+    db: Session,
+    item: WorkOrderItem,
+    product,
+    user_id: int,
+    reference_suffix: str = "",
+) -> None:
+    """Devuelve un SerialItem a su estado pre-cierre y retira el ConnectionAsset."""
+    if not item.serial_number:
+        raise CompletionError(f"Item serializado #{item.id} ({product.name}) no tiene número de serie")
+
+    serial_item = (
+        db.query(SerialItem)
+        .filter(SerialItem.serial_number == item.serial_number)
+        .first()
+    )
+    if not serial_item:
+        raise CompletionError(f"Serial {item.serial_number} no encontrado en inventario")
+
+    warehouse_id = _resolve_reversal_warehouse(db, item, user_id)
+
+    serial_item.status = _coerce_serial_status(item.previous_serial_status)
+    serial_item.warehouse_id = warehouse_id
+    serial_item.connection_id = None
+    serial_item.ticket_related_id = None
+
+    # Marcar el ConnectionAsset generado en el cierre como REMOVED.
+    asset = (
+        db.query(ConnectionAsset)
+        .filter(
+            ConnectionAsset.serial_item_id == serial_item.id,
+            ConnectionAsset.status == ConnectionAssetStatus.INSTALLED.value,
+        )
+        .order_by(ConnectionAsset.installed_at.desc())
+        .first()
+    )
+    if asset:
+        asset.status = ConnectionAssetStatus.REMOVED.value
+        asset.removed_at = datetime.now(timezone.utc)
+        asset.removed_by_wo_id = item.work_order_id
+        asset.notes = (
+            (asset.notes + " | " if asset.notes else "")
+            + "Retirado por corrección de bitácora"
+        )
+
+    movement = StockMovement(
+        product_id=item.product_id,
+        from_warehouse_id=None,
+        to_warehouse_id=warehouse_id,
+        serial_item_id=serial_item.id,
+        movement_type=MovementType.RECOVERY,
+        reference=f"Corrección OT #{item.work_order_id}{reference_suffix}",
+        user_id=user_id,
+        notes=f"Reversa bitácora: {product.name} SN:{item.serial_number}",
+    )
+    db.add(movement)
+
+
+def _reverse_composite_tracked_item(
+    db: Session,
+    item: WorkOrderItem,
+    product,
+    user_id: int,
+    reference_suffix: str = "",
+) -> None:
+    """Restaura el saldo de una unidad trazable compuesta (ej: bobina de drop)."""
+    if not item.serial_number:
+        raise CompletionError(
+            f"Item compuesto trazable #{item.id} ({product.name}) no tiene número de serie"
+        )
+
+    serial_item = (
+        db.query(SerialItem)
+        .filter(SerialItem.serial_number == item.serial_number)
+        .first()
+    )
+    if not serial_item:
+        raise CompletionError(f"Serial {item.serial_number} no encontrado en inventario")
+
+    consume_qty = float(item.quantity)
+    current_remaining = serial_item.remaining_quantity
+
+    prev_remaining = item.previous_remaining_quantity
+    if prev_remaining is None:
+        prev_remaining = (current_remaining or 0.0) + consume_qty
+    prev_remaining = round(float(prev_remaining), 6)
+
+    serial_item.remaining_quantity = prev_remaining
+
+    # Si la unidad se había agotado (INSTALLED/VIRTUAL), devolverla a su estado previo.
+    if serial_item.status == SerialItemStatus.INSTALLED:
+        warehouse_id = _resolve_reversal_warehouse(db, item, user_id)
+        serial_item.status = _coerce_serial_status(item.previous_serial_status)
+        serial_item.warehouse_id = warehouse_id
+        serial_item.connection_id = None
+        serial_item.ticket_related_id = None
+
+    origin_warehouse_id = item.previous_warehouse_id or serial_item.warehouse_id
+
+    # Log inverso: cantidad negativa para que las sumas históricas sigan cuadrando.
+    reversal_log = ConsumptionLog(
+        tracked_unit_id=serial_item.id,
+        work_order_id=item.work_order_id,
+        quantity_consumed=-consume_qty,
+        quantity_before=(current_remaining or 0.0),
+        quantity_after=prev_remaining,
+        user_id=user_id,
+        warehouse_id=origin_warehouse_id,
+        notes="Reversa bitácora",
+    )
+    db.add(reversal_log)
+
+    movement = StockMovement(
+        product_id=item.product_id,
+        from_warehouse_id=None,
+        to_warehouse_id=origin_warehouse_id,
+        quantity=consume_qty,
+        serial_item_id=serial_item.id,
+        movement_type=MovementType.RECOVERY,
+        reference=f"Corrección OT #{item.work_order_id}{reference_suffix}",
+        user_id=user_id,
+        notes=(
+            f"Reversa bitácora: {product.name} SN:{item.serial_number} "
+            f"devuelto {consume_qty} {product.unit_measure or 'base'}"
+        ),
+    )
+    db.add(movement)

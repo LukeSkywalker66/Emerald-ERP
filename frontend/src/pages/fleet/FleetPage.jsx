@@ -176,7 +176,12 @@ const FleetPage = () => {
               ) : (
                 vehicles.map((vehicle) => (
                   <tr key={vehicle.id} className="border-b border-zinc-800/70 hover:bg-zinc-800/30">
-                    <td className="px-4 py-3 text-zinc-100 font-medium">{vehicle.name}</td>
+                    <td className="px-4 py-3 text-zinc-100 font-medium">
+                      {vehicle.name}
+                      {vehicle.team_name ? (
+                        <span className="text-zinc-400 font-normal"> ({vehicle.team_name})</span>
+                      ) : null}
+                    </td>
                     <td className="px-4 py-3 text-zinc-300">{vehicle.license_plate || '—'}</td>
                     <td className="px-4 py-3 text-zinc-300">
                       {[vehicle.vehicle_brand, vehicle.vehicle_model].filter(Boolean).join(' ') || '—'}

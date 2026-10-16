@@ -339,6 +339,21 @@ export const getTrackedUnitLabelsPdf = async (serialItemIds = [], columns = 2) =
   }
 };
 
+/**
+ * Listar unidades trazables (códigos generados por Emerald) para reimpresión.
+ * @param {Object} filters - { q, product_id, warehouse_id, status, limit, offset }
+ * @returns {Promise<Array>}
+ */
+export const getTrackedUnits = async (filters = {}) => {
+  try {
+    const { data } = await api.get(`${BASE_URL}/tracked-units`, { params: filters });
+    return data || { items: [], total: 0 };
+  } catch (error) {
+    console.error('❌ Error fetching tracked units:', error);
+    throw error;
+  }
+};
+
 
 export default {
   // Deliveries
@@ -363,6 +378,7 @@ export default {
   createReceipt,
   scanReceiptItem,
   confirmReceipt,
+  getTrackedUnits,
   getTrackedUnitLabels,
   getTrackedUnitLabelsPdf,
 };

@@ -64,6 +64,10 @@ class ProductBase(BaseModel):
     """Schema base para product."""
     name: str = Field(..., min_length=1, max_length=200)
     sku: str = Field(..., min_length=1, max_length=50, description="Código único")
+    barcode_prefix: Optional[str] = Field(
+        None, min_length=1, max_length=4,
+        description="Prefijo de 1-4 caracteres para códigos de barras propios"
+    )
     type: ProductType
     category: Optional[str] = Field(None, max_length=100)
     min_stock_alert: float = Field(0, ge=0)
@@ -89,6 +93,10 @@ class ProductUpdate(BaseModel):
     """Schema para actualizar product."""
     name: Optional[str] = Field(None, min_length=1, max_length=200)
     sku: Optional[str] = Field(None, min_length=1, max_length=50)
+    barcode_prefix: Optional[str] = Field(
+        None, min_length=1, max_length=4,
+        description="Prefijo de 1-4 caracteres para códigos de barras propios"
+    )
     type: Optional[ProductType] = None
     category: Optional[str] = Field(None, max_length=100)
     min_stock_alert: Optional[float] = Field(None, ge=0)
@@ -110,6 +118,46 @@ class ProductResponse(ProductBase):
     specs: Optional[dict] = Field(None, description="Especificaciones técnicas (JSONB)")
     
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProductSearchItem(BaseModel):
+    """Item liviano de búsqueda de productos para pickers/combo."""
+    id: int
+    name: str
+    sku: str
+    type: ProductType
+    is_composite: bool = False
+    category: Optional[str] = None
+    group_id: Optional[int] = None
+    group_name: Optional[str] = None
+    unit_measure: Optional[str] = None
+    composite_unit_label: Optional[str] = None
+    unit_size: Optional[float] = None
+    available_in_warehouse: Optional[float] = Field(
+        None, description="Stock disponible en el depósito consultado (bulk + seriales NEW/IN_VEHICLE)"
+    )
+    barcode_label: str = Field(..., description="SN si el producto tiene serial, si no el SKU")
+    has_serial: bool = False
+
+
+class AvailableStockItem(BaseModel):
+    """Unidad disponible en un depósito para pickers (SN individual o producto BULK)."""
+    kind: str = Field(..., description="'serial' (unidad con SN) o 'bulk' (producto a granel)")
+    serial_item_id: Optional[int] = None
+    serial_number: Optional[str] = None
+    product_id: int
+    product_name: str
+    product_sku: Optional[str] = None
+    product_type: Optional[str] = None
+    group_name: Optional[str] = None
+    category: Optional[str] = None
+    status: Optional[str] = None
+    unit_measure: Optional[str] = None
+    composite_unit_label: Optional[str] = None
+    unit_size: Optional[float] = None
+    is_composite: bool = False
+    remaining_quantity: Optional[float] = None
+    available_quantity: Optional[float] = None
 
 
 # ============================================
@@ -223,6 +271,7 @@ class SerialItemBase(BaseModel):
     product_id: int
     warehouse_id: int
     status: SerialItemStatus = SerialItemStatus.NEW
+    connection_id: Optional[int] = None
     ticket_related_id: Optional[int] = None
     notes: Optional[str] = None
 
@@ -238,6 +287,7 @@ class SerialItemUpdate(BaseModel):
     mac_address: Optional[str] = Field(None, max_length=17)
     warehouse_id: Optional[int] = None
     status: Optional[SerialItemStatus] = None
+    connection_id: Optional[int] = None
     ticket_related_id: Optional[int] = None
     notes: Optional[str] = None
 
@@ -408,6 +458,36 @@ class StockAdjustmentResponse(BaseModel):
     message: str
     
     model_config = ConfigDict(from_attributes=True)
+
+
+class SerialItemReconcileRequest(BaseModel):
+    """Reconciliación de un SerialItem (status/warehouse/connection) con motivo obligatorio."""
+    status: Optional[SerialItemStatus] = Field(None, description="Nuevo estado del serial")
+    warehouse_id: Optional[int] = Field(None, description="Nuevo depósito del serial")
+    connection_id: Optional[int] = Field(None, description="Nueva conexión asociada")
+    clear_connection: bool = Field(False, description="Desvincular de la conexión actual")
+    motive: str = Field(..., min_length=5, max_length=500, description="Motivo de la corrección (obligatorio)")
+    reference: Optional[str] = Field(None, max_length=200, description="Referencia libre")
+
+
+class StockBulkReconcileRequest(BaseModel):
+    """Corrección de stock BULK con delta con signo y motivo obligatorio."""
+    product_id: int = Field(..., description="ID del producto BULK")
+    warehouse_id: int = Field(..., description="ID del depósito a corregir")
+    quantity_delta: float = Field(..., description="Delta con signo (negativo descuenta, positivo suma)")
+    motive: str = Field(..., min_length=5, max_length=500, description="Motivo de la corrección (obligatorio)")
+    reference: Optional[str] = Field(None, max_length=200, description="Referencia libre")
+
+
+class DiscrepancyItem(BaseModel):
+    """Discrepancia de inventario detectada (P4)."""
+    type: str = Field(..., description="Código de discrepancia")
+    severity: str = Field("warning", description="warning | critical")
+    message: str = Field(..., description="Descripción legible")
+    serial_item_id: Optional[int] = None
+    serial_number: Optional[str] = None
+    connection_id: Optional[int] = None
+    warehouse_id: Optional[int] = None
 
 
 # ============================================

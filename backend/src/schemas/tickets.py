@@ -144,6 +144,22 @@ class WorkOrderCompleteRequest(BaseModel):
     photo_urls: Optional[List[str]] = Field(default_factory=list, description="Fotos de evidencia")
     connection_note: Optional[str] = Field(None, description="Nota opcional para la conexión")
     installation_signal_dbm: Optional[float] = Field(None, description="Nivel de señal óptica/RSSI al instalar (dBm)")
+    idempotency_key: Optional[str] = Field(
+        None, max_length=100, description="Clave de idempotencia del cierre (generada por el frontend)"
+    )
+    installation_connection_id: Optional[int] = Field(
+        None, description="Conexión física donde se aplicó el trabajo (si difiere de la conexión del ticket)"
+    )
+
+
+class WorkOrderCancelRequest(BaseModel):
+    """Cancelación de una OT aún no coordinada (soft-cancel carrier-class)."""
+    motive: str = Field(
+        ...,
+        min_length=3,
+        max_length=2000,
+        description="Motivo de la cancelación (obligatorio)",
+    )
 
 
 class WorkOrderUpdate(BaseModel):
@@ -187,6 +203,9 @@ class WorkOrderItemCreate(BaseModel):
     quantity: float = Field(..., gt=0, description="Cantidad consumida")
     serial_number: Optional[str] = Field(None, description="Serial si es trazable")
     notes: Optional[str] = None
+    warehouse_id: Optional[int] = Field(
+        None, description="Depósito MOBILE que mostró/validó stock (el backend lo valida y persiste)"
+    )
 
 
 class WorkOrderItemResponse(BaseModel):
@@ -197,6 +216,7 @@ class WorkOrderItemResponse(BaseModel):
     quantity: float
     serial_number: Optional[str] = None
     notes: Optional[str] = None
+    warehouse_id: Optional[int] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -224,6 +244,7 @@ class WorkOrderDetailResponse(BaseModel):
     scheduled_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
     resolution_type: Optional[WorkOrderResolutionType] = None
     resolution_notes: Optional[str] = None
     resolution_category: Optional[ResolutionCategory] = None
@@ -383,6 +404,75 @@ class ConnectionAssetsListResponse(BaseModel):
     """Lista de activos de una conexión con metadatos."""
     connection_id: int
     assets: List[ConnectionAssetResponse] = Field(default_factory=list)
+
+
+class WorkOrderRecoveryItem(BaseModel):
+    """Un equipo de la empresa recuperado del domicilio."""
+    connection_asset_id: Optional[int] = Field(
+        None, description="ID del activo registrado en la conexión (si ya estaba cargado)"
+    )
+    product_id: Optional[int] = Field(
+        None, description="ID del producto en catálogo (solo para equipo no registrado)"
+    )
+    serial_number: Optional[str] = Field(
+        None, description="Serial del equipo (solo para equipo no registrado)"
+    )
+    state: str = Field(..., description="funciona | no_funciona | revisar")
+
+
+class WorkOrderRecoveryRequest(BaseModel):
+    """Payload para registrar equipos recuperados del domicilio."""
+    items: List[WorkOrderRecoveryItem] = Field(default_factory=list)
+
+
+class WorkOrderRecoveryResponse(BaseModel):
+    """Resultado del registro de recuperación."""
+    recovered: int = 0
+
+
+class WorkOrderUpdateCreate(BaseModel):
+    """Nueva entrada de bitácora post-cierre (P2)."""
+    update_type: str = Field(..., description="Tipo de actualización (enum tipificado)")
+    motive: str = Field(..., min_length=5, max_length=2000, description="Motivo obligatorio")
+    payload: Optional[dict] = Field(None, description="Detalle estructurado de la corrección")
+
+
+class WorkOrderUpdateResponse(BaseModel):
+    """Entrada de bitácora post-cierre."""
+    id: int
+    work_order_id: int
+    author_id: Optional[int] = None
+    update_type: str
+    status: str
+    motive: str
+    payload: Optional[dict] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WorkOrderUpdatesListResponse(BaseModel):
+    """Lista de entradas de bitácora de una OT."""
+    updates: List[WorkOrderUpdateResponse] = Field(default_factory=list)
+
+
+class WorkOrderUpdatePendingResponse(WorkOrderUpdateResponse):
+    """Entrada PROPOSED con contexto para decidir la aprobación (P2)."""
+    technician_name: Optional[str] = None
+    team_name: Optional[str] = None
+    vehicle_label: Optional[str] = None
+    client_name: Optional[str] = None
+    connection_label: Optional[str] = None
+
+
+class WorkOrderUpdatePendingListResponse(BaseModel):
+    """Lista de entradas pendientes de aprobación con contexto."""
+    updates: List[WorkOrderUpdatePendingResponse] = Field(default_factory=list)
+
+
+class WorkOrderUpdateStatusRequest(BaseModel):
+    """Cambio de estado de una entrada de bitácora (aprobación)."""
+    status: str = Field(..., description="APPROVED | REJECTED")
 
 
 class ConnectionNotesListResponse(BaseModel):

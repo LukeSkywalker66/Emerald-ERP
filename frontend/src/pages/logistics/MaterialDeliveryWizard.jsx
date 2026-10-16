@@ -14,6 +14,7 @@ import {
   SerialScanner,
   ScannedSerialsList,
 } from '@/components/barcode-reader';
+import ProductPicker from '@/components/inventory/ProductPicker';
 import { useDeliveryScanner } from '@/hooks/useDeliveryScanner';
 
 const STEPS = [
@@ -411,27 +412,39 @@ export default function MaterialDeliveryWizard() {
   }, [proposalItems]);
 
   const handleNextStep = useCallback(async () => {
-    if (currentStep !== 2) {
-      setCurrentStep(currentStep + 1);
+    if (currentStep === 2) {
+      try {
+        setPreparingDelivery(true);
+        setError(null);
+        const draft = await ensureDeliveryDraft();
+        await persistCurrentProposal(draft);
+        setCurrentStep(3);
+      } catch (err) {
+        const detail = err.response?.data?.detail;
+        const msg = typeof detail === 'string' ? detail
+          : Array.isArray(detail) ? detail.map(d => d.msg || d.message).join(', ')
+          : err.message || 'No se pudo preparar la entrega para el escaneo';
+        setError(msg);
+      } finally {
+        setPreparingDelivery(false);
+      }
       return;
     }
 
-    try {
-      setPreparingDelivery(true);
-      setError(null);
-      const draft = await ensureDeliveryDraft();
-      await persistCurrentProposal(draft);
-      setCurrentStep(3);
-    } catch (err) {
-      const detail = err.response?.data?.detail;
-      const msg = typeof detail === 'string' ? detail
-        : Array.isArray(detail) ? detail.map(d => d.msg || d.message).join(', ')
-        : err.message || 'No se pudo preparar la entrega para el escaneo';
-      setError(msg);
-    } finally {
-      setPreparingDelivery(false);
+    // Al pasar de escaneo (3) a confirmación (4), refrescar la entrega para que
+    // la pantalla de confirmación muestre TODOS los items escaneados y el conteo
+    // correcto. El estado local `delivery` quedó desactualizado tras los escaneos.
+    if (currentStep === 3 && delivery?.id) {
+      try {
+        const synced = await logisticsService.getDelivery(delivery.id);
+        setDelivery(synced);
+      } catch (err) {
+        console.error('Error refreshing delivery before confirmation:', err);
+      }
     }
-  }, [currentStep, ensureDeliveryDraft, persistCurrentProposal]);
+
+    setCurrentStep(currentStep + 1);
+  }, [currentStep, ensureDeliveryDraft, persistCurrentProposal, delivery?.id]);
 
   const canProceed = () => {
     switch (currentStep) {
@@ -966,6 +979,28 @@ export default function MaterialDeliveryWizard() {
                 <CheckCircle className="w-4 h-4 mr-1" /> Completo
               </span>
             )}
+          </div>
+
+          {/* Ingreso manual: buscar item disponible */}
+          <div className="bg-zinc-800/30 rounded-lg p-4">
+            <p className="text-sm font-medium text-zinc-300 mb-2">
+              Ingreso manual
+            </p>
+            <ProductPicker
+              warehouseId={selectedFromWarehouse || null}
+              onSelect={(item) => {
+                if (item?.kind === 'serial' && item.serial_number) {
+                  deliveryScanner.resolveScan(item.serial_number);
+                } else if (item?.product_sku) {
+                  deliveryScanner.resolveScan(item.product_sku);
+                }
+              }}
+              placeholder="Buscar item (SN, nombre, grupo o SKU)..."
+            />
+            <p className="text-xs text-zinc-500 mt-2">
+              Seleccioná el item puntual a cargar. Si es serializado, se agregará ese serial;
+              si es a granel, se agregará una unidad.
+            </p>
           </div>
 
           {/* Proposal items tracking — con conteo X de Y */}

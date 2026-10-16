@@ -50,6 +50,17 @@ def create_sale(db: Session, payload: SaleCreate, user_id: Optional[int]) -> Sal
                 f"El producto '{product.name}' es SERIALIZED: indicá el serial a vender"
             )
 
+    # Si se vincula un cliente, snapshotear DNI y nombre desde `clientes`.
+    customer_name = None
+    customer_dni = None
+    if payload.customer_id is not None:
+        from src.models.beholder import Cliente
+        cliente = db.get(Cliente, payload.customer_id)
+        if not cliente:
+            raise SaleError(f"Cliente {payload.customer_id} no encontrado")
+        customer_name = cliente.name
+        customer_dni = cliente.doc_number
+
     sale = Sale(
         # Correlativo temporal (único) para satisfacer el NOT NULL antes del flush;
         # se reemplaza por el correlativo final una vez conocido el id.
@@ -57,6 +68,9 @@ def create_sale(db: Session, payload: SaleCreate, user_id: Optional[int]) -> Sal
         warehouse_id=payload.warehouse_id,
         status=SaleStatus.DRAFT,
         reference=payload.reference,
+        customer_id=payload.customer_id,
+        customer_dni=customer_dni,
+        customer_name=customer_name,
         notes=payload.notes,
         seller_user_id=user_id,
     )

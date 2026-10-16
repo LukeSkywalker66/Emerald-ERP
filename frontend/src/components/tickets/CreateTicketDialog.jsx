@@ -18,6 +18,7 @@ import {
   Truck,
   Cable,
   Wifi,
+  Tv,
   FileText,
   ChevronRight,
   Sparkles,
@@ -28,6 +29,7 @@ import WithdrawalWizard from './wizards/WithdrawalWizard';
 import RelocationWizard from './wizards/RelocationWizard';
 import FiberMigrationWizard from './wizards/FiberMigrationWizard';
 import MeshWizard from './wizards/MeshWizard';
+import TvWizard from './wizards/TvWizard';
 import AdministrativeWizard from './wizards/AdministrativeWizard';
 import ticketsService from '@/services/tickets.service';
 
@@ -86,6 +88,15 @@ const FLOW_STYLES = {
     hoverBorder: 'hover:border-violet-500/60',
     hoverShadow: 'hover:shadow-violet-500/20',
   },
+  tv: {
+    icon: Tv,
+    bgGradient: 'from-pink-500/10 via-pink-500/5 to-transparent',
+    borderColor: 'border-pink-500/30',
+    iconBg: 'bg-pink-500/10',
+    iconColor: 'text-pink-400',
+    hoverBorder: 'hover:border-pink-500/60',
+    hoverShadow: 'hover:shadow-pink-500/20',
+  },
   administrative: {
     icon: FileText,
     bgGradient: 'from-amber-500/10 via-amber-500/5 to-transparent',
@@ -103,6 +114,7 @@ const resolveFlow = (name = '', flowKey = null) => {
   if (flowKey) return flowKey;
   const normalized = name.toLowerCase();
   if (normalized.includes('mesh')) return 'mesh';
+  if (normalized.includes('tv')) return 'tv';
   if (normalized.includes('pase a fibra') || normalized.includes('migra')) return 'fiber_migration';
   if (normalized.includes('instal')) return 'installation';
   if (normalized.includes('baja') || normalized.includes('reti')) return 'withdrawal';
@@ -173,6 +185,8 @@ export default function CreateTicketDialog({ isOpen, onClose, onSuccess }) {
         return <FiberMigrationWizard onBack={handleBack} onSuccess={handleSuccess} categoryId={selectedCategory?.id} />;
       case 'mesh':
         return <MeshWizard onBack={handleBack} onSuccess={handleSuccess} categoryId={selectedCategory?.id} />;
+      case 'tv':
+        return <TvWizard onBack={handleBack} onSuccess={handleSuccess} categoryId={selectedCategory?.id} />;
       case 'administrative':
         return <AdministrativeWizard onBack={handleBack} onSuccess={handleSuccess} categoryId={selectedCategory?.id} />;
       default:

@@ -10,6 +10,13 @@ import { useAuth } from '@/context/AuthContext';
 import useMaterialSelector from '@/components/work-orders/useMaterialSelector';
 import MaterialSelectorForm from '@/components/work-orders/MaterialSelectorForm';
 
+const RECOVERY_EXCLUDED_OT_TYPES = ['install_ftth', 'install_aire', 'install'];
+const RECOVERY_STATE_LABELS = {
+  funciona: 'Funciona',
+  no_funciona: 'No funciona',
+  revisar: 'Revisar',
+};
+
 /**
  * CloseWorkOrderDialog - Wizard de 3 pasos para cerrar una Orden de Trabajo
  *
@@ -39,6 +46,7 @@ export default function CloseWorkOrderDialog({
   // Paso 2: Materiales - Compartido (hook unificado)
   const materialState = useMaterialSelector(workOrder?.id, {
     teamId: workOrder?.team_id ?? null,
+    technicianId: workOrder?.technician_id ?? null,
   });
   const [materials, setMaterials] = useState(workOrder?.items || []);
 
@@ -50,6 +58,9 @@ export default function CloseWorkOrderDialog({
   // Refs para inputs ocultos
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
+  // Clave de idempotencia del cierre: se genera al abrir el wizard y se reusa en
+  // reintentos para que el backend no duplique el consumo de inventario.
+  const closeIdempotencyKeyRef = useRef('');
 
   // Compresión de imágenes
   const maybeCompressImage = async (file) => {
@@ -123,6 +134,10 @@ export default function CloseWorkOrderDialog({
   useEffect(() => {
     if (isOpen) {
       // Se abre para una OT específica: cargar materiales de esa OT
+      closeIdempotencyKeyRef.current =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `wo-${workOrder?.id}-${Date.now().toString(36)}`;
       if (workOrder?.id) {
         setMaterials(workOrder?.items || []);
       }
@@ -135,6 +150,11 @@ export default function CloseWorkOrderDialog({
       setUploadError(null);
       setMaterials([]);
       setConnectionNote('');
+      setRecoveryEnabled(false);
+      setConnectionAssets([]);
+      setAssetStates({});
+      setUnregisteredItems([]);
+      setUnregisteredDraft({ product_id: '', serial_number: '', state: 'funciona' });
       materialState.resetForm();
     }
   }, [isOpen, workOrder?.id]);
@@ -271,16 +291,91 @@ export default function CloseWorkOrderDialog({
   const [connectionNote, setConnectionNote] = useState('');
   const [signalDbm, setSignalDbm] = useState('');
 
+  // ---- Recuperación de equipos del domicilio (opcional; no aplica a altas nuevas) ----
+  const [recoveryEnabled, setRecoveryEnabled] = useState(false);
+  const [connectionAssets, setConnectionAssets] = useState([]);
+  const [assetsLoading, setAssetsLoading] = useState(false);
+  const [assetStates, setAssetStates] = useState({});
+  const [unregisteredItems, setUnregisteredItems] = useState([]);
+  const [unregisteredDraft, setUnregisteredDraft] = useState({
+    product_id: '',
+    serial_number: '',
+    state: 'funciona',
+  });
+
+  const isRecoveryApplicable =
+    !!workOrder && !RECOVERY_EXCLUDED_OT_TYPES.includes(workOrder.ot_type);
+  const serializedProducts = (materialState.products || []).filter(
+    (p) => p.type === 'SERIALIZED' && !p.is_composite
+  );
+
+  useEffect(() => {
+    if (!isRecoveryApplicable || !recoveryEnabled || !workOrder?.id) {
+      setConnectionAssets([]);
+      return;
+    }
+    let cancelled = false;
+    setAssetsLoading(true);
+    workOrdersService
+      .getWorkOrderConnectionAssets(workOrder.id)
+      .then((data) => {
+        if (!cancelled) {
+          setConnectionAssets(
+            (data?.assets || []).filter((a) => a.status === 'INSTALLED')
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setConnectionAssets([]);
+      })
+      .finally(() => {
+        if (!cancelled) setAssetsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isRecoveryApplicable, recoveryEnabled, workOrder?.id]);
+
+  const handleAddUnregistered = () => {
+    if (!unregisteredDraft.product_id || !unregisteredDraft.serial_number.trim()) return;
+    setUnregisteredItems((prev) => [
+      ...prev,
+      {
+        product_id: parseInt(unregisteredDraft.product_id, 10),
+        serial_number: unregisteredDraft.serial_number.trim(),
+        state: unregisteredDraft.state || 'funciona',
+      },
+    ]);
+    setUnregisteredDraft({ product_id: '', serial_number: '', state: 'funciona' });
+  };
+
   // Completar / Cerrar OT - usa acciones dinámicas + nuevo endpoint
   const handleComplete = async () => {
     try {
       setUploading(true);
+
+      // Recuperación de equipos (opcional, best-effort): se registra antes de
+      // completar para que el cierre no falle por equipos retirados del domicilio.
+      if (isRecoveryApplicable && recoveryEnabled) {
+        const recoveryItems = [
+          ...Object.entries(assetStates).map(([assetId, state]) => ({
+            connection_asset_id: parseInt(assetId, 10),
+            state,
+          })),
+          ...unregisteredItems,
+        ];
+        if (recoveryItems.length > 0) {
+          await workOrdersService.recoverWorkOrderEquipment(workOrder.id, recoveryItems);
+        }
+      }
+
       const payload = {
         resolution_category: selectedAction?.code || 'other',
         resolution_notes: resolutionNotes,
         photo_urls: uploadedPhotos,
         connection_note: connectionNote.trim() || null,
         installation_signal_dbm: signalDbm ? parseFloat(signalDbm) : null,
+        idempotency_key: closeIdempotencyKeyRef.current || null,
       };
 
       // Usar el nuevo endpoint POST /complete con inventario
@@ -520,6 +615,168 @@ export default function CloseWorkOrderDialog({
                     compact
                   />
                 </div>
+
+                {isRecoveryApplicable && (
+                  <div className="mt-6 border-t border-zinc-700 pt-4">
+                    <h3 className="font-medium text-white mb-2">Recuperación de equipos</h3>
+                    <p className="text-xs text-zinc-400 mb-3">
+                      ¿Recuperaste algún equipo de la empresa del domicilio?
+                    </p>
+                    <div className="flex gap-2 mb-4">
+                      <button
+                        type="button"
+                        onClick={() => setRecoveryEnabled(false)}
+                        className={`px-4 py-2 rounded-lg border text-sm transition ${
+                          !recoveryEnabled
+                            ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300'
+                            : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                        }`}
+                      >
+                        No
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRecoveryEnabled(true)}
+                        className={`px-4 py-2 rounded-lg border text-sm transition ${
+                          recoveryEnabled
+                            ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300'
+                            : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                        }`}
+                      >
+                        Sí
+                      </button>
+                    </div>
+
+                    {recoveryEnabled && (
+                      <div className="space-y-3">
+                        <p className="text-xs font-medium text-zinc-300">
+                          Equipos que estaban en el domicilio
+                        </p>
+                        {assetsLoading ? (
+                          <p className="text-xs text-zinc-500">Cargando equipos...</p>
+                        ) : connectionAssets.length > 0 ? (
+                          connectionAssets.map((asset) => (
+                            <div
+                              key={asset.id}
+                              className="flex items-center gap-3 p-2 bg-zinc-800/50 border border-zinc-700 rounded"
+                            >
+                              <span className="text-xs text-zinc-200 flex-1 font-mono">
+                                {asset.serial_number}
+                              </span>
+                              <select
+                                value={assetStates[asset.id] || 'funciona'}
+                                onChange={(e) =>
+                                  setAssetStates((prev) => ({
+                                    ...prev,
+                                    [asset.id]: e.target.value,
+                                  }))
+                                }
+                                className="px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-white focus:outline-none focus:border-emerald-500"
+                              >
+                                <option value="funciona">Funciona</option>
+                                <option value="no_funciona">No funciona</option>
+                                <option value="revisar">Revisar</option>
+                              </select>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-xs text-zinc-500">
+                            No hay equipos registrados en este domicilio.
+                          </p>
+                        )}
+
+                        <div className="p-3 bg-zinc-800/30 border border-zinc-700 rounded space-y-2">
+                          <p className="text-xs font-medium text-zinc-300">
+                            Agregar equipo no registrado
+                          </p>
+                          <select
+                            value={unregisteredDraft.product_id}
+                            onChange={(e) =>
+                              setUnregisteredDraft((prev) => ({
+                                ...prev,
+                                product_id: e.target.value,
+                              }))
+                            }
+                            className="w-full px-2 py-2 bg-zinc-800 border border-zinc-700 rounded text-xs text-white focus:outline-none focus:border-emerald-500"
+                          >
+                            <option value="">Tipo de equipo...</option>
+                            {serializedProducts.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="text"
+                            value={unregisteredDraft.serial_number}
+                            onChange={(e) =>
+                              setUnregisteredDraft((prev) => ({
+                                ...prev,
+                                serial_number: e.target.value,
+                              }))
+                            }
+                            placeholder="Serial del equipo"
+                            className="w-full px-2 py-2 bg-zinc-800 border border-zinc-700 rounded text-xs text-white font-mono placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500"
+                          />
+                          <div className="flex gap-2">
+                            <select
+                              value={unregisteredDraft.state}
+                              onChange={(e) =>
+                                setUnregisteredDraft((prev) => ({
+                                  ...prev,
+                                  state: e.target.value,
+                                }))
+                              }
+                              className="flex-1 px-2 py-2 bg-zinc-800 border border-zinc-700 rounded text-xs text-white focus:outline-none focus:border-emerald-500"
+                            >
+                              <option value="funciona">Funciona</option>
+                              <option value="no_funciona">No funciona</option>
+                              <option value="revisar">Revisar</option>
+                            </select>
+                            <button
+                              type="button"
+                              onClick={handleAddUnregistered}
+                              disabled={
+                                !unregisteredDraft.product_id ||
+                                !unregisteredDraft.serial_number.trim()
+                              }
+                              className="px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs disabled:bg-zinc-700 disabled:opacity-50"
+                            >
+                              Agregar
+                            </button>
+                          </div>
+                        </div>
+
+                        {unregisteredItems.length > 0 && (
+                          <div className="space-y-1">
+                            {unregisteredItems.map((item, idx) => (
+                              <div
+                                key={idx}
+                                className="flex items-center gap-2 text-xs text-zinc-300"
+                              >
+                                <span className="font-mono">{item.serial_number}</span>
+                                <span className="text-zinc-500">
+                                  {RECOVERY_STATE_LABELS[item.state]}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setUnregisteredItems((prev) =>
+                                      prev.filter((_, i) => i !== idx)
+                                    )
+                                  }
+                                  className="ml-auto text-zinc-500 hover:text-rose-400"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

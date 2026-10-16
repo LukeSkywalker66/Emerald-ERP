@@ -8,7 +8,8 @@ import {
   Building2,
   Truck,
   Archive,
-  Activity
+  Activity,
+  Wrench
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { getInventoryStats, getStockAlerts } from '@/services/inventory.service';
@@ -131,6 +132,14 @@ export default function InventoryDashboard() {
           >
             <TrendingUp className="w-4 h-4" />
             <span>Registrar Compra</span>
+          </Link>
+
+          <Link
+            to="/app/inventory/reconciliation"
+            className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 rounded-lg transition-colors flex items-center space-x-2"
+          >
+            <Wrench className="w-4 h-4" />
+            <span>Reconciliar</span>
           </Link>
           
           <Link
