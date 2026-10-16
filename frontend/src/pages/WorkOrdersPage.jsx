@@ -23,7 +23,6 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { normalizeRole } from '@/utils/permissions';
 import usePersistedViewState from '@/hooks/usePersistedViewState';
-import api from '@/api/client';
 import workOrdersService from '@/services/workOrders.service';
 import coordinationService from '@/services/coordination.service';
 import fleetService from '@/services/fleet.service';
@@ -206,121 +205,111 @@ export default function WorkOrdersPage() {
     setCurrentPage(1);
   };
 
-  // Load data - BIFURCACIÓN POR ROL (NASA-GRADE)
+  // Load data — listado único paginado para técnicos y admin/coordinador.
   const loadWorkOrders = async () => {
     const requestId = ++loadRequestIdRef.current;
     const isStale = () => requestId !== loadRequestIdRef.current;
     try {
       setError(null);
 
-      let items = [];
+      // Filtros server-side (comunes a todos los roles).
+      const offset = (currentPage - 1) * pageSize;
+      const params = {
+        limit: pageSize,
+        offset,
+        order_by: 'created_at',
+        order_dir: 'desc',
+      };
+      if (statusFilter) params.status = statusFilter;
+      if (typeFilter) params.ot_type = typeFilter;
+      if (debouncedSearchQuery.trim()) params.search = debouncedSearchQuery.trim();
+      if (teamFilter === 'unassigned') {
+        params.unassigned = true;
+      } else if (teamFilter === 'assigned') {
+        params.assigned = true;
+      } else if (teamFilter) {
+        params.team_id = Number(teamFilter);
+      }
 
-      if (isTechnician) {
-        // ========== TÉCNICOS: Agenda del día (my-schedule) ==========
-        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-        const [{ data: scheduleData }, pendingClosureData] = await Promise.all([
-          api.get('/v2/work-orders/my-schedule', {
-            params: { date: today },
-          }),
-          workOrdersService.getMyPendingClosure(),
-        ]);
+      const data = await workOrdersService.listWorkOrders(params);
+      if (isStale()) return;
+      const items = Array.isArray(data?.items) ? data.items : [];
+      setAllWorkOrders(items);
+      setTotalCount(Number(data?.total ?? 0));
 
-        items = Array.isArray(scheduleData) ? scheduleData : [];
-        setPendingClosureOrders(Array.isArray(pendingClosureData) ? pendingClosureData : []);
+      if (!isTechnician) {
+        setPendingClosureOrders([]);
+        setNeedsInspection(false);
+        setAssignedVehicleId(null);
+        setTeamInfo(null);
+        setTeamVehicle(null);
+        return;
+      }
 
-        // ========== HARD BLOCK: Inspección diaria de vehículo ==========
-        // Si el técnico trabaja a pie (sin vehículo), NO se bloquea.
-        try {
-          if (!user?.id) {
-            setAssignedVehicleId(null);
-            setNeedsInspection(false);
-            setTeamInfo(null);
-            setTeamVehicle(null);
-            if (isStale()) return;
-            setAllWorkOrders(items);
-            return;
-          }
+      // ========== TÉCNICOS: pending closure + inspección (independientes del listado) ==========
+      const pendingClosureData = await workOrdersService.getMyPendingClosure();
+      if (isStale()) return;
+      setPendingClosureOrders(Array.isArray(pendingClosureData) ? pendingClosureData : []);
 
-          const teams = await coordinationService.getUserTeams(user?.id);
-          const primaryTeam = (teams || [])[0];
-          const teamWithVehicle = (teams || []).find((team) => !!team.vehicle_id);
-
-          // Fetch team details (members, vehicle)
-          if (primaryTeam) {
-            try {
-              const detail = await coordinationService.getTeamDetail(primaryTeam.id);
-              setTeamInfo(detail);
-            } catch {
-              setTeamInfo(primaryTeam);
-            }
-          } else {
-            setTeamInfo(null);
-          }
-
-          if (teamWithVehicle?.vehicle_id) {
-            const vehicleId = teamWithVehicle.vehicle_id;
-            setAssignedVehicleId(vehicleId);
-            // Fetch vehicle details
-            try {
-              const vehicle = await fleetService.getVehicleDetail(vehicleId);
-              setTeamVehicle(vehicle);
-            } catch {
-              setTeamVehicle(null);
-            }
-
-            try {
-              await fleetService.checkTodayInspection(vehicleId);
-              setNeedsInspection(false);
-            } catch (inspectionErr) {
-              if (inspectionErr?.response?.status === 404) {
-                setNeedsInspection(true);
-              } else {
-                setNeedsInspection(false);
-              }
-            }
-          } else {
-            setAssignedVehicleId(null);
-            setNeedsInspection(false);
-            setTeamVehicle(null);
-          }
-        } catch (teamsErr) {
+      // ========== HARD BLOCK: Inspección diaria de vehículo ==========
+      // Si el técnico trabaja a pie (sin vehículo), NO se bloquea.
+      try {
+        if (!user?.id) {
           setAssignedVehicleId(null);
           setNeedsInspection(false);
           setTeamInfo(null);
           setTeamVehicle(null);
-        }
-      } else {
-        // ========== ADMIN/COORDINADOR: Vista global (paginada, filtros server-side) ==========
-        const offset = (currentPage - 1) * pageSize;
-        const params = {
-          limit: pageSize,
-          offset,
-          order_by: 'created_at',
-          order_dir: 'desc',
-        };
-        if (statusFilter) params.status = statusFilter;
-        if (typeFilter) params.ot_type = typeFilter;
-        if (debouncedSearchQuery.trim()) params.search = debouncedSearchQuery.trim();
-        if (teamFilter === 'unassigned') {
-          params.unassigned = true;
-        } else if (teamFilter === 'assigned') {
-          params.assigned = true;
-        } else if (teamFilter) {
-          params.team_id = Number(teamFilter);
+          return;
         }
 
-        const data = await workOrdersService.listWorkOrders(params);
-        if (isStale()) return;
-        items = Array.isArray(data?.items) ? data.items : [];
-        setTotalCount(Number(data?.total ?? 0));
+        const teams = await coordinationService.getUserTeams(user?.id);
+        const primaryTeam = (teams || [])[0];
+        const teamWithVehicle = (teams || []).find((team) => !!team.vehicle_id);
 
-        setPendingClosureOrders([]);
-        setNeedsInspection(false);
+        // Fetch team details (members, vehicle)
+        if (primaryTeam) {
+          try {
+            const detail = await coordinationService.getTeamDetail(primaryTeam.id);
+            setTeamInfo(detail);
+          } catch {
+            setTeamInfo(primaryTeam);
+          }
+        } else {
+          setTeamInfo(null);
+        }
+
+        if (teamWithVehicle?.vehicle_id) {
+          const vehicleId = teamWithVehicle.vehicle_id;
+          setAssignedVehicleId(vehicleId);
+          // Fetch vehicle details
+          try {
+            const vehicle = await fleetService.getVehicleDetail(vehicleId);
+            setTeamVehicle(vehicle);
+          } catch {
+            setTeamVehicle(null);
+          }
+
+          try {
+            await fleetService.checkTodayInspection(vehicleId);
+            setNeedsInspection(false);
+          } catch (inspectionErr) {
+            if (inspectionErr?.response?.status === 404) {
+              setNeedsInspection(true);
+            } else {
+              setNeedsInspection(false);
+            }
+          }
+        } else {
+          setAssignedVehicleId(null);
+          setNeedsInspection(false);
+          setTeamVehicle(null);
+        }
+      } catch (teamsErr) {
         setAssignedVehicleId(null);
+        setNeedsInspection(false);
+        setTeamInfo(null);
+        setTeamVehicle(null);
       }
-
-      if (isStale()) return;
-      setAllWorkOrders(items);
     } catch (err) {
       if (isStale()) return;
       setError(err?.response?.data?.detail || err.message || 'Error al cargar OTs');
@@ -333,41 +322,9 @@ export default function WorkOrdersPage() {
     }
   };
 
-  // Derivación de filtros. Para técnicos se filtra client-side sobre la agenda del día
-  // (sin paginar). Para admin/coordinator los filtros ya vienen aplicados server-side.
-  const workOrders = useMemo(() => {
-    let filtered = allWorkOrders;
-
-    if (!isTechnician) return filtered;
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
-      filtered = filtered.filter(
-        (wo) =>
-          String(wo.id).includes(q) ||
-          (wo.client_name || '').toLowerCase().includes(q) ||
-          (wo.address || '').toLowerCase().includes(q)
-      );
-    }
-
-    if (statusFilter) {
-      filtered = filtered.filter((wo) => wo.status === statusFilter);
-    }
-
-    if (typeFilter) {
-      filtered = filtered.filter((wo) => wo.ot_type === typeFilter);
-    }
-
-    if (teamFilter === 'unassigned') {
-      filtered = filtered.filter((wo) => !wo.team_name && !wo.technician_name);
-    } else if (teamFilter === 'assigned') {
-      filtered = filtered.filter((wo) => !!wo.team_name || !!wo.technician_name);
-    } else if (teamFilter) {
-      filtered = filtered.filter((wo) => wo.team_name === teamFilter);
-    }
-
-    return filtered;
-  }, [allWorkOrders, isTechnician, searchQuery, statusFilter, typeFilter, teamFilter]);
+  // El listado ya viene filtrado y paginado server-side para TODOS los roles
+  // (técnicos y admin/coordinador). Acá solo exponemos la referencia.
+  const workOrders = useMemo(() => allWorkOrders, [allWorkOrders]);
 
   // Cargar tipos de OT y cuadrillas desde la DB
   useEffect(() => {

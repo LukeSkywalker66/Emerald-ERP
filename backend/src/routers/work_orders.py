@@ -159,11 +159,21 @@ def list_work_orders(
 
     # Filtro automático por capability (backend authority):
     # - `work_orders.view_all` (o `*`) → ve todas.
-    # - si no → técnico de campo: solo las propias.
+    # - si no → técnico de campo: sus propias OT + las de sus cuadrillas
+    #   (conserva la agenda del día y su historial en un solo listado paginado).
     from src.core.security import build_capabilities
     caps = build_capabilities(current_user)
     if "work_orders.view_all" not in caps and "*" not in caps:
-        base_query = base_query.filter(WorkOrder.technician_id == current_user.id)
+        team_ids_stmt = (
+            select(TeamMember.team_id)
+            .where(TeamMember.user_id == current_user.id)
+            .distinct()
+        )
+        team_ids = list(db.scalars(team_ids_stmt).all())
+        scope_conditions = [WorkOrder.technician_id == current_user.id]
+        if team_ids:
+            scope_conditions.append(WorkOrder.team_id.in_(team_ids))
+        base_query = base_query.filter(or_(*scope_conditions))
 
     # Filtros opcionales
     if status:
