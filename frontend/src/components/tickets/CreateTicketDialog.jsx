@@ -31,6 +31,7 @@ import FiberMigrationWizard from './wizards/FiberMigrationWizard';
 import MeshWizard from './wizards/MeshWizard';
 import TvWizard from './wizards/TvWizard';
 import AdministrativeWizard from './wizards/AdministrativeWizard';
+import InternalWizard from './wizards/InternalWizard';
 import ticketsService from '@/services/tickets.service';
 
 const FLOW_STYLES = {
@@ -106,6 +107,15 @@ const FLOW_STYLES = {
     hoverBorder: 'hover:border-amber-500/60',
     hoverShadow: 'hover:shadow-amber-500/20',
   },
+  internal: {
+    icon: Wrench,
+    bgGradient: 'from-purple-500/10 via-purple-500/5 to-transparent',
+    borderColor: 'border-purple-500/30',
+    iconBg: 'bg-purple-500/10',
+    iconColor: 'text-purple-400',
+    hoverBorder: 'hover:border-purple-500/60',
+    hoverShadow: 'hover:shadow-purple-500/20',
+  },
 };
 
 const resolveFlow = (name = '', flowKey = null) => {
@@ -120,6 +130,7 @@ const resolveFlow = (name = '', flowKey = null) => {
   if (normalized.includes('baja') || normalized.includes('reti')) return 'withdrawal';
   if (normalized.includes('trasl') || normalized.includes('muda')) return 'relocation';
   if (normalized.includes('admin')) return 'administrative';
+  if (normalized.includes('interno') || normalized.includes('infraestruc')) return 'internal';
   return 'technical';
 };
 
@@ -189,6 +200,8 @@ export default function CreateTicketDialog({ isOpen, onClose, onSuccess }) {
         return <TvWizard onBack={handleBack} onSuccess={handleSuccess} categoryId={selectedCategory?.id} />;
       case 'administrative':
         return <AdministrativeWizard onBack={handleBack} onSuccess={handleSuccess} categoryId={selectedCategory?.id} />;
+      case 'internal':
+        return <InternalWizard onBack={handleBack} onSuccess={handleSuccess} categoryId={selectedCategory?.id} />;
       default:
         return null;
     }

@@ -78,6 +78,18 @@ const ticketTypeConfig = {
   relocation: { label: 'Traslado', chip: 'bg-purple-500/15 border-purple-500/40 text-purple-200' },
   fiber_migration: { label: 'Pase a Fibra', chip: 'bg-cyan-500/10 border-cyan-500/40 text-cyan-200' },
   administrative: { label: 'Administrativo', chip: 'bg-amber-500/15 border-amber-500/40 text-amber-200' },
+  internal: { label: 'Interno', chip: 'bg-purple-500/15 border-purple-500/40 text-purple-200' },
+};
+
+const internalSubtypeLabels = {
+  poles: 'Postes',
+  fiber_street: 'Fibra en calle',
+  nap: 'NAP / Caja de distribución',
+  node_maintenance: 'Mantenimiento de nodo',
+  tower: 'Mantenimiento de torre',
+  power: 'Grupo electrógeno',
+  office: 'Oficina local',
+  other: 'Otra tarea interna',
 };
 
 function StatusBadge({ status }) {
@@ -1489,6 +1501,31 @@ export default function TicketDetailPage() {
               ))}
             </div>
           </div>
+
+          {ticket.ticket_type === 'internal' && (
+            <div className="rounded-xl border border-purple-700/40 bg-purple-950/20 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-zinc-400 uppercase tracking-wide">Trabajo interno</p>
+                <Badge variant="outline" className="text-xs border-purple-500/40 text-purple-200">
+                  {internalSubtypeLabels[ticket.internal_subtype] || 'Interno'}
+                </Badge>
+              </div>
+
+              {ticket.internal_location && (
+                <div className="flex items-start gap-2 text-sm text-zinc-200">
+                  <MapPin size={14} className="text-purple-300 mt-0.5" />
+                  <span>{ticket.internal_location}</span>
+                </div>
+              )}
+
+              {ticket.internal_node_id && (
+                <div className="flex items-center gap-2 text-sm text-zinc-200">
+                  <Network size={14} className="text-purple-300" />
+                  <span>Nodo #{ticket.internal_node_id}</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {ticket.connection_details && (
             <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4 space-y-4">

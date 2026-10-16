@@ -33,6 +33,18 @@ logger = logging.getLogger("Emerald.SettingsService")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
+def get_company_name(db: Session) -> Optional[str]:
+    """Nombre de la empresa configurado (company_name).
+
+    Se usa como "cliente" de los tickets/OTs internos, que no referencian una
+    conexión de cliente real.
+    """
+    value = SystemConfigService.get_value(db, "company_name")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
 # ============================================
 # SYSTEM CONFIG SERVICE
 # ============================================

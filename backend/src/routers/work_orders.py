@@ -57,6 +57,7 @@ from src.schemas.contact_attempts import (
 )
 from src.models.contact_attempts import ContactAttempt, ContactAttemptResult
 from src.services.work_order_service import create_work_order_for_ticket
+from src.services.settings_service import get_company_name
 from src.services.wo_completion_service import (
     complete_work_order_with_inventory,
     CompletionError,
@@ -606,6 +607,13 @@ def get_work_order_detail(
                 )
             if creator_phone:
                 ticket_info["contact_phone"] = creator_phone
+
+        # Ticket interno: el "cliente" es la propia empresa, no una conexión.
+        if wo.ticket.ticket_type.value == "internal":
+            company = get_company_name(db)
+            if company:
+                ticket_info["client_name"] = company
+                ticket_info["address"] = wo.ticket.internal_location or ticket_info.get("address")
     
     # Obtener nombres de productos para los items
     product_ids = list(set(item.product_id for item in wo.work_order_items))
@@ -2514,6 +2522,15 @@ def _wo_to_list_response(wo: WorkOrder, db: Session, conn_map: Optional[dict] = 
             # Si falla la consulta, usar datos fallback del ticket
             print(f"⚠️  Error enriqueciendo conexión {effective_connection_id}: {e}")
             pass
+
+    # Ticket interno: el "cliente" es la propia empresa, no una conexión.
+    if wo.ticket and wo.ticket.ticket_type.value == "internal":
+        company = get_company_name(db)
+        if company:
+            client_name = company
+            address = wo.ticket.internal_location or address
+            if ticket_dict:
+                ticket_dict["client_name"] = company
 
     return {
         "id": wo.id,

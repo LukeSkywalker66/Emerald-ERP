@@ -48,6 +48,7 @@ const ticketTypeConfig = {
   relocation: { label: 'Traslado', chip: 'bg-purple-500/15 border-purple-500/40 text-purple-200' },
   fiber_migration: { label: 'Pase a Fibra', chip: 'bg-cyan-500/10 border-cyan-500/40 text-cyan-200' },
   administrative: { label: 'Administrativo', chip: 'bg-amber-500/15 border-amber-500/40 text-amber-200' },
+  internal: { label: 'Interno', chip: 'bg-purple-500/15 border-purple-500/40 text-purple-200' },
 };
 
 // Vista por defecto de la grilla de tickets (persistida por usuario).

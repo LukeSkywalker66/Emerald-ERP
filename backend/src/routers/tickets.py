@@ -24,6 +24,7 @@ from src.models import (
     TicketStatus,
     TicketType,
     AdministrativeSubtype,
+    InternalSubtype,
     TicketAttachment,
     Tag,
     TicketCategory,
@@ -57,6 +58,7 @@ from src.services.installation_onboarding import (
     InstallationValidationError,
     sync_installation_context,
 )
+from src.services.settings_service import get_company_name
 from src.services.work_order_service import create_work_order_for_ticket
 from src.utils.audit import log_create, log_update
 from .work_orders_guards import validate_ticket_for_work_order
@@ -88,6 +90,46 @@ def _vendor_from_ont_sn(sn: Optional[str]) -> Optional[str]:
         return None
     prefix = str(sn).strip().upper()[:4]
     return _ONT_VENDOR_PREFIXES.get(prefix)
+
+
+# Consigna operativa por subtipo de ticket interno (OT de infraestructura).
+_INTERNAL_SUBTYPE_INSTRUCTIONS = {
+    "poles": "Trabajo sobre postes: verificar estado, herrajes y tendido; reemplazar o asegurar según corresponda.",
+    "fiber_street": "Trabajo de fibra en calle: tendido, empalmes o reparación de roturas.",
+    "nap": "Trabajo sobre NAP / caja de distribución óptica: limpieza, reacomodamiento y verificación de puertos.",
+    "node_maintenance": "Mantenimiento de nodo: energía, gabinete, ventilación y conectividad.",
+    "tower": "Mantenimiento de torre: estructura, anclajes, cables y equipos.",
+    "power": "Mantenimiento de grupo electrógeno: combustible, baterías, arranque y prueba de carga.",
+    "office": "Tarea en oficina local: instalación o mantenimiento de equipos, cableado o instalación eléctrica.",
+    "other": "Tarea interna operativa.",
+}
+
+
+# Subtipos internos de CAMPO que generan OT de infraestructura automáticamente.
+# office/other son tareas livianas que quedan como ticket simple (sin OT), salvo
+# que el operador cree la OT manualmente desde el detalle del ticket.
+_INTERNAL_FIELD_SUBTYPES = {
+    InternalSubtype.poles,
+    InternalSubtype.fiber_street,
+    InternalSubtype.nap,
+    InternalSubtype.node_maintenance,
+    InternalSubtype.tower,
+    InternalSubtype.power,
+}
+
+
+def _internal_operational_instruction(
+    subtype: Optional[str],
+    location: Optional[str],
+    node_id: Optional[int],
+) -> str:
+    """Arma la consigna de una OT de infraestructura según el subtipo interno."""
+    parts = [_INTERNAL_SUBTYPE_INSTRUCTIONS.get(subtype, "Tarea interna.")]
+    if node_id:
+        parts.append(f"Nodo #{node_id}.")
+    if location and location.strip():
+        parts.append(f"Ubicación: {location.strip()}.")
+    return " ".join(parts)
 
 
 def _lookup_ont_for_connection(db: Session, connection_id: Optional[int]):
@@ -240,6 +282,9 @@ def _ticket_to_response(
         priority=ticket.priority,
         ticket_type=ticket.ticket_type,
         administrative_subtype=ticket.administrative_subtype,
+        internal_subtype=ticket.internal_subtype,
+        internal_node_id=ticket.internal_node_id,
+        internal_location=ticket.internal_location,
         connection_id=connection_id_override if connection_id_override is not None else ticket.connection_id,
         origin_connection_id=ticket.origin_connection_id,
         destination_connection_id=ticket.destination_connection_id,
@@ -567,6 +612,10 @@ def list_tickets(
             except Exception:
                 # Si falla la consulta, usar None
                 pass
+
+        # Ticket interno: el "cliente" es la propia empresa.
+        if t.ticket_type.value == "internal":
+            client_name = get_company_name(db)
         
         response_list.append(
             TicketResponse(
@@ -576,6 +625,9 @@ def list_tickets(
                 priority=t.priority,
                 ticket_type=t.ticket_type,
                 administrative_subtype=t.administrative_subtype,
+                internal_subtype=t.internal_subtype,
+                internal_node_id=t.internal_node_id,
+                internal_location=t.internal_location,
                 connection_id=t.connection_id,
                 origin_connection_id=t.origin_connection_id,
                 destination_connection_id=t.destination_connection_id,
@@ -689,6 +741,24 @@ def create_ticket(
                 status_code=400,
                 detail="Tickets administrativos requieren administrative_subtype o ticket_reason_id"
             )
+
+    elif payload.ticket_type == TicketType.internal:
+        if not payload.internal_subtype:
+            raise HTTPException(
+                status_code=400,
+                detail="Tickets internos requieren internal_subtype"
+            )
+        # Integridad con conexiones: un ticket interno NO referencia cliente ni conexión.
+        if (
+            payload.connection_id
+            or payload.origin_connection_id
+            or payload.destination_connection_id
+            or payload.customer_dni
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Tickets internos no pueden referenciar conexiones ni DNI de cliente"
+            )
     
     category = None
     if payload.category_id:
@@ -735,6 +805,9 @@ def create_ticket(
         status=TicketStatus.open,
         ticket_type=payload.ticket_type,
         administrative_subtype=payload.administrative_subtype,
+        internal_subtype=payload.internal_subtype,
+        internal_node_id=payload.internal_node_id,
+        internal_location=payload.internal_location,
         connection_id=payload.connection_id,
         origin_connection_id=payload.origin_connection_id,
         destination_connection_id=payload.destination_connection_id,
@@ -775,6 +848,7 @@ def create_ticket(
         meta_data={
             "ticket_type": payload.ticket_type.value,
             "administrative_subtype": payload.administrative_subtype.value if payload.administrative_subtype else None,
+            "internal_subtype": payload.internal_subtype.value if payload.internal_subtype else None,
         },
     )
     db.add(ticket_created_event)
@@ -813,7 +887,37 @@ def create_ticket(
         db.add(audit_event)
     
     # Auto-crear OT según tipo
-    if payload.ticket_type in [TicketType.installation, TicketType.withdrawal, TicketType.relocation, TicketType.fiber_migration, TicketType.mesh, TicketType.tv]:
+    if payload.ticket_type == TicketType.internal and payload.internal_subtype in _INTERNAL_FIELD_SUBTYPES:
+        # Ticket interno de CAMPO → OT de infraestructura con consigna específica del subtipo.
+        wo_instruction = _internal_operational_instruction(
+            payload.internal_subtype.value if payload.internal_subtype else None,
+            payload.internal_location,
+            payload.internal_node_id,
+        )
+        if payload.description and payload.description.strip():
+            wo_instruction = f"{wo_instruction} | Detalle: {payload.description.strip()}"
+
+        create_work_order_for_ticket(
+            db,
+            ticket=ticket,
+            author_id=user_id,
+            ot_type=WorkOrderType.infrastructure,
+            priority=ticket_priority,
+            operational_instruction=wo_instruction,
+            extra_custom_data={
+                "ticket_type": payload.ticket_type.value,
+                "internal_subtype": payload.internal_subtype.value if payload.internal_subtype else None,
+                "internal_node_id": payload.internal_node_id,
+                "internal_location": payload.internal_location,
+            },
+            timeline_content=wo_instruction,
+            timeline_meta_extra={
+                "source": "ticket_auto_create",
+                "ticket_type": payload.ticket_type.value,
+                "internal_subtype": payload.internal_subtype.value if payload.internal_subtype else None,
+            },
+        )
+    elif payload.ticket_type in [TicketType.installation, TicketType.withdrawal, TicketType.relocation, TicketType.fiber_migration, TicketType.mesh, TicketType.tv]:
         # WorkOrderType ya no tiene el valor genérico 'install': la migración
         # 2026_06_07_002 lo dividió en 'install_ftth' e 'install_aire'. Resolver
         # el tipo de OT según la tecnología declarada; por defecto FTTH.
@@ -1028,10 +1132,12 @@ def get_ticket_detail(ticket_id: int, db: Session = Depends(get_db)):
                 address_parts=conn_data[12],
             )
 
+    internal_company = get_company_name(db) if ticket.ticket_type.value == "internal" else None
+
     return TicketDetailResponse(
         **_ticket_to_response(
             ticket,
-            client_name=connection_details.client_name if connection_details else None,
+            client_name=internal_company or (connection_details.client_name if connection_details else None),
             client_dni=connection_details.client_dni if connection_details else None,
             connection_id_override=effective_connection_id,
         ).model_dump(),
