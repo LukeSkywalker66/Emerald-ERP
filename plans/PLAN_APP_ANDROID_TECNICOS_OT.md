@@ -257,3 +257,15 @@ Mantener la app en una carpeta del monorepo (`/mobile/android`) como **proyecto 
 3. **ADRs** para decisiones de fondo (offline strategy, sync, mapas, seguridad).
 4. **Backend habilitador** se trabaja en el repo actual; el móvil consume el contrato generado.
 5. **Feature flags** para activar gradualmente funciones nuevas (auto-config, OCR) sin romper la web.
+
+## 13. Desarrollo paralelo sin interferencia (expansión opcional)
+
+Requisito rector: la app es una **expansión opcional** que jamás debe alterar el funcionamiento normal de Emerald.
+
+- Backend **solo aditivo**: routers, endpoints, tablas e índices nuevos; cero cambios de comportamiento en la API que consume la web.
+- Migraciones Alembic **aditivas y reversibles**; sin DDL destructivo.
+- Todo detrás de **feature flags** (`MOBILE_*`); con flags apagados, Emerald queda byte a byte como hoy.
+- FCM/sync/telemetría **best-effort y no bloqueante**; si fallan, la app degrada a polling sin afectar producción.
+- Repos separados; los cambios de backend se mergean solo con la suite actual + Playwright en verde.
+
+Detalle completo: [`plans/emerald-android/05_DESARROLLO_PARALELO_NO_INTERFERENCIA.md`](plans/emerald-android/05_DESARROLLO_PARALELO_NO_INTERFERENCIA.md).

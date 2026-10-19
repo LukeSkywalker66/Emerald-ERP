@@ -44,12 +44,20 @@ import {
 
 // Config: Estados
 const STATUS_CONFIG = {
-  pending_planning: { 
-    label: 'Planificación', 
+  pending_planning: {
+    label: 'Planificación',
     variant: 'bg-amber-500/10 border-amber-500/30 text-amber-300',
   },
-  assigned: { 
-    label: 'Asignada', 
+  coordinated: {
+    label: 'Coordinada',
+    variant: 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300',
+  },
+  scheduled: {
+    label: 'Programada',
+    variant: 'bg-teal-500/10 border-teal-500/30 text-teal-300',
+  },
+  assigned: {
+    label: 'Asignada',
     variant: 'bg-blue-500/10 border-blue-500/30 text-blue-300',
   },
   in_progress: { 
@@ -672,6 +680,8 @@ export default function WorkOrdersPage() {
           >
             <option value="">Todos los estados</option>
             <option value="pending_planning">Planificación</option>
+            <option value="coordinated">Coordinada</option>
+            <option value="scheduled">Programada</option>
             <option value="assigned">Asignada</option>
             <option value="in_progress">En curso</option>
             <option value="pending_closure">Pendiente Cierre</option>
@@ -864,7 +874,10 @@ export default function WorkOrdersPage() {
                   {group.items.map((wo) => {
                     const typeConfig = TYPE_CONFIG[wo.ot_type] || TYPE_CONFIG.repair;
                 const TypeIcon = typeConfig.icon;
-                const statusConfig = STATUS_CONFIG[wo.status] || STATUS_CONFIG.pending_planning;
+                const statusConfig = STATUS_CONFIG[wo.status] || {
+                  label: wo.status || 'Desconocido',
+                  variant: 'bg-zinc-700/40 border-zinc-600 text-zinc-300',
+                };
 
                 return (
                   <TableRow
