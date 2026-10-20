@@ -27,6 +27,8 @@ import workOrdersService from '@/services/workOrders.service';
 import coordinationService from '@/services/coordination.service';
 import fleetService from '@/services/fleet.service';
 import workOrderTypesService from '@/services/workOrderTypes.service';
+import { getAllSettings, settingsToMap } from '@/services/settings.service';
+import { getShiftForDate } from '@/utils/workHours';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -104,12 +106,8 @@ function getDayKey(dateStr) {
   return `${y}-${m}-${day}`;
 }
 
-function getShift(dateStr) {
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.getHours() < 14 ? 'Mañana' : 'Tarde';
-}
+// El cálculo de turno (Mañana/Tarde) usa el horario vigente por fecha
+// y se resuelve vía getShiftForDate() de utils/workHours.
 
 function formatDayLabel(dayKey) {
   const [y, m, d] = dayKey.split('-').map(Number);
@@ -185,6 +183,9 @@ export default function WorkOrdersPage() {
 
   // OT Types (DB-driven)
   const [otTypes, setOtTypes] = useState([]);
+
+  // Horario de visitas técnicas (con vigencia por fecha) para agrupar turnos
+  const [workHoursRaw, setWorkHoursRaw] = useState(null);
 
   // Vista persistida por usuario (filtros + orden).
   const [view, setView, hydrated] = usePersistedViewState('work_orders.grid', WORK_ORDERS_GRID_DEFAULTS);
@@ -343,6 +344,18 @@ export default function WorkOrdersPage() {
       .catch(() => {});
   }, []);
 
+  // Cargar horario de visitas técnicas (con vigencia por fecha)
+  useEffect(() => {
+    getAllSettings()
+      .then((settings) => {
+        const map = settingsToMap(settings);
+        if (map.work_hours) {
+          setWorkHoursRaw(map.work_hours);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Debounce de búsqueda (evita refetch en cada tecla).
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearchQuery(searchQuery), 300);
@@ -413,7 +426,7 @@ export default function WorkOrdersPage() {
         continue;
       }
 
-      const shift = getShift(rawDate) || 'Mañana';
+      const shift = getShiftForDate(workHoursRaw, rawDate) || 'Mañana';
       const key = `${dayKey}::${shift}`;
       let g = indexByKey.get(key);
       if (!g) {
@@ -446,7 +459,7 @@ export default function WorkOrdersPage() {
     }
 
     return groups;
-  }, [workOrders, sortKey, sortDir]);
+  }, [workOrders, sortKey, sortDir, workHoursRaw]);
 
   const hasPendingClosureBlock = isTechnician && pendingClosureOrders.length > 0;
   const hasInspectionBlock = isTechnician && needsInspection;

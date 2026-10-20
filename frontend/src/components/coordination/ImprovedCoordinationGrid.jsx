@@ -21,14 +21,15 @@ const DEFAULT_WORK_HOURS = {
   afternoon_end: '19:00',
 };
 
-// ── Generar slots horarios a partir de un rango ─────────────────────
+// ── Generar slots horarios a partir de un rango (respeta minutos) ───
 function generateHourlySlots(startTime, endTime) {
-  const startHour = parseInt(startTime.split(':')[0], 10);
-  const endHour = parseInt(endTime.split(':')[0], 10);
+  const start = timeToMinutes(startTime);
+  const end = timeToMinutes(endTime);
   const slots = [];
-  for (let h = startHour; h < endHour; h++) {
-    slots.push(`${String(h).padStart(2, '0')}:00`);
+  for (let m = start; m < end; m += 60) {
+    slots.push(minutesToTime(m));
   }
+  if (slots.length === 0) slots.push(minutesToTime(start));
   return slots;
 }
 
@@ -160,7 +161,9 @@ export default function ImprovedCoordinationGrid({
   const wh = parseWorkHours(workHoursProp);
   const MORNING_SLOTS = generateHourlySlots(wh.morning_start, wh.morning_end);
   const AFTERNOON_SLOTS = generateHourlySlots(wh.afternoon_start, wh.afternoon_end);
+  const MORNING_START_MIN = timeToMinutes(wh.morning_start);
   const MORNING_END_MIN = timeToMinutes(wh.morning_end);
+  const AFTERNOON_START_MIN = timeToMinutes(wh.afternoon_start);
   const AFTERNOON_END_MIN = timeToMinutes(wh.afternoon_end);
   const [draggedItem, setDraggedItem] = useState(null);
   const [isResizing, setIsResizing] = useState(null);
@@ -177,9 +180,9 @@ export default function ImprovedCoordinationGrid({
   const draggedItemRef = useRef(null); // Para identificar la OT durante drag/drop
 
   const slots = activeTimeBlock === 'morning' ? MORNING_SLOTS : AFTERNOON_SLOTS;
-  const startSlot = timeToMinutes(slots[0]);
-  const endSlot = timeToMinutes(slots[slots.length - 1]) + 60; // +60 para la última hora completa
-  const totalMinutes = endSlot - startSlot;
+  const startSlot = activeTimeBlock === 'morning' ? MORNING_START_MIN : AFTERNOON_START_MIN;
+  const endSlot = activeTimeBlock === 'morning' ? MORNING_END_MIN : AFTERNOON_END_MIN;
+  const totalMinutes = Math.max(1, endSlot - startSlot);
   const isPastDate = startOfDay(currentDate) < startOfDay(new Date());
 
   // Aplicar filtros multicriterio
@@ -222,7 +225,7 @@ export default function ImprovedCoordinationGrid({
     const woStartMinutes = woStart.getHours() * 60 + woStart.getMinutes();
     
     // Límite de fin de turno
-    const shiftEndMinutes = activeTimeBlock === 'morning' ? 13 * 60 : 19 * 60; // 13:00 o 19:00
+    const shiftEndMinutes = endSlot;
     const maxUntilShiftEnd = shiftEndMinutes - woStartMinutes;
     
     // Obtener todas las OTs del mismo equipo y ordenarlas
@@ -497,7 +500,7 @@ export default function ImprovedCoordinationGrid({
       const newMinutes = totalMinutesFromMidnight % 60;
       
       // Validación final: verificar que no esté fuera del turno
-      const shiftEndMinutes = activeTimeBlock === 'morning' ? 13 * 60 : 19 * 60;
+      const shiftEndMinutes = endSlot;
       const woEndMinutes = totalMinutesFromMidnight + (wo.estimated_duration || 60);
       
       if (totalMinutesFromMidnight < startSlot || woEndMinutes > shiftEndMinutes) {
