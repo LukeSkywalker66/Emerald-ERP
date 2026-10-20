@@ -25,6 +25,11 @@ class MaterialDeliveryItemCreate(BaseModel):
     notes: Optional[str] = None
 
 
+class MaterialDeliveryItemUpdate(BaseModel):
+    """Schema para actualizar la cantidad entregada de un item BULK."""
+    quantity_delivered: float = Field(..., gt=0, description="Nueva cantidad a entregar (solo items BULK)")
+
+
 class MaterialDeliveryItemResponse(BaseModel):
     """Schema de respuesta para un item de entrega."""
     id: int
@@ -152,6 +157,7 @@ class BarcodeScanResponse(BaseModel):
     serial_number: Optional[str] = None
     product_group_id: Optional[int] = None
     is_serialized: bool
+    quantity: Optional[float] = Field(None, description="Cantidad entregada persistida (solo BULK)")
     already_scanned: bool = False
     message: str
 

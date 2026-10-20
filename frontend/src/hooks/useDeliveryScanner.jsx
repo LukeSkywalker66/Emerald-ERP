@@ -64,6 +64,7 @@ export function useDeliveryScanner({
   const scannedSerialIds = useRef(new Set()); // Anti-duplicados por serial_item_id
   const scannedCounts = useRef({});
   const feedbackTimer = useRef(null);
+  const bulkQtyRef = useRef({}); // item key -> última cantidad persistida (para delta correcto con debounce)
 
   const productToGroup = {};
   const requirementByProduct = {};
@@ -120,7 +121,10 @@ export function useDeliveryScanner({
   const registerLocalBulk = useCallback((payload) => {
     const key = payload.requirement_key || resolveRequirementKey(payload.product_id, payload.product_group_id);
     if (key == null) return 0;
-    scannedCounts.current[key] = (scannedCounts.current[key] || 0) + 1;
+    const qty = Number(payload.quantity || 1);
+    const bulkKey = payload.delivery_item_id ?? `product:${payload.product_id}`;
+    bulkQtyRef.current[bulkKey] = qty;
+    scannedCounts.current[key] = (scannedCounts.current[key] || 0) + qty;
     onItemScanned?.(payload);
     return getRemaining(key);
   }, [getRemaining, onItemScanned, resolveRequirementKey]);
@@ -358,6 +362,8 @@ export function useDeliveryScanner({
                   product_group_id: p.group_id ?? null,
                   requirement_key: requirementKey,
                   is_serialized: false,
+                  delivery_item_id: result.delivery_item_id ?? null,
+                  quantity: result.quantity ?? 1,
                 });
                 setTimedFeedback({
                   type: result.already_scanned ? "info" : "success",
@@ -551,7 +557,7 @@ export function useDeliveryScanner({
 
     const key = item.requirement_key || resolveRequirementKey(item.product_id, item.product_group_id ?? null);
     if (key != null && scannedCounts.current[key] != null) {
-      scannedCounts.current[key] = Math.max(0, scannedCounts.current[key] - 1);
+      scannedCounts.current[key] = Math.max(0, scannedCounts.current[key] - Number(item.quantity || 1));
     }
 
     if (item.serial_item_id != null) {
@@ -567,6 +573,31 @@ export function useDeliveryScanner({
     }
   }, [deliveryId, handleApiError, resolveRequirementKey]);
 
+  const setBulkQuantity = useCallback(async (item, newQty) => {
+    const qty = Math.max(0.1, Number(newQty) || 1);
+    const key = item.requirement_key || resolveRequirementKey(item.product_id, item.product_group_id ?? null);
+    const bulkKey = item.delivery_item_id ?? `product:${item.product_id}`;
+    // La base para el delta es la última cantidad PERSISTIDA, no la optimista,
+    // para no derivar el conteo cuando el debounce descarta cambios intermedios.
+    const old = Number(bulkQtyRef.current[bulkKey] ?? item.quantity ?? 1);
+
+    let persisted = null;
+    if (deliveryId != null && item.delivery_item_id != null) {
+      const { data } = await api.patch(
+        `/v2/logistics/deliveries/${deliveryId}/items/${item.delivery_item_id}`,
+        { quantity_delivered: qty }
+      );
+      persisted = data;
+    }
+
+    if (key != null) {
+      scannedCounts.current[key] = Math.max(0, (scannedCounts.current[key] || 0) - old + qty);
+    }
+    bulkQtyRef.current[bulkKey] = qty;
+
+    return persisted || { quantity_delivered: qty };
+  }, [deliveryId, resolveRequirementKey]);
+
   return {
     scanMode,
     pendingProductId: pendingProduct?.id ?? null,
@@ -577,6 +608,7 @@ export function useDeliveryScanner({
     lastFeedback,
     resolveScan,
     removeScannedItem,
+    setBulkQuantity,
     reset,
   };
 }

@@ -285,6 +285,33 @@ Transferir stock entre warehouses.
 - **SERIALIZED**: Actualiza `warehouse_id` de cada `serial_item`
 - Registra movimientos en `stock_movements` (1 por BULK, 1 por cada serial en SERIALIZED)
 
+### Entrega de Materiales a Cuadrillas (Consumibles BULK por cantidad)
+
+Los productos BULK **no compuestos** (tornillos, tarugos, fichas RJ45 sueltas) se
+almacenan como un agregado numérico por depósito (`stock_bulk.quantity`). En el
+wizard de entrega (`frontend/src/pages/logistics/MaterialDeliveryWizard.jsx`) se
+cargan de esta forma:
+
+1. **Buscador de materiales** (`ProductPicker`): consulta
+   `GET /v2/inventory/stock/available-search` y muestra el item con la cantidad
+   disponible entre paréntesis (`Disponible: N u.`).
+2. **Selección**: al elegir un consumible, el backend
+   `POST /v2/logistics/deliveries/{id}/scan-barcode` persiste un
+   `MaterialDeliveryItem` BULK con `quantity = 1` (o la cantidad indicada en
+   `payload.quantity`). Si el producto ya tiene una línea MANUAL en la entrega,
+   se **suma** a la cantidad existente (anti-duplicados).
+3. **Edición de cantidad**: la etiqueta verde del item muestra un stepper con
+   default `1`. Cada cambio se persiste vía
+   `PATCH /v2/logistics/deliveries/{id}/items/{item_id}` y se valida contra el
+   stock del depósito origen. Si el stock es insuficiente, el backend responde
+   `400` y el frontend revierte el valor mostrando el error.
+4. **Confirmación**: `confirm_delivery` re-valida transaccionalmente los totales
+   BULK por producto (`SELECT ... FOR UPDATE`) y ejecuta `transfer_stock_bulk`,
+   descontando la cantidad del depósito origen y acreditando en el móvil.
+
+**Endpoint nuevo:** `PATCH /v2/logistics/deliveries/{delivery_id}/items/{item_id}`
+con body `{ "quantity_delivered": float }` (solo items BULK).
+
 ### Stock Adjustments
 
 #### `POST /api/inventory/adjustments`
