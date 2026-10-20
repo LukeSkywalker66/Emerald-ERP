@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ArrowLeft, ArrowRight, Check, X, Loader, AlertCircle,
   Truck, Scan, Package, Users, ClipboardList, RefreshCw,
@@ -67,6 +67,19 @@ export default function MaterialDeliveryWizard() {
   const [scannedItems, setScannedItems] = useState([]);
   const [scanComplete, setScanComplete] = useState(false);
 
+  // Edición de cantidad en items BULK (tags verdes)
+  const [bulkQtyErrors, setBulkQtyErrors] = useState({});
+  const bulkQtyTimersRef = useRef({});
+  const scannedItemsRef = useRef([]);
+
+  useEffect(() => {
+    scannedItemsRef.current = scannedItems;
+  }, [scannedItems]);
+
+  useEffect(() => () => {
+    Object.values(bulkQtyTimersRef.current).forEach((t) => clearTimeout(t));
+  }, []);
+
   // Máquina de estados inteligente para escaneo en delivery
   const deliveryScanner = useDeliveryScanner({
     proposalItems,
@@ -130,6 +143,34 @@ export default function MaterialDeliveryWizard() {
   const handleRemoveScanned = useCallback(async (item, idx) => {
     await deliveryScanner.removeScannedItem(item);
     setScannedItems(prev => prev.filter((_, i) => i !== idx));
+  }, [deliveryScanner]);
+
+  const handleBulkQtyChange = useCallback((item, idx, rawValue) => {
+    const parsed = parseFloat(rawValue);
+    const qty = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+
+    // Actualización optimista local
+    setScannedItems(prev => prev.map((it, i) => (i === idx ? { ...it, quantity: qty } : it)));
+
+    const timerKey = item.delivery_item_id ?? `${item.product_id}-${idx}`;
+    if (bulkQtyTimersRef.current[timerKey]) clearTimeout(bulkQtyTimersRef.current[timerKey]);
+    bulkQtyTimersRef.current[timerKey] = setTimeout(async () => {
+      const latest = scannedItemsRef.current[idx];
+      try {
+        await deliveryScanner.setBulkQuantity(latest || item, qty);
+        setBulkQtyErrors(prev => {
+          const next = { ...prev };
+          delete next[idx];
+          return next;
+        });
+      } catch (err) {
+        const msg = err.response?.data?.detail || 'Cantidad no disponible';
+        setScannedItems(prev => prev.map((it, i) => (
+          i === idx ? { ...it, quantity: (latest?.quantity ?? item.quantity ?? 1) } : it
+        )));
+        setBulkQtyErrors(prev => ({ ...prev, [idx]: msg }));
+      }
+    }, 500);
   }, [deliveryScanner]);
 
 
@@ -1072,19 +1113,50 @@ export default function MaterialDeliveryWizard() {
               <div className="bg-zinc-800/30 rounded-lg divide-y divide-zinc-800 max-h-60 overflow-y-auto">
                 {scannedItems.map((item, idx) => (
                   <div key={idx} className="flex items-center justify-between p-3 group hover:bg-zinc-800/50">
-                    <div className="flex items-center space-x-3 min-w-0">
+                    <div className="flex items-center space-x-3 min-w-0 flex-1">
                       <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className="text-white text-sm truncate">{item.product_name}</p>
                         <p className="text-zinc-500 text-xs truncate">
                           {item.product_sku && <code className="mr-2">{item.product_sku}</code>}
                           {item.serial_number && <span className="text-emerald-400">SN: {item.serial_number}</span>}
                         </p>
+                        {!item.is_serialized && (
+                          <div className="mt-1.5 flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleBulkQtyChange(item, idx, (item.quantity ?? 1) - 1)}
+                              disabled={(item.quantity ?? 1) <= 1}
+                              className="h-7 w-7 inline-flex items-center justify-center rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40"
+                            >
+                              −
+                            </button>
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={item.quantity ?? 1}
+                              onChange={(e) => handleBulkQtyChange(item, idx, e.target.value)}
+                              className="h-7 w-16 px-1 bg-zinc-800 border border-zinc-700 rounded text-center text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleBulkQtyChange(item, idx, (item.quantity ?? 1) + 1)}
+                              className="h-7 w-7 inline-flex items-center justify-center rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-700"
+                            >
+                              +
+                            </button>
+                            <span className="text-[10px] text-zinc-500">u.</span>
+                          </div>
+                        )}
+                        {bulkQtyErrors[idx] && (
+                          <p className="text-xs text-rose-400 mt-1">{bulkQtyErrors[idx]}</p>
+                        )}
                       </div>
                     </div>
                     <button
                       onClick={() => handleRemoveScanned(item, idx)}
-                      className="p-1 text-zinc-600 hover:text-red-400 hover:bg-red-900/20 rounded opacity-0 group-hover:opacity-100 transition-all"
+                      className="p-1 text-zinc-600 hover:text-red-400 hover:bg-red-900/20 rounded opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

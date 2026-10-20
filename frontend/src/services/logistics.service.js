@@ -107,6 +107,26 @@ export const removeDeliveryItem = async (deliveryId, itemId) => {
 };
 
 /**
+ * Actualizar la cantidad entregada de un item BULK.
+ * @param {number} deliveryId
+ * @param {number} itemId
+ * @param {number} quantity - Nueva cantidad a entregar
+ * @returns {Promise<Object>}
+ */
+export const updateDeliveryItemQuantity = async (deliveryId, itemId, quantity) => {
+  try {
+    const { data } = await api.patch(
+      `${BASE_URL}/deliveries/${deliveryId}/items/${itemId}`,
+      { quantity_delivered: quantity }
+    );
+    return data;
+  } catch (error) {
+    console.error(`❌ Error updating quantity for item ${itemId} in delivery ${deliveryId}:`, error);
+    throw error;
+  }
+};
+
+/**
  * Escanear código de barra de un producto.
  * @param {number} deliveryId
  * @param {Object} payload - { product_code, quantity? }
@@ -363,6 +383,7 @@ export default {
   generateProposal,
   addDeliveryItem,
   removeDeliveryItem,
+  updateDeliveryItemQuantity,
   scanBarcode,
   scanSerial,
   confirmDelivery,

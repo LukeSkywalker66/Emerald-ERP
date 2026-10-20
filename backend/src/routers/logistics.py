@@ -28,7 +28,7 @@ from src.models.user import User
 
 from src.schemas.logistics import (
     MaterialDeliveryCreate, MaterialDeliveryUpdate, MaterialDeliveryResponse,
-    MaterialDeliveryItemCreate, MaterialDeliveryItemResponse,
+    MaterialDeliveryItemCreate, MaterialDeliveryItemUpdate, MaterialDeliveryItemResponse,
     DeliveryProposalRequest, DeliveryProposalResponse, DeliveryProposalItem,
     BarcodeScanRequest, BarcodeScanResponse,
     SerialScanRequest, SerialScanResponse,
@@ -59,6 +59,27 @@ def _safe_user_name(user=None) -> Optional[str]:
     if user is None:
         return None
     return getattr(user, 'full_name', None) or getattr(user, 'username', None)
+
+
+def _bulk_effective_total(delivery, product_id: int, exclude_item_id: Optional[int] = None) -> float:
+    """Suma BULK de un producto que se transferiría al confirmar.
+
+    Regla espejo de `confirm_delivery`: si existen líneas MANUAL para el
+    producto, mandan las MANUAL; si no, mandan las PROPOSAL. `exclude_item_id`
+    permite excluir la línea que se está editando.
+    """
+    bulk_items = [
+        i for i in (delivery.items or [])
+        if i.product_id == product_id and not i.is_serialized
+    ]
+    manual = [i for i in bulk_items if i.source == DeliveryItemSource.MANUAL]
+    source_items = manual if manual else [i for i in bulk_items if i.source == DeliveryItemSource.PROPOSAL]
+    total = 0.0
+    for i in source_items:
+        if exclude_item_id is not None and i.id == exclude_item_id:
+            continue
+        total += float(i.quantity_delivered or 0)
+    return total
 
 
 # ============================================
@@ -382,6 +403,83 @@ def remove_delivery_item(
     db.commit()
 
 
+@router.patch("/deliveries/{delivery_id}/items/{item_id}", response_model=MaterialDeliveryItemResponse)
+def update_delivery_item_quantity(
+    delivery_id: int,
+    item_id: int,
+    payload: MaterialDeliveryItemUpdate,
+    db: Session = Depends(get_db)
+):
+    """Actualizar la cantidad entregada de un item BULK.
+
+    Re-valida contra el stock del depósito origen y evita sobreventa
+    considerando las demás líneas BULK de la entrega.
+    """
+    delivery = db.execute(
+        select(MaterialDelivery).options(selectinload(MaterialDelivery.items)).where(
+            MaterialDelivery.id == delivery_id
+        )
+    ).scalar_one_or_none()
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+    if delivery.status == DeliveryStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="No se puede modificar una entrega completada")
+
+    item = next((i for i in delivery.items if i.id == item_id), None)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item no encontrado")
+    if item.is_serialized:
+        raise HTTPException(
+            status_code=400,
+            detail="Solo se puede editar la cantidad de items a granel (BULK)"
+        )
+
+    product = db.get(Product, item.product_id)
+    product_label = product.name if product else f"#{item.product_id}"
+
+    new_qty = float(payload.quantity_delivered)
+
+    available = db.execute(
+        select(StockBulk).where(
+            StockBulk.warehouse_id == delivery.warehouse_from_id,
+            StockBulk.product_id == item.product_id,
+        )
+    ).scalar_one_or_none()
+    stock_qty = float(available.quantity) if available else 0.0
+
+    other_total = _bulk_effective_total(delivery, item.product_id, exclude_item_id=item.id)
+    if new_qty + other_total > stock_qty + 1e-9:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Stock insuficiente de '{product_label}'. "
+                f"Disponible: {stock_qty}, solicitado: {round(new_qty + other_total, 6)}"
+            )
+        )
+
+    item.quantity_delivered = round(new_qty, 6)
+    item.quantity_proposed = round(max(item.quantity_proposed or 0, new_qty), 6)
+    db.commit()
+    db.refresh(item)
+
+    return MaterialDeliveryItemResponse(
+        id=item.id,
+        delivery_id=item.delivery_id,
+        product_id=item.product_id,
+        quantity_proposed=item.quantity_proposed,
+        quantity_delivered=item.quantity_delivered,
+        is_serialized=item.is_serialized,
+        serial_item_id=item.serial_item_id,
+        serial_number=item.serial_number,
+        source=item.source,
+        notes=item.notes,
+        created_at=item.created_at,
+        product_name=product.name if product else None,
+        product_sku=product.sku if product else None,
+        product_group_name=product.group.name if product and product.group else None,
+    )
+
+
 @router.post("/deliveries/{delivery_id}/scan-barcode", response_model=BarcodeScanResponse)
 def scan_barcode(
     delivery_id: int,
@@ -587,6 +685,10 @@ def scan_barcode(
             message=f"Producto '{product.name}' identificado. Escaneá el serial."
         )
 
+    quantity = float(payload.quantity if payload.quantity is not None else 1.0)
+    if quantity <= 0:
+        quantity = 1.0
+
     available_bulk = db.execute(
         select(StockBulk).where(
             StockBulk.warehouse_id == delivery.warehouse_from_id,
@@ -600,15 +702,76 @@ def scan_barcode(
             detail=f"'{product.name}' no tiene stock disponible en el depósito origen"
         )
 
+    # Anti-duplicados BULK: si ya existe una línea MANUAL para este producto,
+    # sumar la cantidad en lugar de crear una línea nueva.
+    existing = db.execute(
+        select(MaterialDeliveryItem).where(
+            MaterialDeliveryItem.delivery_id == delivery.id,
+            MaterialDeliveryItem.product_id == product.id,
+            MaterialDeliveryItem.is_serialized.is_(False),
+            MaterialDeliveryItem.source == DeliveryItemSource.MANUAL,
+        )
+    ).scalars().first()
+
+    if existing:
+        new_total = float(existing.quantity_delivered or 0) + quantity
+        if new_total > float(available_bulk.quantity) + 1e-9:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Stock insuficiente de '{product.name}'. "
+                    f"Disponible: {available_bulk.quantity}, solicitado: {new_total}"
+                )
+            )
+        existing.quantity_delivered = round(new_total, 6)
+        existing.quantity_proposed = round(max(existing.quantity_proposed or 0, new_total), 6)
+        db.commit()
+        db.refresh(existing)
+        return BarcodeScanResponse(
+            success=True,
+            product_id=product.id,
+            product_name=product.name,
+            product_sku=product.sku,
+            delivery_item_id=existing.id,
+            product_group_id=product.group_id,
+            is_serialized=False,
+            quantity=existing.quantity_delivered,
+            already_scanned=True,
+            message=f"'{product.name}' actualizado a {existing.quantity_delivered} unidad(es).",
+        )
+
+    if quantity > float(available_bulk.quantity) + 1e-9:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Stock insuficiente de '{product.name}'. "
+                f"Disponible: {available_bulk.quantity}, solicitado: {quantity}"
+            )
+        )
+
+    item = MaterialDeliveryItem(
+        delivery_id=delivery.id,
+        product_id=product.id,
+        quantity_proposed=quantity,
+        quantity_delivered=quantity,
+        is_serialized=False,
+        source=DeliveryItemSource.MANUAL,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
     return BarcodeScanResponse(
         success=True,
         product_id=product.id,
         product_name=product.name,
         product_sku=product.sku,
+        delivery_item_id=item.id,
         product_group_id=product.group_id,
         is_serialized=False,
+        quantity=item.quantity_delivered,
         already_scanned=False,
-        message=f"Producto '{product.name}' validado en depósito origen"
+        message=f"'{product.name}' agregado ({item.quantity_delivered} unidad(es)).",
     )
 
 

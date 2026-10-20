@@ -140,8 +140,8 @@ export default function ProductPicker({
                     {item.serial_number}
                   </p>
                 ) : (
-                  <p className="text-xs text-zinc-300 shrink-0">
-                    Stock: {Number(item.available_quantity || 0)}
+                  <p className="text-xs text-emerald-300 shrink-0">
+                    Disponible: {Number(item.available_quantity || 0)} u.
                   </p>
                 )}
               </div>

@@ -595,6 +595,33 @@ def confirm_delivery(
     else:
         items_to_transfer = proposal_items
 
+    # Bloquear las filas de stock BULK y re-validar totales por producto para
+    # evitar sobreventa concurrente (dos entregas simultáneas sobre el mismo
+    # depósito origen). El SELECT ... FOR UPDATE serializa las transacciones
+    # hasta el commit final.
+    bulk_totals = {}
+    for item in items_to_transfer:
+        if item.is_serialized:
+            continue
+        bulk_totals[item.product_id] = bulk_totals.get(item.product_id, 0.0) + float(item.quantity_delivered or 0)
+
+    for pid, qty in bulk_totals.items():
+        stock = db.execute(
+            select(StockBulk).where(
+                StockBulk.warehouse_id == delivery.warehouse_from_id,
+                StockBulk.product_id == pid,
+            ).with_for_update()
+        ).scalar_one_or_none()
+        available = float(stock.quantity) if stock else 0.0
+        if qty > available + 1e-9:
+            product_label = next(
+                (i.product.name for i in items_to_transfer if i.product_id == pid and not i.is_serialized),
+                f"#{pid}"
+            )
+            raise ValueError(
+                f"Stock insuficiente de '{product_label}': disponible {available}, requerido {qty}"
+            )
+
     # Ejecutar transferencia de stock para cada item
     from src.services.inventory_service import transfer_stock_bulk, transfer_stock_serial
 
