@@ -27,6 +27,8 @@ import workOrdersService from '@/services/workOrders.service';
 import coordinationService from '@/services/coordination.service';
 import fleetService from '@/services/fleet.service';
 import workOrderTypesService from '@/services/workOrderTypes.service';
+import { getAllSettings, settingsToMap } from '@/services/settings.service';
+import { getShiftForDate } from '@/utils/workHours';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -44,12 +46,20 @@ import {
 
 // Config: Estados
 const STATUS_CONFIG = {
-  pending_planning: { 
-    label: 'Planificación', 
+  pending_planning: {
+    label: 'Planificación',
     variant: 'bg-amber-500/10 border-amber-500/30 text-amber-300',
   },
-  assigned: { 
-    label: 'Asignada', 
+  coordinated: {
+    label: 'Coordinada',
+    variant: 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300',
+  },
+  scheduled: {
+    label: 'Programada',
+    variant: 'bg-teal-500/10 border-teal-500/30 text-teal-300',
+  },
+  assigned: {
+    label: 'Asignada',
     variant: 'bg-blue-500/10 border-blue-500/30 text-blue-300',
   },
   in_progress: { 
@@ -96,12 +106,8 @@ function getDayKey(dateStr) {
   return `${y}-${m}-${day}`;
 }
 
-function getShift(dateStr) {
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.getHours() < 14 ? 'Mañana' : 'Tarde';
-}
+// El cálculo de turno (Mañana/Tarde) usa el horario vigente por fecha
+// y se resuelve vía getShiftForDate() de utils/workHours.
 
 function formatDayLabel(dayKey) {
   const [y, m, d] = dayKey.split('-').map(Number);
@@ -177,6 +183,9 @@ export default function WorkOrdersPage() {
 
   // OT Types (DB-driven)
   const [otTypes, setOtTypes] = useState([]);
+
+  // Horario de visitas técnicas (con vigencia por fecha) para agrupar turnos
+  const [workHoursRaw, setWorkHoursRaw] = useState(null);
 
   // Vista persistida por usuario (filtros + orden).
   const [view, setView, hydrated] = usePersistedViewState('work_orders.grid', WORK_ORDERS_GRID_DEFAULTS);
@@ -335,6 +344,18 @@ export default function WorkOrdersPage() {
       .catch(() => {});
   }, []);
 
+  // Cargar horario de visitas técnicas (con vigencia por fecha)
+  useEffect(() => {
+    getAllSettings()
+      .then((settings) => {
+        const map = settingsToMap(settings);
+        if (map.work_hours) {
+          setWorkHoursRaw(map.work_hours);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Debounce de búsqueda (evita refetch en cada tecla).
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearchQuery(searchQuery), 300);
@@ -405,7 +426,7 @@ export default function WorkOrdersPage() {
         continue;
       }
 
-      const shift = getShift(rawDate) || 'Mañana';
+      const shift = getShiftForDate(workHoursRaw, rawDate) || 'Mañana';
       const key = `${dayKey}::${shift}`;
       let g = indexByKey.get(key);
       if (!g) {
@@ -438,7 +459,7 @@ export default function WorkOrdersPage() {
     }
 
     return groups;
-  }, [workOrders, sortKey, sortDir]);
+  }, [workOrders, sortKey, sortDir, workHoursRaw]);
 
   const hasPendingClosureBlock = isTechnician && pendingClosureOrders.length > 0;
   const hasInspectionBlock = isTechnician && needsInspection;
@@ -672,6 +693,8 @@ export default function WorkOrdersPage() {
           >
             <option value="">Todos los estados</option>
             <option value="pending_planning">Planificación</option>
+            <option value="coordinated">Coordinada</option>
+            <option value="scheduled">Programada</option>
             <option value="assigned">Asignada</option>
             <option value="in_progress">En curso</option>
             <option value="pending_closure">Pendiente Cierre</option>
@@ -864,7 +887,10 @@ export default function WorkOrdersPage() {
                   {group.items.map((wo) => {
                     const typeConfig = TYPE_CONFIG[wo.ot_type] || TYPE_CONFIG.repair;
                 const TypeIcon = typeConfig.icon;
-                const statusConfig = STATUS_CONFIG[wo.status] || STATUS_CONFIG.pending_planning;
+                const statusConfig = STATUS_CONFIG[wo.status] || {
+                  label: wo.status || 'Desconocido',
+                  variant: 'bg-zinc-700/40 border-zinc-600 text-zinc-300',
+                };
 
                 return (
                   <TableRow

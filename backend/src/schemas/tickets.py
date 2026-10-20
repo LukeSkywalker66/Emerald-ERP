@@ -14,6 +14,7 @@ from src.models.tickets import (
     ResolutionCategory,
     TicketType,
     AdministrativeSubtype,
+    InternalSubtype,
     TicketCategory,
 )
 
@@ -274,6 +275,9 @@ class TicketCreate(BaseModel):
     # Tipo de ticket y flujo (NUEVO)
     ticket_type: TicketType = TicketType.technical
     administrative_subtype: Optional[AdministrativeSubtype] = None
+    internal_subtype: Optional[InternalSubtype] = Field(None, description="Subtipo para tickets internos (solo INTERNAL)")
+    internal_node_id: Optional[int] = Field(None, description="Soft FK a nodes.node_id (solo INTERNAL)")
+    internal_location: Optional[str] = Field(None, max_length=255, description="Ubicación libre para trabajo interno")
     
     # Conexiones según tipo (NUEVO)
     connection_id: Optional[int] = Field(None, description="Conexión principal (TECHNICAL, WITHDRAWAL)")
@@ -299,6 +303,9 @@ class TicketResponse(BaseModel):
     priority: TicketPriority
     ticket_type: TicketType  # NUEVO
     administrative_subtype: Optional[AdministrativeSubtype] = None  # NUEVO
+    internal_subtype: Optional[InternalSubtype] = None  # NUEVO
+    internal_node_id: Optional[int] = None  # NUEVO
+    internal_location: Optional[str] = None  # NUEVO
     connection_id: Optional[int] = None
     origin_connection_id: Optional[int] = None  # NUEVO
     destination_connection_id: Optional[int] = None  # NUEVO

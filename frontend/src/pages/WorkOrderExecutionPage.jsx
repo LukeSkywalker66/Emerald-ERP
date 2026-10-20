@@ -70,6 +70,18 @@ const PRIORITY_CONFIG = {
   },
 };
 
+// Subtipos de tickets internos (OT de infraestructura).
+const INTERNAL_SUBTYPE_LABELS = {
+  poles: 'Postes',
+  fiber_street: 'Fibra en calle',
+  nap: 'NAP / Caja de distribución',
+  node_maintenance: 'Mantenimiento de nodo',
+  tower: 'Mantenimiento de torre',
+  power: 'Grupo electrógeno',
+  office: 'Oficina local',
+  other: 'Otra tarea interna',
+};
+
 // Timer Component
 function Timer({ startedAt }) {
   const [elapsed, setElapsed] = useState(0);
@@ -701,6 +713,11 @@ export default function WorkOrderExecutionPage() {
                 <ClipboardList size={16} className="text-amber-400" />
                 Descripción del Trabajo
               </h2>
+              {workOrder.custom_data?.internal_subtype && (
+                <span className="inline-block px-2 py-1 mb-2 rounded-full text-xs font-medium border border-purple-500/40 bg-purple-500/10 text-purple-200">
+                  {INTERNAL_SUBTYPE_LABELS[workOrder.custom_data.internal_subtype] || 'Interno'}
+                </span>
+              )}
               <p className="text-sm text-zinc-300 whitespace-pre-wrap">
                 {workOrder.notes}
               </p>

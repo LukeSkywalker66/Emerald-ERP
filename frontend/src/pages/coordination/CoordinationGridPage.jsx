@@ -4,7 +4,7 @@
  * 4 de febrero de 2026
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { addDays, format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
@@ -23,6 +23,7 @@ import ImprovedCoordinationGrid from '@/components/coordination/ImprovedCoordina
 import { useCoordinationSync } from '@/components/coordination/hooks';
 import { getWorkOrderTypes, buildTypeMap } from '@/services/workOrderTypes.service';
 import { getAllSettings, settingsToMap } from '@/services/settings.service';
+import { resolveWorkHoursForDate } from '@/utils/workHours';
 
 
 // ========== PÁGINA PRINCIPAL ==========
@@ -72,8 +73,8 @@ export default function CoordinationGridPage() {
   const [workOrderTypeMap, setWorkOrderTypeMap] = useState({});
   const workOrderTypesRetryRef = useRef(0);
 
-  // Work hours from SystemConfig (horario de visitas técnicas)
-  const [workHours, setWorkHours] = useState(null);
+  // Work hours from SystemConfig (horario de visitas técnicas, con vigencia por fecha)
+  const [workHoursRaw, setWorkHoursRaw] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -113,13 +114,19 @@ export default function CoordinationGridPage() {
       .then((settings) => {
         const map = settingsToMap(settings);
         if (map.work_hours) {
-          setWorkHours(map.work_hours);
+          setWorkHoursRaw(map.work_hours);
         }
       })
       .catch((err) => {
         console.warn('⚠️ No se pudieron cargar horarios de trabajo:', err);
       });
   }, []);
+
+  // Resolver el horario vigente para la fecha seleccionada
+  const workHours = useMemo(
+    () => resolveWorkHoursForDate(workHoursRaw, format(currentDate, 'yyyy-MM-dd')),
+    [workHoursRaw, currentDate]
+  );
 
   // Sincronización automática con BD (polling 5s)
   const syncResult = useCoordinationSync(currentDate, true, {

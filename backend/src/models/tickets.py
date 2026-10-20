@@ -141,6 +141,7 @@ class TicketType(StrEnum):
     fiber_migration = "fiber_migration"  # Pase a fibra (misma conexión, retiro de aire)
     mesh = "mesh"                        # Instalación de sistema mesh (red inalámbrica sobre conexión existente)
     tv = "tv"                            # Instalación de TV (servicio sobre conexión existente)
+    internal = "internal"                # Trabajo interno (infraestructura/oficina), sin conexión de cliente
 
 
 class AdministrativeSubtype(StrEnum):
@@ -149,6 +150,18 @@ class AdministrativeSubtype(StrEnum):
     data_update = "data_update"          # Actualización de datos del cliente
     plan_change = "plan_change"          # Cambio de plan/upgrade
     other = "other"                      # Otros trámites
+
+
+class InternalSubtype(StrEnum):
+    """Subtipos para tickets internos (sin conexión de cliente)."""
+    poles = "poles"                        # Postes: tendido, herrajes, reemplazo
+    fiber_street = "fiber_street"          # Fibra en calle: tendido, empalmes, roturas
+    nap = "nap"                            # Trabajo sobre NAPs / cajas de distribución óptica
+    node_maintenance = "node_maintenance"  # Mantenimiento de nodos en otros edificios
+    tower = "tower"                        # Mantenimiento de torres
+    power = "power"                        # Grupos electrógenos (oficina o nodos)
+    office = "office"                      # Oficina local: router, cámara, instalación eléctrica
+    other = "other"                        # Otra tarea interna
 
 
 class WorkOrderResolutionType(StrEnum):
@@ -414,6 +427,27 @@ class Ticket(Base, TimestampMixin):
         Enum(AdministrativeSubtype, name="administrative_subtype_enum", native_enum=False),
         nullable=True,
         comment="Subtipo para tickets administrativos: billing, data_update, plan_change, other"
+    )
+
+    # Subtipo interno (NUEVO - opcional, solo para INTERNAL)
+    internal_subtype: Mapped[Optional[InternalSubtype]] = mapped_column(
+        Enum(InternalSubtype, name="internal_subtype_enum", native_enum=False),
+        nullable=True,
+        comment="Subtipo para tickets internos: poles, fiber_street, nap, node_maintenance, tower, power, office, other"
+    )
+
+    # Referencia de infraestructura para tickets internos (soft FK, sin constraint)
+    internal_node_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+        comment="Soft FK a nodes.node_id (para trabajo sobre nodos/fuentes/torres)"
+    )
+
+    internal_location: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Ubicación libre para trabajo interno: calle/sector, oficina local, NAP X, torre, etc."
     )
 
     # Campos para traslados (NUEVO)

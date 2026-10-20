@@ -41,15 +41,10 @@ import OTTypesTab from '@/pages/settings/OTTypesTab';
 import WOActionsTab from '@/pages/settings/WOActionsTab';
 import ProductGroupsTab from '@/pages/settings/ProductGroupsTab';
 import BackupTab from '@/pages/settings/BackupTab';
+import { normalizeWorkHoursSchedule, DEFAULT_WORK_HOURS } from '@/utils/workHours';
 
 // ─── Constants ──────────────────────────────────────────────────────────
 
-const DEFAULT_WORK_HOURS = {
-  morning_start: '08:00',
-  morning_end: '13:00',
-  afternoon_start: '15:00',
-  afternoon_end: '19:00',
-};
 
 const TIMEZONE_OPTIONS = [
   { value: 'America/Argentina/Buenos_Aires', label: 'Buenos Aires (ART, UTC-3)' },
@@ -69,14 +64,13 @@ const CONFIG_KEYS = {
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
-function parseWorkHours(value) {
-  if (!value || typeof value !== 'object') return { ...DEFAULT_WORK_HOURS };
-  return {
-    morning_start: value.morning_start || DEFAULT_WORK_HOURS.morning_start,
-    morning_end: value.morning_end || DEFAULT_WORK_HOURS.morning_end,
-    afternoon_start: value.afternoon_start || DEFAULT_WORK_HOURS.afternoon_start,
-    afternoon_end: value.afternoon_end || DEFAULT_WORK_HOURS.afternoon_end,
-  };
+function normalizeSchedulesForForm(value) {
+  const schedules = normalizeWorkHoursSchedule(value);
+  return schedules.map((entry) => ({
+    ...DEFAULT_WORK_HOURS,
+    ...entry,
+    effective_from: entry.effective_from || '',
+  }));
 }
 
 // ─── Component ──────────────────────────────────────────────────────────
@@ -101,7 +95,7 @@ export default function SettingsPage() {
   // Form state — populated from API
   const [companyName, setCompanyName] = useState('');
   const [logoUrl, setLogoUrl] = useState('');
-  const [workHours, setWorkHours] = useState({ ...DEFAULT_WORK_HOURS });
+  const [workHoursSchedules, setWorkHoursSchedules] = useState([{ ...DEFAULT_WORK_HOURS, effective_from: '' }]);
   const [timezone, setTimezone] = useState('America/Argentina/Buenos_Aires');
 
   // ── Load settings from API ──────────────────────────────────────────
@@ -115,7 +109,9 @@ export default function SettingsPage() {
 
       setCompanyName(map[CONFIG_KEYS.COMPANY_NAME] || '');
       setLogoUrl(map[CONFIG_KEYS.LOGO_URL] || '');
-      setWorkHours(parseWorkHours(map[CONFIG_KEYS.WORK_HOURS]));
+      setWorkHoursSchedules(
+        normalizeSchedulesForForm(map[CONFIG_KEYS.WORK_HOURS])
+      );
       setTimezone(map[CONFIG_KEYS.TIMEZONE] || 'America/Argentina/Buenos_Aires');
     } catch (err) {
       console.error('❌ Error loading settings:', err);
@@ -143,28 +139,41 @@ export default function SettingsPage() {
     setError(null);
 
     try {
-      // Validate work hours
-      if (workHours.morning_end <= workHours.morning_start) {
-        showFeedback('error', 'El horario de fin de mañana debe ser posterior al de inicio.');
-        setSaving(false);
-        return;
+      // Validate work hours (cada vigencia)
+      for (const schedule of workHoursSchedules) {
+        if (schedule.morning_end <= schedule.morning_start) {
+          showFeedback('error', 'El horario de fin de mañana debe ser posterior al de inicio.');
+          setSaving(false);
+          return;
+        }
+        if (schedule.afternoon_end <= schedule.afternoon_start) {
+          showFeedback('error', 'El horario de fin de tarde debe ser posterior al de inicio.');
+          setSaving(false);
+          return;
+        }
+        if (schedule.afternoon_start <= schedule.morning_end) {
+          showFeedback('error', 'El horario de inicio de tarde debe ser posterior al fin de mañana.');
+          setSaving(false);
+          return;
+        }
       }
-      if (workHours.afternoon_end <= workHours.afternoon_start) {
-        showFeedback('error', 'El horario de fin de tarde debe ser posterior al de inicio.');
-        setSaving(false);
-        return;
-      }
-      if (workHours.afternoon_start <= workHours.morning_end) {
-        showFeedback('error', 'El horario de inicio de tarde debe ser posterior al fin de mañana.');
-        setSaving(false);
-        return;
-      }
+
+      // Persistir como array de vigencias ordenado por fecha (asc)
+      const schedulesToSave = [...workHoursSchedules]
+        .sort((a, b) => String(a.effective_from || '').localeCompare(String(b.effective_from || '')))
+        .map(({ effective_from, morning_start, morning_end, afternoon_start, afternoon_end }) => ({
+          effective_from: effective_from || null,
+          morning_start,
+          morning_end,
+          afternoon_start,
+          afternoon_end,
+        }));
 
       // Build payload with only the keys we manage in General tab
       const payload = {
         [CONFIG_KEYS.COMPANY_NAME]: companyName,
         [CONFIG_KEYS.LOGO_URL]: logoUrl,
-        [CONFIG_KEYS.WORK_HOURS]: workHours,
+        [CONFIG_KEYS.WORK_HOURS]: schedulesToSave,
         [CONFIG_KEYS.TIMEZONE]: timezone,
       };
 
@@ -178,10 +187,20 @@ export default function SettingsPage() {
     }
   };
 
-  // ── Work hours field change ─────────────────────────────────────────
+  // ── Work hours (vigencias) field change ─────────────────────────────
 
-  const handleWorkHourChange = (field, value) => {
-    setWorkHours((prev) => ({ ...prev, [field]: value }));
+  const handleScheduleChange = (index, field, value) => {
+    setWorkHoursSchedules((prev) =>
+      prev.map((schedule, i) => (i === index ? { ...schedule, [field]: value } : schedule))
+    );
+  };
+
+  const handleAddSchedule = () => {
+    setWorkHoursSchedules((prev) => [...prev, { ...DEFAULT_WORK_HOURS, effective_from: '' }]);
+  };
+
+  const handleRemoveSchedule = (index) => {
+    setWorkHoursSchedules((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
   };
 
   // ── Render: Loading ─────────────────────────────────────────────────
@@ -356,63 +375,100 @@ export default function SettingsPage() {
                   )}
                 </div>
 
-                {/* Work Hours */}
+                {/* Work Hours (con vigencia por fecha) */}
                 <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-4">
-                  <label className="block text-zinc-300 text-sm font-medium mb-3 flex items-center gap-2">
-                    <Clock size={16} className="text-zinc-500" />
-                    Horario de Visitas Técnicas
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Morning */}
-                    <div className="space-y-2 p-3 rounded-lg bg-zinc-900/30 border border-zinc-800/50">
-                      <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Turno Mañana</p>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1">
-                          <label className="block text-xs text-zinc-500 mb-1">Inicio</label>
-                          <Input
-                            type="time"
-                            value={workHours.morning_start}
-                            onChange={(e) => handleWorkHourChange('morning_start', e.target.value)}
-                          />
-                        </div>
-                        <span className="text-zinc-600 mt-6">→</span>
-                        <div className="flex-1">
-                          <label className="block text-xs text-zinc-500 mb-1">Fin</label>
-                          <Input
-                            type="time"
-                            value={workHours.morning_end}
-                            onChange={(e) => handleWorkHourChange('morning_end', e.target.value)}
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Afternoon */}
-                    <div className="space-y-2 p-3 rounded-lg bg-zinc-900/30 border border-zinc-800/50">
-                      <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Turno Tarde</p>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1">
-                          <label className="block text-xs text-zinc-500 mb-1">Inicio</label>
-                          <Input
-                            type="time"
-                            value={workHours.afternoon_start}
-                            onChange={(e) => handleWorkHourChange('afternoon_start', e.target.value)}
-                          />
-                        </div>
-                        <span className="text-zinc-600 mt-6">→</span>
-                        <div className="flex-1">
-                          <label className="block text-xs text-zinc-500 mb-1">Fin</label>
-                          <Input
-                            type="time"
-                            value={workHours.afternoon_end}
-                            onChange={(e) => handleWorkHourChange('afternoon_end', e.target.value)}
-                          />
-                        </div>
-                      </div>
-                    </div>
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-zinc-300 text-sm font-medium flex items-center gap-2">
+                      <Clock size={16} className="text-zinc-500" />
+                      Horario de Visitas Técnicas
+                    </label>
+                    <Button type="button" variant="outline" size="sm" onClick={handleAddSchedule}>
+                      + Agregar vigencia
+                    </Button>
                   </div>
+
+                  <div className="space-y-4">
+                    {workHoursSchedules.map((schedule, index) => (
+                      <div
+                        key={index}
+                        className="space-y-3 p-3 rounded-lg bg-zinc-900/30 border border-zinc-800/50"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-1">
+                            <label className="text-xs text-zinc-400">Vigente desde</label>
+                            <Input
+                              type="date"
+                              value={schedule.effective_from}
+                              onChange={(e) => handleScheduleChange(index, 'effective_from', e.target.value)}
+                              className="max-w-[180px]"
+                            />
+                          </div>
+                          {workHoursSchedules.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveSchedule(index)}
+                              className="text-xs text-rose-400 hover:text-rose-300"
+                            >
+                              Eliminar
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {/* Morning */}
+                          <div className="space-y-2 p-3 rounded-lg bg-zinc-900/30 border border-zinc-800/50">
+                            <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Turno Mañana</p>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1">
+                                <label className="block text-xs text-zinc-500 mb-1">Inicio</label>
+                                <Input
+                                  type="time"
+                                  value={schedule.morning_start}
+                                  onChange={(e) => handleScheduleChange(index, 'morning_start', e.target.value)}
+                                />
+                              </div>
+                              <span className="text-zinc-600 mt-6">→</span>
+                              <div className="flex-1">
+                                <label className="block text-xs text-zinc-500 mb-1">Fin</label>
+                                <Input
+                                  type="time"
+                                  value={schedule.morning_end}
+                                  onChange={(e) => handleScheduleChange(index, 'morning_end', e.target.value)}
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Afternoon */}
+                          <div className="space-y-2 p-3 rounded-lg bg-zinc-900/30 border border-zinc-800/50">
+                            <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Turno Tarde</p>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1">
+                                <label className="block text-xs text-zinc-500 mb-1">Inicio</label>
+                                <Input
+                                  type="time"
+                                  value={schedule.afternoon_start}
+                                  onChange={(e) => handleScheduleChange(index, 'afternoon_start', e.target.value)}
+                                />
+                              </div>
+                              <span className="text-zinc-600 mt-6">→</span>
+                              <div className="flex-1">
+                                <label className="block text-xs text-zinc-500 mb-1">Fin</label>
+                                <Input
+                                  type="time"
+                                  value={schedule.afternoon_end}
+                                  onChange={(e) => handleScheduleChange(index, 'afternoon_end', e.target.value)}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
                   <p className="text-zinc-500 text-xs mt-3">
-                    Define el horario de visitas técnicas. Este horario determina cómo se separan los turnos mañana/tarde en la grilla de coordinación.
+                    Cada vigencia aplica desde su fecha en adelante, hasta la vigencia siguiente. Esto permite cambiar el horario sin alterar las planificaciones de días anteriores.
                   </p>
                 </div>
 
